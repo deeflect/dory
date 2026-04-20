@@ -27,6 +27,7 @@ ActiveMemoryProfile = Literal["auto", "general", "coding", "writing", "privacy",
 ResearchKind = Literal["report", "briefing", "wiki-note", "proposal"]
 ResearchCorpus = Literal["durable", "sessions", "all"]
 SessionStatus = Literal["active", "interrupted", "done"]
+ResearchPublishVisibility = Literal["internal", "public", "private"]
 
 _DEFAULT_BASE_URL = "http://127.0.0.1:8766"
 _DEFAULT_HERMES_HOME = Path.home() / ".hermes"
@@ -391,6 +392,20 @@ class DoryMemoryProvider(MemoryProvider):
                         corpus=_as_optional_research_corpus(args.get("corpus")) or "all",
                         limit=_as_optional_int(args.get("limit")),
                         save=_as_optional_bool(args.get("save"), default=True),
+                    ),
+                    sort_keys=True,
+                )
+            if tool_name == "dory_publish_research":
+                return json.dumps(
+                    self.publish_research(
+                        title=_require_string(args, "title"),
+                        body=_require_string(args, "body"),
+                        question=_as_optional_string(args.get("question")),
+                        sources=_as_optional_string_list(args.get("sources")),
+                        tags=_as_optional_string_list(args.get("tags")),
+                        target=_as_optional_string(args.get("target")),
+                        dry_run=_as_optional_bool(args.get("dry_run"), default=True),
+                        visibility=_as_optional_research_publish_visibility(args.get("visibility")) or "internal",
                     ),
                     sort_keys=True,
                 )
@@ -766,6 +781,51 @@ class DoryMemoryProvider(MemoryProvider):
             payload["save"] = save
         return self._request("POST", "/v1/research", json=payload)
 
+    def publish_research(
+        self,
+        *,
+        title: str,
+        body: str,
+        question: str | None = None,
+        sources: list[str] | None = None,
+        tags: list[str] | None = None,
+        target: str | None = None,
+        dry_run: bool | None = True,
+        visibility: ResearchPublishVisibility = "internal",
+    ) -> dict[str, Any]:
+        clean_title = title.strip()
+        clean_body = body.strip()
+        if not clean_title:
+            raise ValueError("publish_research requires a non-empty title")
+        if not clean_body:
+            raise ValueError("publish_research requires a non-empty body")
+        timestamp = datetime.now(timezone.utc)
+        target_path = target or f"knowledge/research/{timestamp:%Y-%m-%d-%H%M%S}-{_slugify(clean_title)}.md"
+        return self.write(
+            kind="create",
+            target=target_path,
+            content=_render_research_knowledge_note(
+                title=clean_title,
+                body=clean_body,
+                question=question,
+                sources=sources or [],
+            ),
+            dry_run=True if dry_run is None else dry_run,
+            frontmatter={
+                "title": clean_title,
+                "type": "knowledge",
+                "status": "done",
+                "source_kind": "research",
+                "temperature": "warm",
+                "visibility": visibility,
+                "sensitivity": "none",
+                "tags": tags or ["research", "hermes"],
+            },
+            agent=self._runtime_agent,
+            session_id=self._session_id or None,
+            reason="publish Hermes research to Dory knowledge",
+        )
+
     def link(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/v1/link", json=payload)
 
@@ -1113,6 +1173,24 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     "save": {"type": "boolean"},
                 },
                 "required": ["question"],
+            },
+        },
+        {
+            "name": "dory_publish_research",
+            "description": "Publish externally produced Hermes research Markdown into Dory knowledge via /v1/write. Defaults to dry_run=true; set dry_run=false to create and incrementally index knowledge/research/<timestamp>-<title>.md.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "body": {"type": "string"},
+                    "question": {"type": "string"},
+                    "sources": {"type": "array", "items": {"type": "string"}},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                    "target": {"type": "string"},
+                    "dry_run": {"type": "boolean", "default": True},
+                    "visibility": {"type": "string", "enum": ["internal", "public", "private"], "default": "internal"},
+                },
+                "required": ["title", "body"],
             },
         },
         {
@@ -1477,6 +1555,22 @@ def _as_optional_mapping(value: Any) -> dict[str, Any] | None:
     raise TypeError("value must be an object")
 
 
+def _as_optional_string_list(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        item = value.strip()
+        return [item] if item else []
+    if not isinstance(value, list):
+        raise TypeError("value must be an array of strings")
+    items: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text:
+            items.append(text)
+    return items
+
+
 def _as_optional_search_mode(value: Any) -> SearchMode | None:
     string_value = _as_optional_string(value)
     if string_value is None:
@@ -1522,6 +1616,15 @@ def _as_optional_research_corpus(value: Any) -> ResearchCorpus | None:
     return None
 
 
+def _as_optional_research_publish_visibility(value: Any) -> ResearchPublishVisibility | None:
+    string_value = _as_optional_string(value)
+    if string_value is None:
+        return None
+    if string_value in {"internal", "public", "private"}:
+        return string_value
+    return None
+
+
 def _as_optional_search_corpus(value: Any) -> SearchCorpus | None:
     string_value = _as_optional_string(value)
     if string_value is None:
@@ -1551,6 +1654,24 @@ def _map_builtin_memory_action(action: str) -> Literal["write", "replace", "forg
 def _format_builtin_memory_mirror(*, action: str, target: str, content: str) -> str:
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     return f"[{timestamp}] action={action} target={target}\n{content.strip()}\n"
+
+
+def _render_research_knowledge_note(
+    *,
+    title: str,
+    body: str,
+    question: str | None,
+    sources: list[str],
+) -> str:
+    lines = [f"# {title}", ""]
+    if question and question.strip():
+        lines.extend(["## Question", question.strip(), ""])
+    lines.extend(["## Research", body.strip(), "", "## Sources"])
+    cleaned_sources = [source.strip() for source in sources if source.strip()]
+    lines.extend(f"- {source}" for source in cleaned_sources)
+    if not cleaned_sources:
+        lines.append("- None")
+    return "\n".join(lines).strip() + "\n"
 
 
 def _slugify(value: str) -> str:

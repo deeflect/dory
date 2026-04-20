@@ -40,19 +40,19 @@ Implemented surfaces that are still implicated by the reports:
 
 These are not "done" verdicts. They mean the field/endpoint/guard exists in current code, so the fix should target behavior, ranking policy, schema fidelity, docs, or corpus hygiene instead of re-adding the same surface.
 
-- `SearchResult` includes `score_normalized`, `rank_score`, `evidence_class`, and `confidence` in [src/dory_core/types.py](/Volumes/dee/Coding/Projects/palace/src/dory_core/types.py).
-- Search suppresses retired/quarantine docs and dedupes multiple chunks from the same path in [src/dory_core/search.py](/Volumes/dee/Coding/Projects/palace/src/dory_core/search.py).
+- `SearchResult` includes `score_normalized`, `rank_score`, `evidence_class`, and `confidence` in [src/dory_core/types.py](src/dory_core/types.py).
+- Search suppresses retired/quarantine docs and dedupes multiple chunks from the same path in [src/dory_core/search.py](src/dory_core/search.py).
 - Exact search exists and is tested for cleanup markers.
 - Privacy queries have an initial canonical-boundary prior, but live benchmarks show it is not strong enough against sessions and raw logs.
 - Semantic memory writes expose `dry_run`, `force_inbox`, and `allow_canonical`, and canonical routing is guarded.
-- `active_memory` supports `include_wake=false` and profile policies in [src/dory_core/active_memory.py](/Volumes/dee/Coding/Projects/palace/src/dory_core/active_memory.py).
+- `active_memory` supports `include_wake=false` and profile policies in [src/dory_core/active_memory.py](src/dory_core/active_memory.py).
 - Hermes tool schema already exposes `dory_write.kind` enum, but native MCP schema does not.
 - Hermes README already mentions `on_session_end` and `on_memory_write`; older benchmark note may be stale.
 
 Local uncommitted changes unrelated to this plan:
 
-- [docker-compose.yml](/Volumes/dee/Coding/Projects/palace/docker-compose.yml)
-- [.env.example](/Volumes/dee/Coding/Projects/palace/.env.example)
+- [docker-compose.yml](docker-compose.yml)
+- [.env.example](.env.example)
 
 ## Issue Register
 
@@ -68,7 +68,7 @@ Reports:
 
 Root cause hypothesis:
 
-- Durable search and session-plane search are merged by `_merge_with_session_results` in [src/dory_core/search.py](/Volumes/dee/Coding/Projects/palace/src/dory_core/search.py). The merge score uses position plus exact coverage, but no meaningful source penalty/bonus. Session fallback also deliberately injects a session if one is close to the cutoff.
+- Durable search and session-plane search are merged by `_merge_with_session_results` in [src/dory_core/search.py](src/dory_core/search.py). The merge score uses position plus exact coverage, but no meaningful source penalty/bonus. Session fallback also deliberately injects a session if one is close to the cutoff.
 - Session results get normalized rank scores after merge, so clients see session rows as equally authoritative unless they inspect `evidence_class`.
 
 Fix plan:
@@ -201,8 +201,8 @@ Reports:
 
 Root cause:
 
-- [src/dory_mcp/tools.py](/Volumes/dee/Coding/Projects/palace/src/dory_mcp/tools.py) defines `dory_write.kind` as plain string, while [src/dory_core/types.py](/Volumes/dee/Coding/Projects/palace/src/dory_core/types.py) enforces `append|create|replace|forget`.
-- [src/dory_core/write.py](/Volumes/dee/Coding/Projects/palace/src/dory_core/write.py) requires `frontmatter.title` and `frontmatter.type` for new files and routes/validates path by frontmatter type via `resolve_write_target`.
+- [src/dory_mcp/tools.py](src/dory_mcp/tools.py) defines `dory_write.kind` as plain string, while [src/dory_core/types.py](src/dory_core/types.py) enforces `append|create|replace|forget`.
+- [src/dory_core/write.py](src/dory_core/write.py) requires `frontmatter.title` and `frontmatter.type` for new files and routes/validates path by frontmatter type via `resolve_write_target`.
 
 Fix plan:
 
@@ -211,7 +211,7 @@ Fix plan:
   - description: create/append to new file requires `frontmatter.title` and `frontmatter.type`
   - describe common path/type pairing: `inbox/**` should use `type: capture`; `references/notes/**` should use `type: note`
   - mention replace/forget require `expected_hash`; forget also requires `reason`.
-- Add tests in [tests/integration/mcp/test_tool_schema.py](/Volumes/dee/Coding/Projects/palace/tests/integration/mcp/test_tool_schema.py).
+- Add tests in [tests/integration/mcp/test_tool_schema.py](tests/integration/mcp/test_tool_schema.py).
 - Consider a follow-up API improvement: route by path alone for exact-path writes and only warn on type mismatch. For now, schema/docs should match the current validator.
 
 Acceptance tests:
@@ -309,7 +309,7 @@ Reports:
 
 Root cause:
 
-- [plugins/hermes-dory/provider.py](/Volumes/dee/Coding/Projects/palace/plugins/hermes-dory/provider.py) appends every non-user built-in memory write to one fixed file.
+- [plugins/hermes-dory/provider.py](plugins/hermes-dory/provider.py) appends every non-user built-in memory write to one fixed file.
 
 Fix plan:
 
@@ -409,7 +409,7 @@ Reports:
 
 Current repo reality:
 
-- Source exists locally under [packages/openclaw-dory](/Volumes/dee/Coding/Projects/palace/packages/openclaw-dory).
+- Source exists locally under [packages/openclaw-dory](packages/openclaw-dory).
 - Local build/tests previously passed.
 
 Fix plan:

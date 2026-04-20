@@ -186,6 +186,8 @@ Provider methods:
 - `get`
 - `write`
 - `memory_write`
+- `research`
+- `publish_research`
 - `link`
 - `status`
 - `prefetch`
@@ -206,6 +208,7 @@ Known issues:
 - When no external client is provided, the provider keeps a reusable owned `httpx.Client`.
 - `RuntimeError` is raised on HTTP errors instead of a domain-specific exception.
 - Hermes parity tests now assert semantic artifact creation on `memory_write(write|forget)` in `tests/integration/http/test_hermes_shim_contract.py`.
+- `publish_research` is a Hermes convenience wrapper around HTTP `POST /v1/write`; it creates `knowledge/research/<timestamp>-<title>.md` with `type: knowledge` and `source_kind: research`, defaults to dry-run, and Dory incrementally indexes the file on live writes.
 
 ## OpenClaw integration
 

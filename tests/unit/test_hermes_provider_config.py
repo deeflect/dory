@@ -185,7 +185,7 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     provider = module.DoryMemoryProvider(base_url="http://dory.local:8766")
     schemas = {schema["name"]: schema for schema in provider.get_tool_schemas()}
 
-    assert {"dory_research", "dory_purge"} <= set(schemas)
+    assert {"dory_research", "dory_publish_research", "dory_purge"} <= set(schemas)
     assert "exact" in schemas["dory_search"]["parameters"]["properties"]["mode"]["enum"]
     assert "text" in schemas["dory_search"]["parameters"]["properties"]["mode"]["enum"]
     assert schemas["dory_search"]["parameters"]["properties"]["corpus"]["enum"] == ["durable", "sessions", "all"]
@@ -209,6 +209,76 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     assert schemas["dory_link"]["parameters"]["properties"]["max_edges"]["default"] == 40
     assert "exclude_prefixes" in schemas["dory_link"]["parameters"]["properties"]
     assert schemas["dory_purge"]["parameters"]["properties"]["dry_run"]["default"] is True
+    assert schemas["dory_publish_research"]["parameters"]["properties"]["dry_run"]["default"] is True
+    assert schemas["dory_publish_research"]["parameters"]["properties"]["visibility"]["enum"] == [
+        "internal",
+        "public",
+        "private",
+    ]
+
+
+def test_hermes_publish_research_writes_knowledge_markdown_dry_run_by_default() -> None:
+    module = _load_provider_module()
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {
+                "path": "knowledge/research/2026-04-20-agent-memory.md",
+                "action": "would_create",
+                "bytes_written": 42,
+                "hash": "sha256:abc",
+                "indexed": False,
+                "edges_added": 0,
+            }
+
+    class _FakeClient:
+        def request(self, method: str, path: str, **kwargs):
+            captured["method"] = method
+            captured["path"] = path
+            captured["json"] = kwargs.get("json")
+            return _FakeResponse()
+
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766", client=_FakeClient())
+
+    payload = json.loads(
+        provider.handle_tool_call(
+            "dory_publish_research",
+            {
+                "title": "Agent Memory",
+                "question": "What works?",
+                "body": "Markdown research body.",
+                "sources": ["https://example.test/paper"],
+                "tags": ["memory", "agents"],
+                "target": "knowledge/research/2026-04-20-agent-memory.md",
+            },
+        )
+    )
+
+    assert payload["action"] == "would_create"
+    assert captured["method"] == "POST"
+    assert captured["path"] == "/v1/write"
+    request = captured["json"]
+    assert isinstance(request, dict)
+    assert request["kind"] == "create"
+    assert request["target"] == "knowledge/research/2026-04-20-agent-memory.md"
+    assert request["dry_run"] is True
+    assert request["frontmatter"] == {
+        "title": "Agent Memory",
+        "type": "knowledge",
+        "status": "done",
+        "source_kind": "research",
+        "temperature": "warm",
+        "visibility": "internal",
+        "sensitivity": "none",
+        "tags": ["memory", "agents"],
+    }
+    assert "## Question\nWhat works?" in request["content"]
+    assert "## Research\nMarkdown research body." in request["content"]
+    assert "- https://example.test/paper" in request["content"]
 
 
 def test_hermes_provider_tool_errors_are_structured() -> None:

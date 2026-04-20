@@ -11,6 +11,7 @@ Current state:
 - semantic `memory_write(...)` for first-class remember/update/forget actions
 - exact-path `write(...)` for controlled file writes, hash-guarded replaces, and dry-run previews
 - `research(...)` and guarded `purge(...)` support for the finalized Dory HTTP/MCP surface
+- `publish_research(...)` / `dory_publish_research` for sending externally produced Hermes research Markdown into Dory knowledge
 - structured tool errors with `error_type` and HTTP `status_code` when Dory rejects a request
 
 Recommended model:
@@ -85,8 +86,25 @@ Write safety notes:
 - `memory_write` supports `dry_run`, `force_inbox`, and `allow_canonical`
 - semantic memory-write actions are `write`, `replace`, and `forget`; legacy built-in Hermes `add`/`remove` hooks are normalized before they hit Dory
 - `write` is the safer exact-path API when the target path is known; use `dry_run` and `expected_hash` for replace/forget flows
+- `dory_publish_research` wraps `write` for research captures: it creates `knowledge/research/<timestamp>-<title>.md` with `type: knowledge`, `source_kind: research`, `visibility: internal`, `sensitivity: none`, and triggers Dory's incremental index on live writes
+- `dory_publish_research` defaults to `dry_run: true`; set `dry_run: false` only after reviewing the target/path/frontmatter preview
 - `purge` defaults to dry-run and live purge requires an explicit reason plus the right guard flags
 - Hermes built-in memory events mirror to `inbox/hermes-memory-mirror/YYYY-MM-DD.md`, not one unbounded file
+
+Research publish example:
+
+```json
+{
+  "title": "Agent memory benchmark notes",
+  "question": "What did this benchmark show?",
+  "body": "Markdown research body here.",
+  "sources": ["https://example.test/source"],
+  "tags": ["research", "agents"],
+  "dry_run": true
+}
+```
+
+Under the hood this calls Dory HTTP `POST /v1/write`. A committed write (`dry_run: false`) writes the Markdown file and reindexes that exact path.
 
 Memory mode notes:
 
