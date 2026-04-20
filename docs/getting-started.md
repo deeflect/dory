@@ -165,13 +165,14 @@ export DORY_CLIENT_AUTH_TOKEN="$(uv run dory auth new codex)"
 ./scripts/agent-policy/install.sh
 ```
 
-The installer drops Dory rules into supported agent config files and wires the HTTP-backed MCP bridge. It's idempotent:
+The installer drops Dory rules into supported agent config files, wires the HTTP-backed MCP bridge, validates bundled Dory skills, and symlinks `skills/dory-*` into common global skill folders. It's idempotent:
 
 ```bash
 ./scripts/agent-policy/install.sh --dry-run
 ./scripts/agent-policy/install.sh --skip-claude
 ./scripts/agent-policy/install.sh --skip-codex
 ./scripts/agent-policy/install.sh --skip-opencode
+./scripts/agent-policy/install.sh --skip-skills
 ```
 
 If the host runs in Docker, use the `docker compose exec` token command from the previous section instead of `uv run dory auth new`.

@@ -8,6 +8,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 snippet_path="${script_dir}/dory-policy.md"
 bridge_path="${repo_root}/scripts/claude-code/dory-mcp-http-bridge.py"
+skills_root="${repo_root}/skills"
 
 # Client config resolution (in order):
 #   1. Environment variables
@@ -26,13 +27,15 @@ dry_run=0
 skip_claude=0
 skip_codex=0
 skip_opencode=0
+skip_skills=0
 
 usage() {
   cat <<EOF
-Usage: install.sh [--dry-run] [--skip-claude] [--skip-codex] [--skip-opencode]
+Usage: install.sh [--dry-run] [--skip-claude] [--skip-codex] [--skip-opencode] [--skip-skills]
 
 Registers the Dory MCP server and appends a policy snippet into each agent's
-global rules file. Idempotent.
+global rules file. Also symlinks bundled Dory skills into supported global
+skill directories. Idempotent.
 
 Env:
   DORY_HTTP_URL   Dory HTTP endpoint. Sourced in order: env → ~/.config/dory/env
@@ -44,13 +47,19 @@ Env:
 Files touched:
   ~/.claude.json                      mcpServers.dory
   ~/.claude/CLAUDE.md                 appended snippet
+  ~/.claude/skills/dory-*             symlinks to repo skills
   ~/.codex/config.toml                [mcp_servers.dory] block
   ~/.codex/AGENTS.md                  appended snippet
+  ~/.codex/skills/dory-*              symlinks to repo skills
   ~/.config/opencode/opencode.json    mcp.dory entry
   ~/.config/opencode/AGENTS.md        appended snippet
+  ~/.agents/skills/dory-*             symlinks to repo skills
 
 Policy snippet source:
   ${snippet_path}
+
+Skill source:
+  ${skills_root}/dory-*/SKILL.md
 EOF
 }
 
@@ -60,6 +69,7 @@ while [[ $# -gt 0 ]]; do
     --skip-claude) skip_claude=1 ;;
     --skip-codex) skip_codex=1 ;;
     --skip-opencode) skip_opencode=1 ;;
+    --skip-skills) skip_skills=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "unknown flag: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -86,6 +96,42 @@ require_file() {
 
 require_file "$snippet_path" "policy snippet"
 require_file "$bridge_path" "MCP bridge"
+
+validate_skill() {
+  local skill_file="$1"
+  python3 - "$skill_file" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+lines = text.splitlines()
+if len(lines) < 4 or lines[0] != "---":
+    raise SystemExit(f"{path}: missing YAML frontmatter delimited by ---")
+try:
+    end = lines[1:].index("---") + 1
+except ValueError as exc:
+    raise SystemExit(f"{path}: missing closing YAML frontmatter delimiter") from exc
+frontmatter = "\n".join(lines[1:end])
+if "name:" not in frontmatter or "description:" not in frontmatter:
+    raise SystemExit(f"{path}: skill frontmatter must include name and description")
+PY
+}
+
+validate_bundled_skills() {
+  local found=0
+  local skill_dir
+  for skill_dir in "$skills_root"/dory-*; do
+    [[ -d "$skill_dir" ]] || continue
+    found=1
+    require_file "$skill_dir/SKILL.md" "skill file"
+    validate_skill "$skill_dir/SKILL.md"
+  done
+  if [[ $found -eq 0 ]]; then
+    echo "missing Dory skills under $skills_root" >&2
+    exit 1
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # Append policy snippet between <!-- dory-policy:START --> / END markers.
@@ -141,6 +187,30 @@ PY
     cat "$snippet_path"
   } >> "$target"
   say "appended $label snippet to $target"
+}
+
+# ---------------------------------------------------------------------------
+# Skills: symlink repo-bundled Dory skills into common global skill roots.
+# ---------------------------------------------------------------------------
+install_skill_links() {
+  local target_root="$1" label="$2"
+  local skill_dir name target
+  if [[ $dry_run -eq 1 ]]; then
+    say "dry-run: ensure Dory skill symlinks in $target_root ($label)"
+    return
+  fi
+  mkdir -p "$target_root"
+  for skill_dir in "$skills_root"/dory-*; do
+    [[ -d "$skill_dir" ]] || continue
+    name="$(basename "$skill_dir")"
+    target="$target_root/$name"
+    if [[ -e "$target" && ! -L "$target" ]]; then
+      skip "$label skill $target exists and is not a symlink"
+      continue
+    fi
+    ln -sfn "$skill_dir" "$target"
+  done
+  say "refreshed $label Dory skill symlinks in $target_root"
 }
 
 # ---------------------------------------------------------------------------
@@ -280,18 +350,30 @@ PY
 # ---------------------------------------------------------------------------
 say "snippet source: $snippet_path"
 say "bridge path:    $bridge_path"
+say "skills source:  $skills_root"
 say "Dory HTTP URL:  $DORY_HTTP_URL"
 say "Auth token set: $( [[ -n "$DORY_CLIENT_AUTH_TOKEN" ]] && printf yes || printf no )"
 [[ $dry_run -eq 1 ]] && say "--- DRY RUN — no changes will be written ---"
 
+if [[ $skip_skills -eq 0 ]]; then
+  validate_bundled_skills
+  install_skill_links "$HOME/.agents/skills" "shared agent"
+else skip "Dory skill symlinks"; fi
+
 if [[ $skip_claude -eq 0 ]]; then
   install_snippet "$HOME/.claude/CLAUDE.md" "Claude Code rules"
   install_claude_mcp
+  if [[ $skip_skills -eq 0 ]]; then
+    install_skill_links "$HOME/.claude/skills" "Claude Code"
+  fi
 else skip "Claude Code"; fi
 
 if [[ $skip_codex -eq 0 ]]; then
   install_snippet "$HOME/.codex/AGENTS.md" "Codex rules"
   install_codex_mcp
+  if [[ $skip_skills -eq 0 ]]; then
+    install_skill_links "$HOME/.codex/skills" "Codex"
+  fi
 else skip "Codex"; fi
 
 if [[ $skip_opencode -eq 0 ]]; then

@@ -12,7 +12,7 @@ Agent-facing files live in these places:
 |---|---|---|
 | Shared agent skills | `skills/dory-*/SKILL.md` | Portable wake/search/write/maintain/dream instructions for agents that support skill folders. |
 | Shared policy snippet | `scripts/agent-policy/dory-policy.md` | The global rule block installed into Claude Code, Codex CLI, and opencode rule files. |
-| Agent installer | `scripts/agent-policy/install.sh` | Idempotently registers the HTTP-backed MCP bridge and policy snippet for Claude Code, Codex CLI, and opencode. |
+| Agent installer | `scripts/agent-policy/install.sh` | Idempotently registers the HTTP-backed MCP bridge, policy snippet, and Dory skill symlinks for Claude Code, Codex CLI, and opencode. |
 | Claude/stdio bridge | `scripts/claude-code/dory-mcp-http-bridge.py` | Stdio MCP compatibility process that forwards tools to a running Dory HTTP server. |
 | Claude example config | `scripts/claude-code/mcp.example.json` | Minimal HTTP-bridge MCP config. Replace URL/token for remote or TLS deployments. |
 | Codex helper | `scripts/codex/dory` | CLI wrapper that defaults to `data/corpus` and `.dory/index` in this repo. |
@@ -113,7 +113,9 @@ From the repo root:
 DORY_HTTP_URL=http://127.0.0.1:8766 ./scripts/agent-policy/install.sh
 ```
 
-Registers the HTTP-backed MCP bridge and inserts `scripts/agent-policy/dory-policy.md` into supported agent rule files. Idempotent. Flags: `--dry-run`, `--skip-claude`, `--skip-codex`, `--skip-opencode`.
+Registers the HTTP-backed MCP bridge, inserts `scripts/agent-policy/dory-policy.md` into supported agent rule files, validates bundled Dory skills, and symlinks `skills/dory-*` into common global skill directories. Idempotent.
+
+Skill links are installed into `~/.agents/skills`, `~/.claude/skills`, and `~/.codex/skills` when those agent sections are enabled. Flags: `--dry-run`, `--skip-claude`, `--skip-codex`, `--skip-opencode`, `--skip-skills`.
 
 OpenClaw setup lives under `packages/openclaw-dory/`. Hermes setup lives under `plugins/hermes-dory/`. They use the same HTTP daemon and bearer-token model, but they are not installed by `scripts/agent-policy/install.sh`.
 
