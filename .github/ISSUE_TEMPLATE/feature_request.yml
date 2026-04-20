@@ -1,0 +1,56 @@
+name: Feature request
+description: Suggest an improvement to Dory.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep examples synthetic. Do not include private corpus data, personal memories, tokens, or private hostnames.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or agent workflow is blocked?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should Dory do differently?
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - CLI
+        - HTTP daemon
+        - MCP server
+        - Browser wiki
+        - Search/indexing
+        - Wake/active-memory
+        - Semantic writes
+        - Docker/deployment
+        - Hermes provider
+        - OpenClaw plugin
+        - Docs
+        - Other
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Links, examples, or constraints using synthetic data.
+    validations:
+      required: false
