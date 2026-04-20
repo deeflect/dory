@@ -32,7 +32,7 @@ Historical design specs and implementation plans are kept out of the public tree
 
 ## Snapshot
 
-Last synced from implementation on `2026-04-19`.
+Last synced from implementation on `2026-04-20`.
 
 ## Known drift
 
@@ -56,9 +56,14 @@ Things the code does differently from the original spec, or caveats worth knowin
 - **Claude Code bridge** — exposes `dory_active_memory` but stays an HTTP-backed compatibility bridge, not native MCP.
 - **OpenClaw probes** — `probeEmbeddingAvailability()` / `probeVectorAvailability()` fail closed when Dory can't prove vector availability.
 - **Search warnings** — `/v1/search` can surface `warnings` when optional query expansion fails and the engine falls back.
+- **Search ranking** — default hybrid/all search now gives canonical/core/project-state evidence a source prior over sessions and generated mirrors. Session evidence remains available for explicit recall/recent-history queries and as supporting tail evidence for `corpus="all"`.
+- **Search dedup** — non-exact search collapses near-duplicate generated/wiki/source mirrors behind the canonical document before the final `k`. Exact search intentionally skips this collapse for cleanup-marker checks.
+- **Privacy metadata** — frontmatter supports `visibility: private|internal|public` and `sensitivity: personal|financial|legal|contact|credentials|health|none`. `wiki-health` reports personal/raw/imported docs missing those fields.
 - **Optional LLM retrieval** — `src/dory_core/retrieval_planner.py` can plan durable query variants and optional session queries and can reorder the final candidate set through strict-schema result selection. Planner failure falls back to deterministic search. Opt in via `DORY_QUERY_PLANNER_ENABLED=true`, `DORY_QUERY_EXPANSION_ENABLED=true`, `DORY_QUERY_RERANKER_ENABLED=true`.
-- **OpenClaw status** — still snapshot-based, but now reports `custom.statusAgeMs` and `custom.statusStale` so callers can detect staleness.
-- **Active-memory** — explicit calls always run staged retrieval instead of short-circuiting on intent heuristics. Optional LLM planning/composition picks retrieval queries and compresses a tiny sanitized evidence packet into a compact `## Active memory` section. The LLM path can use OpenRouter or an OpenAI-compatible local/LAN model via `DORY_ACTIVE_MEMORY_LLM_PROVIDER`; deterministic fallback runs the same shape without an LLM. The final block is budget-clamped and durable evidence excludes generated `wiki/` cache pages so canonical files stay ahead of compiled helper output.
+- **OpenClaw status** — still snapshot-based, but now reports `custom.statusAgeMs` and `custom.statusStale` so callers can detect staleness. Source audit should inspect `packages/openclaw-dory/`, not only a live installed plugin.
+- **Active-memory** — explicit calls always run staged retrieval instead of short-circuiting on intent heuristics. Optional LLM planning/composition picks retrieval queries and compresses a tiny sanitized evidence packet into a compact `## Active memory` section. The LLM path can use OpenRouter or an OpenAI-compatible local/LAN model via `DORY_ACTIVE_MEMORY_LLM_PROVIDER`; deterministic fallback runs the same shape without an LLM. The final block is budget-clamped, durable evidence excludes generated `wiki/` cache pages, and coding/writing profiles topic-filter wiki helper context so unrelated recent pages do not bleed into focused prompts.
+- **Link output** — `dory_link`/`neighbors` support `max_edges` and `exclude_prefixes`; responses include `total_count` and `truncated` for dense graphs.
+- **Hermes provider** — built-in memory mirroring is date-partitioned under `inbox/hermes-memory-mirror/YYYY-MM-DD.md`, and HTTP tool errors return structured `error_type`/`status_code` payloads.
 - **Compiled wiki** — bounded synthesis, but now groups evidence by claim-event type and `wiki-health` audits for missing timelines too. Dory generates a Karpathy-style shell under `wiki/`: `hot.md`, `index.md`, `log.md`. Active-memory reads the shell first when present. The shell is generated from the structured claim/wiki core — never source of truth.
 - **Wiki freshness** — `wiki-refresh-once` prefers claim-store-backed page rendering when claim history exists, and prunes orphaned pages under managed families. `wiki-health` also flags pages where current-state sections disagree with retirement-only event history, and reports `claim_mismatch`, `claim_event_mismatch`, and `claim_evidence_mismatch` when compiled pages drift from ledger truth.
 - **Migration** — corpus-level LLM entity clustering plus a bounded final LLM QA loop (audit → repair flagged pages → re-audit). Audit and repair artifacts land in `inbox/migration-runs/` and fold into the run report.

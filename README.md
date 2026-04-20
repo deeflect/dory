@@ -78,6 +78,8 @@ docker compose up -d --build
 
 Docker binds HTTP to `127.0.0.1:8766` by default. Only set `DORY_HTTP_BIND=0.0.0.0` behind a trusted LAN, VPN, reverse proxy, or firewall.
 
+Compose builds with `network: host` so dependency installs use the host resolver on private DNS setups. If runtime containers cannot resolve external hosts, set `DORY_DOCKER_DNS_SERVERS` in `.env`. Raw `GEMINI_API_KEY` / `OPENROUTER_API_KEY` values are passed through as compatibility aliases for providers that expect those names.
+
 Full walkthrough → [docs/getting-started.md](docs/getting-started.md)
 
 ## The loop
@@ -121,7 +123,7 @@ The corpus, index, auth tokens, public URL, and model provider keys are environm
 - **Storage** — Markdown source of truth · SQLite (FTS5, graph edges, embedding cache, chunk vectors, session evidence)
 - **Embeddings** — Gemini Embedding 2 (Matryoshka 768); required for the HTTP/MCP/search/write runtime today
 - **Dreaming & maintenance LLM** — Gemini 3.1 Flash via OpenRouter
-- **Active-memory LLM** — optional · OpenRouter or any OpenAI-compatible local/LAN endpoint (Ollama, LM Studio, vLLM). Off by default; deterministic retrieval still works without it
+- **Active-memory LLM** — optional · OpenRouter or any OpenAI-compatible local/LAN endpoint (Ollama, LM Studio, vLLM). The runtime default is OpenRouter when configured; `.env.example` sets it to `off` for deterministic retrieval-only installs
 - **Auth** — bearer tokens via `.dory/auth-tokens.json`; `DORY_ALLOW_NO_AUTH=true` for local dev only
 
 ## Design influences

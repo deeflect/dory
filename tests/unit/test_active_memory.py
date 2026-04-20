@@ -527,6 +527,59 @@ def test_active_memory_synthesizes_current_focus_and_evidence(tmp_path: Path) ->
     assert "- Session note: Rooster is still the active focus." in result.block
 
 
+def test_active_memory_filters_unrelated_helper_context_for_coding_prompts(tmp_path: Path) -> None:
+    (tmp_path / "wiki").mkdir(parents=True)
+    (tmp_path / "wiki" / "hot.md").write_text(
+        "---\n"
+        "title: Hot Cache\n"
+        "---\n\n"
+        "# Recent Context\n\n"
+        "## Summary\n"
+        "Marketing launch notes are recent.\n\n"
+        "## Current Focus\n"
+        "- X Growth System copy experiments.\n\n"
+        "## Recent Pages\n"
+        "- CCC writing calendar and tweet hooks.\n\n"
+        "## Active Threads\n"
+        "- Newsletter positioning and launch copy.\n",
+        encoding="utf-8",
+    )
+
+    class DorySearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            del req
+            return _make_response(
+                [
+                    _make_result(
+                        path="projects/dory/state.md",
+                        snippet="Dory Docker MCP deployment needs canonical search and active-memory fixes.",
+                        score=0.9,
+                        frontmatter={"type": "project", "status": "active", "canonical": True},
+                    )
+                ]
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=DorySearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="Fix Dory Docker MCP active memory issue",
+            agent="codex",
+            profile="coding",
+            include_wake=False,
+        )
+    )
+
+    assert "Dory Docker MCP deployment" in result.block
+    assert "X Growth System" not in result.block
+    assert "tweet hooks" not in result.block
+    assert "Newsletter positioning" not in result.block
+
+
 def test_active_memory_uses_planner_queries_and_llm_composition(tmp_path: Path) -> None:
     search_engine = _StubSearchEngine()
     engine = ActiveMemoryEngine(

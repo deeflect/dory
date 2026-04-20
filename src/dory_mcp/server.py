@@ -190,12 +190,14 @@ class RuntimeCore:
                 path,
                 direction=parsed.direction,
                 depth=parsed.depth,
+                max_edges=parsed.max_edges,
+                exclude_prefixes=parsed.exclude_prefixes,
             )
         if parsed.op == "backlinks":
             if parsed.path is None:
                 raise ValueError("link backlinks requires path")
             path = _resolve_corpus_path(self.corpus_root, parsed.path).relative_to(self.corpus_root).as_posix()
-            return service.backlinks(path)
+            return service.backlinks(path, max_edges=parsed.max_edges, exclude_prefixes=parsed.exclude_prefixes)
         if parsed.op == "lint":
             return service.lint()
         raise ValueError(f"unsupported link op: {parsed.op}")

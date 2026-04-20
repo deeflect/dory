@@ -333,6 +333,8 @@ Graph reads exposed via:
 
 in `src/dory_core/link.py`.
 
+`neighbors` and `backlinks` are bounded by `max_edges` and can filter noisy path families with `exclude_prefixes`. Responses include `count`, `total_count`, and `truncated`, so agent clients can keep dense project/core graphs small without losing the fact that more edges exist.
+
 Note: the code block regex in `link.py` (`re.compile(r"```.*?```", re.DOTALL)`) can match incorrectly across multiple fenced code blocks and doesn't handle unclosed blocks.
 
 ## Active memory flow (summary)

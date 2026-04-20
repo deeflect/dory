@@ -31,7 +31,7 @@ Top-level `dory` commands:
 - `get` — `path` (required), `--from` (default 1), `--lines/-n`
 - `status`
 - `reindex` — `--force`
-- `neighbors` — `path` (required), `--direction` (default "out"; accepts `out`, `in`, `both`), `--depth` (default 1)
+- `neighbors` — `path` (required), `--direction` (default "out"; accepts `out`, `in`, `both`), `--depth` (default 1), `--max-edges` (default 40), repeated `--exclude-prefix`
 - `backlinks` — `path` (required)
 - `lint`
 
@@ -48,6 +48,7 @@ Nested command groups:
 - `maintain`
   - `inspect` — `path` (required), `--write-report`
   - `wiki-health` — `--write-report`
+  - `backfill-privacy-metadata` — `--path` (repeatable), `--refresh`, `--apply`
 - `ops`
   - `dream-once` — `--session` (repeatable)
   - `daily-digest-once` — `--date`, `--today`, `--overwrite`, `--dry-run`, `--min-age-minutes`, `--limit`, `--reindex/--no-reindex`
@@ -128,7 +129,7 @@ Implemented MCP tools (10):
 | `dory_memory_write` | `action`, `kind`, `subject`, `content` | `scope`, `confidence`, `source`, `soft`, `dry_run`, `force_inbox`, `allow_canonical`, `agent`, `session_id`, `reason` |
 | `dory_write` | `kind`, `target` | `content`, `soft`, `dry_run`, `frontmatter`, `agent`, `session_id`, `expected_hash`, `reason` |
 | `dory_purge` | `target` | `expected_hash`, `reason`, `dry_run`, `allow_canonical`, `include_related_tombstone` |
-| `dory_link` | `op` | `path`, `direction`, `depth` |
+| `dory_link` | `op` | `path`, `direction`, `depth`, `max_edges`, `exclude_prefixes` |
 | `dory_status` | — | — |
 
 Notes:
@@ -154,7 +155,7 @@ Implemented bridge tools (10):
 | `dory_research` | HTTP-backed research call with bounded artifact options |
 | `dory_active_memory` | HTTP-backed staged active-memory call with defaults and optional `include_wake` |
 | `dory_get` | accepts native `from` and legacy `from_line`; adds defaults |
-| `dory_link` | adds `op` enum (`neighbors\|backlinks\|lint`), `direction` enum (`out\|in\|both`) |
+| `dory_link` | adds `op` enum (`neighbors\|backlinks\|lint`), `direction` enum (`out\|in\|both`), `max_edges`, and `exclude_prefixes` |
 | `dory_memory_write` | adds `kind` enum plus `dry_run`, `force_inbox`, `allow_canonical` |
 | `dory_write` | exact-path write with `dry_run` support |
 | `dory_purge` | hard-delete exact scratch/generated artifacts with dry-run/hash guards |

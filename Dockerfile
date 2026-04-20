@@ -41,8 +41,6 @@ ENV PATH="/app/.venv/bin:$PATH" \
     DORY_ROOT=/var/lib/dory \
     DORY_CORPUS_ROOT=/var/lib/dory \
     DORY_INDEX_ROOT=/var/lib/dory/.index \
-    DORY_AUTH_TOKENS_PATH=/var/lib/dory/.dory/auth-tokens.json \
-    DORY_ALLOW_NO_AUTH=false \
     DORY_HTTP_HOST=0.0.0.0 \
     DORY_HTTP_PORT=8766
 

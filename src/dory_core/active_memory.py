@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
@@ -24,6 +25,51 @@ _MAX_BLOCK_CHARS = 3200
 _MIN_BLOCK_CHARS = 700
 _PLANNER_MIN_REMAINING_MS = 1800
 _COMPOSER_MIN_REMAINING_MS = 2200
+_TOPIC_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+_TOPIC_STOPWORDS = {
+    "about",
+    "after",
+    "agent",
+    "agents",
+    "and",
+    "are",
+    "can",
+    "check",
+    "code",
+    "coding",
+    "current",
+    "debug",
+    "did",
+    "do",
+    "does",
+    "fix",
+    "for",
+    "from",
+    "how",
+    "into",
+    "issue",
+    "last",
+    "make",
+    "mcp",
+    "memory",
+    "need",
+    "now",
+    "on",
+    "project",
+    "repo",
+    "search",
+    "setup",
+    "test",
+    "the",
+    "this",
+    "today",
+    "what",
+    "when",
+    "where",
+    "with",
+    "work",
+    "working",
+}
 _PromptContext = Literal["coding", "writing", "privacy", "personal", "general"]
 _ActiveMemoryProfile = Literal["general", "coding", "writing", "privacy", "personal"]
 
@@ -69,6 +115,7 @@ class ActiveMemoryEngine:
         deadline = _Deadline.from_timeout_ms(req.timeout_ms)
         source_policy = _source_policy_for_request(req)
         helper = _load_wiki_helper_context(self.root) if source_policy.use_helper_context else _empty_wiki_helper_context()
+        helper = _topic_scoped_helper_context(helper, prompt=req.prompt, source_policy=source_policy)
         wake_block = ""
         wake_sources: list[str] = []
         if req.include_wake:
@@ -711,6 +758,56 @@ def _empty_wiki_helper_context() -> WikiHelperContext:
         active_threads=(),
         index_hints=(),
     )
+
+
+def _topic_scoped_helper_context(
+    helper: WikiHelperContext,
+    *,
+    prompt: str,
+    source_policy: SourcePolicy,
+) -> WikiHelperContext:
+    if source_policy.profile not in {"coding", "writing"}:
+        return helper
+
+    prompt_tokens = _topic_tokens(prompt)
+    if not prompt_tokens:
+        return helper
+
+    current_focus = helper.current_focus if _text_matches_topic(helper.current_focus, prompt_tokens) else ""
+    recent_pages = tuple(item for item in helper.recent_pages if _text_matches_topic(item, prompt_tokens))
+    active_threads = tuple(item for item in helper.active_threads if _text_matches_topic(item, prompt_tokens))
+    index_hints = tuple(item for item in helper.index_hints if _text_matches_topic(item, prompt_tokens))
+    if current_focus or recent_pages or active_threads or index_hints:
+        return WikiHelperContext(
+            block=helper.block,
+            sources=helper.sources,
+            current_focus=current_focus,
+            recent_pages=recent_pages,
+            active_threads=active_threads,
+            index_hints=index_hints,
+        )
+    return _empty_wiki_helper_context()
+
+
+def _topic_tokens(text: str) -> frozenset[str]:
+    return frozenset(
+        token
+        for token in (_normalize_topic_token(match.group(0)) for match in _TOPIC_TOKEN_RE.finditer(text))
+        if token and token not in _TOPIC_STOPWORDS and len(token) >= 3
+    )
+
+
+def _text_matches_topic(text: str, prompt_tokens: frozenset[str]) -> bool:
+    if not text:
+        return False
+    text_tokens = _topic_tokens(text)
+    if not text_tokens:
+        return False
+    return bool(prompt_tokens & text_tokens)
+
+
+def _normalize_topic_token(token: str) -> str:
+    return token.strip("_-").casefold()
 
 
 def _wiki_helper_summary(path: Path) -> str:

@@ -5,11 +5,14 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 import re
+from typing import Any
 
 from dory_core.claim_store import ClaimStore
 from dory_core.frontmatter import load_markdown_document
 from dory_core.fs import atomic_write_text
 from dory_core.llm.openrouter import OpenRouterClient
+
+_BACKFILL_BODY_LIMIT = 12_000
 
 _IGNORED_WIKI_META_FILES = {"index.md", "hot.md", "log.md"}
 
@@ -124,11 +127,10 @@ class MemoryHealthDashboard:
             "claim_mismatch": [],
             "claim_event_mismatch": [],
             "claim_evidence_mismatch": [],
+            "missing_privacy_metadata": [],
         }
 
         wiki_roots = [root for root in self._wiki_roots() if root.exists()]
-        if not wiki_roots:
-            return report
         claim_store = _load_claim_store(self.root)
 
         seen: set[str] = set()
@@ -165,6 +167,8 @@ class MemoryHealthDashboard:
                     report["claim_event_mismatch"].append(rel_path)
                 if claim_store is not None and _has_claim_evidence_mismatch(rel_path, document.body, claim_store):
                     report["claim_evidence_mismatch"].append(rel_path)
+                if _needs_privacy_metadata(rel_path, frontmatter):
+                    report["missing_privacy_metadata"].append(rel_path)
                 if _has_meaningful_section_items(document.body, "Contradictions"):
                     report["contradictions"].append(rel_path)
                 if _has_low_confidence_signal(document.body):
@@ -175,6 +179,7 @@ class MemoryHealthDashboard:
                 ):
                     report["open_questions"].append(rel_path)
 
+        report["missing_privacy_metadata"].extend(_privacy_metadata_paths(self.root, seen))
         return report
 
     def write_report(self) -> Path:
@@ -189,6 +194,99 @@ class MemoryHealthDashboard:
             self.root / "wiki",
             self.root / "knowledge" / "wiki",
         )
+
+
+@dataclass(frozen=True, slots=True)
+class PrivacyMetadataBackfillChange:
+    path: str
+    visibility: str
+    sensitivity: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class PrivacyMetadataBackfillResult:
+    dry_run: bool
+    changed: list[PrivacyMetadataBackfillChange]
+    skipped: list[str]
+    errors: dict[str, str]
+
+    def to_dict(self) -> dict[str, Any]:
+        sensitivity_counts: dict[str, int] = {}
+        for change in self.changed:
+            sensitivity_counts[change.sensitivity] = sensitivity_counts.get(change.sensitivity, 0) + 1
+        return {
+            "dry_run": self.dry_run,
+            "changed_count": len(self.changed),
+            "skipped_count": len(self.skipped),
+            "error_count": len(self.errors),
+            "sensitivity_counts": dict(sorted(sensitivity_counts.items())),
+            "changed": [asdict(change) for change in self.changed],
+            "skipped": self.skipped,
+            "errors": self.errors,
+        }
+
+
+class PrivacyMetadataBackfiller:
+    """Add missing privacy metadata without changing document bodies."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = Path(root)
+
+    def run(
+        self,
+        *,
+        paths: list[str] | None = None,
+        dry_run: bool = True,
+        refresh: bool = False,
+    ) -> PrivacyMetadataBackfillResult:
+        requested_paths = paths or self._missing_privacy_paths(refresh=refresh)
+        changed: list[PrivacyMetadataBackfillChange] = []
+        skipped: list[str] = []
+        errors: dict[str, str] = {}
+
+        for rel_path in sorted(dict.fromkeys(requested_paths)):
+            target = self.root / rel_path
+            try:
+                raw = target.read_text(encoding="utf-8")
+                document = load_markdown_document(raw)
+                patch = _privacy_metadata_patch(rel_path, document.frontmatter, document.body)
+                if not patch:
+                    skipped.append(rel_path)
+                    continue
+                rendered = _render_with_frontmatter_patch(raw, patch)
+                load_markdown_document(rendered)
+                changed.append(
+                    PrivacyMetadataBackfillChange(
+                        path=rel_path,
+                        visibility=str(patch["visibility"]),
+                        sensitivity=str(patch["sensitivity"]),
+                        reason=str(patch["reason"]),
+                    )
+                )
+                if not dry_run:
+                    atomic_write_text(target, rendered, encoding="utf-8")
+            except (OSError, ValueError) as err:
+                errors[rel_path] = str(err)
+
+        return PrivacyMetadataBackfillResult(
+            dry_run=dry_run,
+            changed=changed,
+            skipped=skipped,
+            errors=errors,
+        )
+
+    def _missing_privacy_paths(self, *, refresh: bool) -> list[str]:
+        report_path = self.root / "inbox" / "maintenance" / "wiki-health.json"
+        if not refresh and report_path.exists():
+            try:
+                payload = json.loads(report_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+            paths = payload.get("missing_privacy_metadata")
+            if isinstance(paths, list):
+                return [str(path) for path in paths if isinstance(path, str) and path.strip()]
+        return MemoryHealthDashboard(self.root).inspect()["missing_privacy_metadata"]
 
 
 def _optional_string(value: object) -> str | None:
@@ -329,6 +427,145 @@ def _has_claim_evidence_mismatch(rel_path: str, body: str, claim_store: ClaimSto
     if not page_paths:
         return True
     return not expected_paths.issubset(page_paths)
+
+
+def _needs_privacy_metadata(rel_path: str, frontmatter: dict[str, object]) -> bool:
+    if "visibility" in frontmatter and "sensitivity" in frontmatter:
+        return False
+    lowered_path = rel_path.lower()
+    if lowered_path.startswith(("knowledge/personal", "people/")):
+        return True
+    status = str(frontmatter.get("status", "")).strip().lower()
+    source_kind = str(frontmatter.get("source_kind", "")).strip().lower()
+    doc_type = str(frontmatter.get("type", "")).strip().lower()
+    return status == "raw" or (source_kind in {"imported", "legacy"} and doc_type in {"knowledge", "source", "capture"})
+
+
+def _privacy_metadata_patch(rel_path: str, frontmatter: dict[str, object], body: str) -> dict[str, str]:
+    if "visibility" in frontmatter and "sensitivity" in frontmatter:
+        return {}
+    sensitivity, visibility, reason = _infer_privacy_metadata(rel_path, frontmatter, body)
+    return {
+        "visibility": str(frontmatter.get("visibility") or visibility),
+        "sensitivity": str(frontmatter.get("sensitivity") or sensitivity),
+        "reason": reason,
+    }
+
+
+def _infer_privacy_metadata(
+    rel_path: str,
+    frontmatter: dict[str, object],
+    body: str,
+) -> tuple[str, str, str]:
+    haystack = _privacy_haystack(rel_path, frontmatter, body)
+    path = rel_path.lower()
+
+    rules: tuple[tuple[str, tuple[str, ...], str], ...] = (
+        (
+            "credentials",
+            (
+                "api key",
+                "auth token",
+                "bearer token",
+                "credential",
+                "oauth",
+                "password",
+                "private key",
+                "secret",
+                "ssh key",
+            ),
+            "contains credentials/config/access-control signals",
+        ),
+        (
+            "financial",
+            ("burnrate", "crypto", "finance", "financial", "income", "money", "revenue", "runway", "wallet"),
+            "contains financial/business-money signals",
+        ),
+        (
+            "health",
+            ("adhd", "fitness", "gym", "health", "medical", "routine", "sleep"),
+            "contains health or wellbeing signals",
+        ),
+        (
+            "legal",
+            ("legal", "paperwork", "residency", "visa"),
+            "contains legal/residency-status signals",
+        ),
+        (
+            "contact",
+            ("contact", "email", "phone", "telegram"),
+            "contains contact or messaging signals",
+        ),
+    )
+    for sensitivity, needles, reason in rules:
+        if any(needle in haystack for needle in needles):
+            return sensitivity, "private", reason
+
+    if path.startswith(("knowledge/personal", "knowledge/personal-db", "people/", "logs/", "archive/sessions/")):
+        return "personal", "private", "path is personal, people, log, or session memory"
+    if path.startswith(("archive/daily/", "inbox/", "ideas/")):
+        return "personal", "private", "path is raw/distilled personal working memory"
+    return "none", "internal", "no specific sensitivity signal; internal visibility is conservative for imported/raw material"
+
+
+def _privacy_haystack(rel_path: str, frontmatter: dict[str, object], body: str) -> str:
+    fragments = [
+        rel_path,
+        json.dumps(frontmatter, sort_keys=True, ensure_ascii=True),
+        body[:_BACKFILL_BODY_LIMIT],
+    ]
+    return "\n".join(fragments).lower()
+
+
+def _render_with_frontmatter_patch(raw: str, patch: dict[str, str]) -> str:
+    lines = raw.splitlines(keepends=True)
+    closing_index = _frontmatter_closing_index(lines)
+    if closing_index is None:
+        raise ValueError("markdown document has an unterminated frontmatter block")
+
+    existing_keys = _frontmatter_keys(lines[1:closing_index])
+    insertions: list[str] = []
+    for key in ("visibility", "sensitivity"):
+        if key not in existing_keys and key in patch:
+            insertions.append(f"{key}: {patch[key]}\n")
+    if not insertions:
+        return raw
+    return "".join(lines[:closing_index] + insertions + lines[closing_index:])
+
+
+def _frontmatter_closing_index(lines: list[str]) -> int | None:
+    if not lines or lines[0].strip() != "---":
+        raise ValueError("markdown document is missing frontmatter")
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return index
+    return None
+
+
+def _frontmatter_keys(lines: list[str]) -> set[str]:
+    keys: set[str] = set()
+    for line in lines:
+        if line[:1].isspace() or ":" not in line:
+            continue
+        key = line.split(":", 1)[0].strip()
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _privacy_metadata_paths(root: Path, already_seen: set[str]) -> list[str]:
+    paths: list[str] = []
+    for path in sorted(root.rglob("*.md")):
+        rel_path = path.relative_to(root).as_posix()
+        if rel_path in already_seen or rel_path.startswith((".git/", ".dory/")):
+            continue
+        try:
+            document = load_markdown_document(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if _needs_privacy_metadata(rel_path, document.frontmatter):
+            paths.append(rel_path)
+    return paths
 
 
 def _extract_section(body: str, heading: str) -> str:

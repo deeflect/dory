@@ -133,6 +133,7 @@ CLI commands:
 
 - `dory maintain inspect` — `path` (required), `--write-report`
 - `dory maintain wiki-health` — `--write-report`
+- `dory maintain backfill-privacy-metadata` — `--path` (repeatable), `--refresh`, `--apply`
 - `dory ops maintain-once` — `--path` (repeatable)
 
 Behavior:
@@ -140,6 +141,10 @@ Behavior:
 - `inspect` asks OpenRouter for cleanup suggestions on metadata and placement.
 - Reports written under `inbox/maintenance/`.
 - `wiki-health` scans generated wiki pages for stale pages, contradictions, low confidence, open questions, missing evidence, and missing timelines.
+- Privacy metadata convention:
+  - `visibility`: `private | internal | public`
+  - `sensitivity`: `personal | financial | legal | contact | credentials | health | none`
+  - personal/raw/imported docs should carry both fields so agents and maintenance reports can distinguish boundary rules from raw sensitive evidence.
 - Stale-page detection covers both explicit `status: stale|superseded` markers and age-based expiry from frontmatter `updated`.
 - `wiki-health` accepts both claim-style and canonical current-state sections when checking evidence coverage.
 - Only concrete evidence refs count as coverage; placeholder labels like `Derived from claim store` don't count.
@@ -148,6 +153,8 @@ Behavior:
 - Flags `state_conflict` when a page still presents live current-state claims but its event model only shows retirement/invalidation.
 - Flags `claim_mismatch` when a compiled page's current-state section disagrees with active claims in `.dory/claim-store.db`.
 - Flags `claim_event_mismatch` and `claim_evidence_mismatch` when the page's rendered event types or evidence paths drift from the claim-event ledger.
+- Flags `missing_privacy_metadata` for personal/raw/imported docs without `visibility` and `sensitivity`.
+- `backfill-privacy-metadata` uses the latest `inbox/maintenance/wiki-health.json` by default, dry-runs unless `--apply` is passed, and only inserts missing `visibility` / `sensitivity` frontmatter fields.
 - `maintain-once` runs the inspector across canonical defaults.
 
 ## Compiled wiki

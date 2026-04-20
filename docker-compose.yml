@@ -1,6 +1,11 @@
 services:
   doryd:
-    build: .
+    build:
+      context: .
+      # Some private-host/router DNS setups resolve on the host but not inside
+      # Docker's default build bridge. Build with host networking so dependency
+      # install steps use the same resolver as the daemon host.
+      network: host
     container_name: doryd
     restart: unless-stopped
     environment:
@@ -10,14 +15,23 @@ services:
       DORY_AUTH_TOKENS_PATH: /var/lib/dory/.dory/auth-tokens.json
       DORY_ALLOW_NO_AUTH: ${DORY_ALLOW_NO_AUTH:-false}
       DORY_WEB_PASSWORD: ${DORY_WEB_PASSWORD:-}
-      DORY_GEMINI_API_KEY: ${DORY_GEMINI_API_KEY:-}
+      DORY_GEMINI_API_KEY: ${DORY_GEMINI_API_KEY:-${GOOGLE_API_KEY:-${GEMINI_API_KEY:-}}}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
-      DORY_OPENROUTER_API_KEY: ${DORY_OPENROUTER_API_KEY:-}
+      DORY_OPENROUTER_API_KEY: ${DORY_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DORY_ACTIVE_MEMORY_LLM_PROVIDER: ${DORY_ACTIVE_MEMORY_LLM_PROVIDER:-}
+      DORY_ACTIVE_MEMORY_LLM_STAGES: ${DORY_ACTIVE_MEMORY_LLM_STAGES:-}
+      DORY_LOCAL_LLM_BASE_URL: ${DORY_LOCAL_LLM_BASE_URL:-}
+      DORY_LOCAL_LLM_MODEL: ${DORY_LOCAL_LLM_MODEL:-}
+      DORY_LOCAL_LLM_TIMEOUT_SECONDS: ${DORY_LOCAL_LLM_TIMEOUT_SECONDS:-}
+      DORY_LOCAL_LLM_API_KEY: ${DORY_LOCAL_LLM_API_KEY:-}
+      DORY_LOCAL_LLM_MAX_TOKENS: ${DORY_LOCAL_LLM_MAX_TOKENS:-}
       DORY_HTTP_HOST: 0.0.0.0
       DORY_HTTP_PORT: 8766
     ports:
       - "${DORY_HTTP_BIND:-127.0.0.1}:${DORY_HTTP_PORT:-8766}:8766"
+    dns: ${DORY_DOCKER_DNS_SERVERS:-}
     volumes:
       - ${DORY_DATA_ROOT:-./data/corpus}:/var/lib/dory
     healthcheck:

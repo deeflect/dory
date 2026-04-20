@@ -2,6 +2,9 @@ base_url: http://127.0.0.1:8766
 token: ""
 default_agent: hermes
 memory_mode: hybrid
+# hybrid = prefetch context + tools
+# context = prefetch context only
+# tools = tools only; no automatic context injection
 wake_budget_tokens: 600
 wake_profile: coding
 wake_recent_sessions: 5

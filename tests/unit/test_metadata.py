@@ -102,6 +102,33 @@ def test_idea_type_defaults() -> None:
     assert normalized["source_kind"] == "human"
 
 
+def test_normalize_frontmatter_validates_privacy_metadata() -> None:
+    normalized = normalize_frontmatter(
+        {
+            "title": "Private note",
+            "type": "knowledge",
+            "visibility": "PRIVATE",
+            "sensitivity": "Legal",
+        },
+        target=Path("knowledge/personal/private-note.md"),
+    )
+
+    assert normalized["visibility"] == "private"
+    assert normalized["sensitivity"] == "legal"
+
+
+def test_normalize_frontmatter_rejects_invalid_privacy_metadata() -> None:
+    with pytest.raises(DoryValidationError):
+        normalize_frontmatter(
+            {
+                "title": "Private note",
+                "type": "knowledge",
+                "visibility": "friends-only",
+            },
+            target=Path("knowledge/personal/private-note.md"),
+        )
+
+
 def test_polluted_type_value_with_comment_sanitizes() -> None:
     assert normalize_doc_type("product  # product, content, infra") == "project"
 

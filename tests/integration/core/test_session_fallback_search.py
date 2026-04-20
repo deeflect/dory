@@ -32,7 +32,7 @@ def test_recall_mode_uses_session_plane_only(
     assert all(result.path.startswith("logs/sessions/") for result in response.results)
 
 
-def test_hybrid_search_falls_back_to_session_plane_when_durable_is_weak(
+def test_hybrid_search_falls_back_to_session_plane_for_recent_work_queries(
     tmp_path: Path,
     sample_corpus_root: Path,
     fake_embedder,
@@ -50,6 +50,58 @@ def test_hybrid_search_falls_back_to_session_plane_when_durable_is_weak(
     )
 
     engine = SearchEngine(index_root, fake_embedder)
-    response = engine.search(SearchReq(query="Rooster active focus", mode="hybrid", k=5))
+    response = engine.search(SearchReq(query="recent Rooster active focus session", mode="hybrid", k=5))
 
     assert any(result.path.startswith("logs/sessions/") for result in response.results)
+
+
+def test_hybrid_all_demotes_sessions_for_generic_project_queries(tmp_path: Path, fake_embedder) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / "index"
+    (corpus_root / "core").mkdir(parents=True)
+    (corpus_root / "projects" / "dory").mkdir(parents=True)
+    (corpus_root / "core" / "env.md").write_text(
+        """---
+title: Environment
+type: core
+status: active
+canonical: true
+source_kind: canonical
+---
+
+Dory Docker deployment runs behind the local HTTPS gateway.
+""",
+        encoding="utf-8",
+    )
+    (corpus_root / "projects" / "dory" / "state.md").write_text(
+        """---
+title: Dory
+type: project
+status: active
+canonical: true
+source_kind: canonical
+---
+
+Dory Docker MCP deployment work is tracked here.
+""",
+        encoding="utf-8",
+    )
+    reindex_corpus(corpus_root, index_root, fake_embedder)
+    SessionEvidencePlane(index_root / "session_plane.db").upsert_session_chunk(
+        path="logs/sessions/codex/mac/2026-04-20-dory-docker.md",
+        content="Dory Docker MCP deployment benchmark transcript with the exact same terms.",
+        updated="2026-04-20T10:00:00Z",
+        agent="codex",
+        device="mac",
+        session_id="dory-docker",
+        status="done",
+    )
+
+    engine = SearchEngine(index_root, fake_embedder)
+    response = engine.search(SearchReq(query="Dory Docker MCP deployment", mode="hybrid", corpus="all", k=5))
+
+    assert response.results
+    assert response.results[0].path in {"core/env.md", "projects/dory/state.md"}
+    assert response.results[0].evidence_class == "canonical"
+    assert any(result.path.startswith("logs/sessions/") for result in response.results)
+    assert not response.results[0].path.startswith("logs/sessions/")

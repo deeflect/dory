@@ -6,6 +6,7 @@ import sqlite3
 
 from dory_core.index.reindex import reindex_corpus
 from dory_core.search import SearchEngine
+from dory_core.session_plane import SessionEvidencePlane
 from dory_core.types import SearchReq, SearchScope
 
 
@@ -257,6 +258,45 @@ Raw sensitive category alpha and beta details. Use privacy boundaries before rep
     assert response.results[0].evidence_class == "canonical"
 
 
+def test_privacy_queries_prefer_boundaries_over_session_logs(tmp_path: Path, fake_embedder) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    (corpus_root / "core").mkdir(parents=True)
+    (corpus_root / "core" / "user.md").write_text(
+        """---
+title: User
+type: core
+status: active
+canonical: true
+source_kind: canonical
+---
+
+Private boundaries: legal status details and financial specifics stay private.
+""",
+        encoding="utf-8",
+    )
+    reindex_corpus(corpus_root, index_root, fake_embedder)
+    SessionEvidencePlane(index_root / "session_plane.db").upsert_session_chunk(
+        path="logs/sessions/codex/mac/2026-04-20-private-boundaries.md",
+        content="Raw session mentions private boundaries crypto legal status specifics.",
+        updated="2026-04-20T10:00:00Z",
+        agent="codex",
+        device="mac",
+        session_id="private-boundaries",
+        status="done",
+    )
+
+    engine = SearchEngine(index_root, fake_embedder)
+    response = engine.search(
+        SearchReq(query="private boundaries crypto legal status", mode="hybrid", corpus="all", k=5)
+    )
+
+    assert response.results
+    assert response.results[0].path == "core/user.md"
+    assert response.results[0].evidence_class == "canonical"
+    assert not response.results[0].path.startswith("logs/sessions/")
+
+
 def test_search_hybrid_prefers_canonical_over_raw_inbox_capture(tmp_path: Path, fake_embedder) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / ".index"
@@ -300,6 +340,83 @@ Dory neutral deployment details from a raw inbox capture.
     assert response.results[0].rank_score == 1.0
     inbox_result = next(result for result in response.results if result.path == "inbox/neutral-deployment.md")
     assert inbox_result.evidence_class == "inbox"
+
+
+def test_search_collapses_generated_mirrors_behind_canonical_docs(tmp_path: Path, fake_embedder) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    (corpus_root / "projects" / "dory").mkdir(parents=True)
+    (corpus_root / "wiki" / "projects").mkdir(parents=True)
+    (corpus_root / "sources" / "semantic" / "2026" / "04" / "20").mkdir(parents=True)
+    (corpus_root / "core").mkdir(parents=True)
+    duplicate_body = (
+        "Dory hardening added canonical search ranking, Docker MCP deployment checks, "
+        "and active memory filtering for agent benchmark follow-up work."
+    )
+    (corpus_root / "projects" / "dory" / "state.md").write_text(
+        f"""---
+title: Dory
+type: project
+status: active
+canonical: true
+source_kind: canonical
+---
+
+{duplicate_body}
+""",
+        encoding="utf-8",
+    )
+    (corpus_root / "wiki" / "projects" / "dory.md").write_text(
+        f"""---
+title: Dory wiki
+type: wiki
+status: active
+canonical: false
+source_kind: generated
+---
+
+{duplicate_body}
+""",
+        encoding="utf-8",
+    )
+    (corpus_root / "sources" / "semantic" / "2026" / "04" / "20" / "dory-write.md").write_text(
+        f"""---
+title: Dory semantic source
+type: source
+status: done
+canonical: false
+source_kind: semantic
+canonical_target: projects/dory/state.md
+---
+
+{duplicate_body}
+""",
+        encoding="utf-8",
+    )
+    (corpus_root / "core" / "env.md").write_text(
+        """---
+title: Environment
+type: core
+status: active
+canonical: true
+source_kind: canonical
+---
+
+Dory Docker MCP deployment also depends on the runtime environment.
+""",
+        encoding="utf-8",
+    )
+
+    reindex_corpus(corpus_root, index_root, fake_embedder)
+    engine = SearchEngine(index_root, fake_embedder)
+
+    response = engine.search(SearchReq(query="Dory hardening Docker MCP deployment", mode="hybrid", k=3))
+
+    paths = [result.path for result in response.results]
+    assert "projects/dory/state.md" in paths
+    assert "core/env.md" in paths
+    assert "wiki/projects/dory.md" not in paths
+    assert "sources/semantic/2026/04/20/dory-write.md" not in paths
 
 
 def test_exact_search_returns_only_literal_matches_for_cleanup_markers(tmp_path: Path, fake_embedder) -> None:

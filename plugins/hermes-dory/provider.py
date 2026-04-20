@@ -149,6 +149,14 @@ class _SupportsRequest(Protocol):
     def request(self, method: str, url: str, **kwargs: Any) -> Any: ...
 
 
+class DoryProviderError(RuntimeError):
+    def __init__(self, message: str, *, status_code: int | None = None, error_type: str = "error") -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.error_type = error_type
+
+
 class DoryMemoryProvider(MemoryProvider):
     def __init__(
         self,
@@ -464,6 +472,8 @@ class DoryMemoryProvider(MemoryProvider):
                 return json.dumps(self.link(payload), sort_keys=True)
             if tool_name == "dory_status":
                 return json.dumps(self.status(), sort_keys=True)
+        except DoryProviderError as err:
+            return json.dumps(_tool_error_payload(err), sort_keys=True)
         except (RuntimeError, ValueError, TypeError) as err:
             return json.dumps({"ok": False, "error": str(err)}, sort_keys=True)
         return json.dumps({"ok": False, "error": f"unsupported tool: {tool_name}"}, sort_keys=True)
@@ -503,7 +513,7 @@ class DoryMemoryProvider(MemoryProvider):
                 return
             self.write(
                 kind="append",
-                target="inbox/hermes-memory-mirror.md",
+                target=self._memory_mirror_target(),
                 content=_format_builtin_memory_mirror(action=action, target=target, content=content),
                 frontmatter={
                     "title": "Hermes built-in memory mirror",
@@ -1001,6 +1011,10 @@ class DoryMemoryProvider(MemoryProvider):
         agent_slug = _slugify(self._runtime_agent or self.default_agent or "hermes")
         return f"logs/sessions/hermes/{agent_slug}/{date_prefix}-{session_slug}.md"
 
+    def _memory_mirror_target(self) -> str:
+        date_prefix = datetime.now(timezone.utc).date().isoformat()
+        return f"inbox/hermes-memory-mirror/{date_prefix}.md"
+
     def _resolve_agent(self, agent: str | None) -> str:
         if agent is not None and agent.strip():
             return agent.strip()
@@ -1011,7 +1025,11 @@ class DoryMemoryProvider(MemoryProvider):
     @staticmethod
     def _parse_response(response: Any) -> dict[str, Any]:
         if response.status_code >= 400:
-            raise RuntimeError(f"dory request failed: {response.status_code} {response.text}")
+            raise DoryProviderError(
+                _response_error_message(response),
+                status_code=int(response.status_code),
+                error_type=_error_type_for_status(int(response.status_code)),
+            )
         return response.json()
 
 
@@ -1218,6 +1236,8 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     "path": {"type": "string"},
                     "direction": {"type": "string", "enum": ["out", "in", "both"]},
                     "depth": {"type": "integer"},
+                    "max_edges": {"type": "integer", "minimum": 1, "maximum": 500, "default": 40},
+                    "exclude_prefixes": {"type": "array", "items": {"type": "string"}},
                 },
                 "required": ["op"],
             },
@@ -1261,6 +1281,54 @@ def _extract_dory_config(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _looks_like_dory_config(payload: dict[str, Any]) -> bool:
     return any(key in payload for key in _DORY_CONFIG_KEYS)
+
+
+def _tool_error_payload(err: DoryProviderError) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "ok": False,
+        "error": err.message,
+        "error_type": err.error_type,
+    }
+    if err.status_code is not None:
+        payload["status_code"] = err.status_code
+    return payload
+
+
+def _response_error_message(response: Any) -> str:
+    try:
+        payload = response.json()
+    except Exception:
+        return _safe_response_text(response)
+    if isinstance(payload, dict):
+        detail = payload.get("detail")
+        if isinstance(detail, str) and detail.strip():
+            return detail.strip()
+        error = payload.get("error")
+        if isinstance(error, str) and error.strip():
+            return error.strip()
+        message = payload.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+    return _safe_response_text(response)
+
+
+def _safe_response_text(response: Any) -> str:
+    text = str(getattr(response, "text", "") or "").strip()
+    return text if text else f"dory request failed: {getattr(response, 'status_code', 'unknown')}"
+
+
+def _error_type_for_status(status_code: int) -> str:
+    if status_code == 404:
+        return "not_found"
+    if status_code in {400, 422}:
+        return "validation_error"
+    if status_code in {401, 403}:
+        return "permission_denied"
+    if status_code == 429:
+        return "rate_limited"
+    if status_code >= 500:
+        return "server_error"
+    return "http_error"
 
 
 def _nested_mapping(payload: dict[str, Any], *keys: str) -> dict[str, Any]:

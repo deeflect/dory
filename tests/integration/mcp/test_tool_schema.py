@@ -63,12 +63,19 @@ def test_dory_search_schema_exposes_min_score() -> None:
 def test_dory_write_schema_retains_legacy_path_fields() -> None:
     tools = build_tool_schemas()
     write_tool = next(tool for tool in tools if tool["name"] == "dory_write")
+    props = write_tool["inputSchema"]["properties"]
 
     assert "target" in write_tool["inputSchema"]["required"]
-    assert "soft" in write_tool["inputSchema"]["properties"]
-    assert "dry_run" in write_tool["inputSchema"]["properties"]
+    assert props["kind"]["enum"] == ["append", "create", "replace", "forget"]
+    assert "soft" in props
+    assert "dry_run" in props
     assert "content" not in write_tool["inputSchema"]["required"]
+    assert "frontmatter.title" in write_tool["description"]
+    assert "frontmatter.type" in write_tool["description"]
+    assert "type='capture'" in write_tool["description"]
+    assert "type='note'" in write_tool["description"]
     assert "expected_hash" in write_tool["description"]
+    assert "forget also requires reason" in write_tool["description"]
 
 
 def test_dory_purge_schema_exposes_destructive_guards() -> None:
@@ -87,5 +94,9 @@ def test_dory_purge_schema_exposes_destructive_guards() -> None:
 def test_dory_link_schema_constrains_direction_values() -> None:
     tools = build_tool_schemas()
     link_tool = next(tool for tool in tools if tool["name"] == "dory_link")
+    props = link_tool["inputSchema"]["properties"]
 
-    assert link_tool["inputSchema"]["properties"]["direction"]["enum"] == ["out", "in", "both"]
+    assert props["direction"]["enum"] == ["out", "in", "both"]
+    assert props["max_edges"]["default"] == 40
+    assert props["max_edges"]["maximum"] == 500
+    assert "exclude_prefixes" in props
