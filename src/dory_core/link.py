@@ -4,7 +4,7 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from pathlib import Path
 import re
-from typing import Iterable
+from typing import Iterable, Sequence
 
 from dory_core.frontmatter import load_markdown_document
 
@@ -86,13 +86,31 @@ class LinkService:
         self.corpus_root = Path(corpus_root)
         self.db_path = Path(index_root) / "dory.db"
 
-    def neighbors(self, path: str, direction: str = "out", depth: int = 1) -> dict[str, object]:
+    def neighbors(
+        self,
+        path: str,
+        direction: str = "out",
+        depth: int = 1,
+        *,
+        max_edges: int = 40,
+        exclude_prefixes: Sequence[str] = (),
+    ) -> dict[str, object]:
         if depth < 1:
             depth = 1
+        max_edges = max(1, max_edges)
         with sqlite3.connect(self.db_path) as connection:
             connection.row_factory = sqlite3.Row
-            edges = self._collect_neighbors(connection, path=path, direction=direction, depth=depth)
-        return {"op": "neighbors", "path": path, "edges": edges, "count": len(edges)}
+            collected = self._collect_neighbors(connection, path=path, direction=direction, depth=depth)
+        filtered = _filter_edges_by_prefix(collected, exclude_prefixes)
+        edges = filtered[:max_edges]
+        return {
+            "op": "neighbors",
+            "path": path,
+            "edges": edges,
+            "count": len(edges),
+            "total_count": len(filtered),
+            "truncated": len(filtered) > len(edges),
+        }
 
     def _collect_neighbors(
         self,
@@ -178,8 +196,14 @@ class LinkService:
             for row in rows
         ]
 
-    def backlinks(self, path: str) -> dict[str, object]:
-        result = self.neighbors(path, direction="in")
+    def backlinks(
+        self,
+        path: str,
+        *,
+        max_edges: int = 40,
+        exclude_prefixes: Sequence[str] = (),
+    ) -> dict[str, object]:
+        result = self.neighbors(path, direction="in", max_edges=max_edges, exclude_prefixes=exclude_prefixes)
         result["op"] = "backlinks"
         return result
 
@@ -320,3 +344,14 @@ def _dedupe_edges(edges: Iterable[LinkEdge]) -> list[LinkEdge]:
         seen.add(key)
         deduped.append(edge)
     return deduped
+
+
+def _filter_edges_by_prefix(edges: Iterable[dict[str, str]], exclude_prefixes: Sequence[str]) -> list[dict[str, str]]:
+    prefixes = tuple(prefix for prefix in exclude_prefixes if prefix)
+    if not prefixes:
+        return list(edges)
+    return [
+        edge
+        for edge in edges
+        if not edge["from"].startswith(prefixes) and not edge["to"].startswith(prefixes)
+    ]

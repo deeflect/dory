@@ -65,6 +65,8 @@ VALID_SOURCE_KINDS = {
     "web",
 }
 VALID_TEMPERATURES = {"hot", "warm", "cold"}
+VALID_VISIBILITIES = {"private", "internal", "public"}
+VALID_SENSITIVITIES = {"personal", "financial", "legal", "contact", "credentials", "health", "none"}
 DOC_TYPE_ALIASES = {
     "action-item": "capture",
     "analysis": "report",
@@ -206,6 +208,11 @@ def normalize_frontmatter(
         normalized["temperature"],
         VALID_TEMPERATURES,
     )
+
+    if "visibility" in normalized and normalized["visibility"] is not None:
+        normalized["visibility"] = _normalize_enum_value("visibility", normalized["visibility"], VALID_VISIBILITIES)
+    if "sensitivity" in normalized and normalized["sensitivity"] is not None:
+        normalized["sensitivity"] = _normalize_enum_value("sensitivity", normalized["sensitivity"], VALID_SENSITIVITIES)
 
     if "created" not in normalized:
         timestamp = now or datetime.now(tz=UTC)

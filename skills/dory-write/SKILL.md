@@ -19,6 +19,9 @@ Rules:
 - Do not create `core/` files casually
 - Use `force_inbox=true` for tentative or scratch captures
 - Use `allow_canonical=true` only after preview when a semantic write intentionally resolves to canonical memory
+- Exact-path `dory_write` kinds are `append`, `create`, `replace`, and `forget`
+- New exact-path files require `frontmatter.title` and `frontmatter.type`; use `type: capture` for `inbox/**` and `type: note` only under `references/notes/**`
+- Exact-path `replace` and `forget` require `expected_hash`; `forget` also requires `reason`
 - CLI exposes semantic `memory-write` and guarded `purge`; exact-path `dory_write` is an MCP/HTTP surface, not a top-level CLI command
 - Legacy `add`/`create` write actions normalize to `write`; `remove`/`delete` normalize to `forget`, but new instructions should use the canonical action names
 - Plain-text mentions of known people/projects will create graph edges automatically; wikilinks are optional, not required

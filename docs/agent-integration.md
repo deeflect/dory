@@ -42,7 +42,7 @@ Claude Code, Codex CLI, and opencode are rule/MCP clients. OpenClaw and Hermes a
 1. Call `dory_wake` at session start or task switch. Use `profile="coding"` for project work, `profile="writing"` for voice/content work, `profile="privacy"` for boundary-sensitive questions. Coding wake is operational context only; writing wake is voice-first; privacy wake is boundary-only and must not be treated as a profile dump.
 2. Use `dory_search` before any factual claim about projects, people, priorities, decisions, or current environment.
 3. Use `dory_get` on exact result paths before quoting or acting on memory.
-4. Use `dory_link` only when relationships or backlinks matter.
+4. Use `dory_link` only when relationships or backlinks matter. Keep it bounded with `max_edges` when inspecting dense project/core docs; use `exclude_prefixes` to drop noisy families like `logs/sessions/`. Responses include `count`, `total_count`, and `truncated` so clients can tell when the graph was capped.
 5. Use `dory_active_memory(profile="coding|writing|privacy|personal|general", include_wake=false)` when wake was already called and the reply needs task-specific context. `profile="auto"` is available for compatibility, but explicit profiles are preferred for predictable source policy. If `include_wake=true`, active memory uses the profile's wake policy and avoids inlining unrelated personal context.
 
 Treat wake as framing, not proof that every canonical file was loaded. Search and get are the authoritative read path.
@@ -62,7 +62,7 @@ Use `dry_run=true` first when the route isn't obvious. Inspect `target_path`, `s
 
 Prefer `dory_memory_write` for durable semantic writes. Keep subjects specific — a generic subject can resolve into an existing canonical page. Dry-run previews for canonical targets are labeled `CANONICAL TARGET`; live semantic writes to canonical targets require `allow_canonical=true` after preview.
 
-Use `force_inbox=true` for tentative or review-needed material. Use `dory_write` only when you know the exact target path and have read the current hash with `dory_get`; replace/forget require `expected_hash`.
+Use `force_inbox=true` for tentative or review-needed material. Use `dory_write` only when you know the exact target path and have read the current hash with `dory_get`; exact write kinds are `append`, `create`, `replace`, and `forget`. New exact-path files require `frontmatter.title` and `frontmatter.type`; use `type: capture` for `inbox/**`. Replace/forget require `expected_hash`; forget also requires `reason`.
 
 `forget` retires memory while preserving audit history. Reserve `dory_purge` for exact generated/test/scratch cleanup — live purge requires a reason and matching `expected_hash`.
 

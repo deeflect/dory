@@ -11,7 +11,7 @@ def test_docker_assets_reference_expected_ports() -> None:
     assert "8765" in compose
     assert "8766" in compose
     assert "/healthz" in compose
-    assert "DORY_ALLOW_NO_AUTH" in compose
+    assert "DORY_ALLOW_NO_AUTH: ${DORY_ALLOW_NO_AUTH:-false}" in compose
     assert "uv" in dockerfile
-    assert "DORY_ALLOW_NO_AUTH=false" in dockerfile
+    assert "DORY_ALLOW_NO_AUTH" not in dockerfile
     assert "ghcr.io" in workflow

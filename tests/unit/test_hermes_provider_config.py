@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 
@@ -205,7 +206,48 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     assert "allow_canonical" in schemas["dory_memory_write"]["parameters"]["properties"]
     assert "expected_hash" in schemas["dory_write"]["parameters"]["properties"]
     assert "expected_hash" in schemas["dory_write"]["description"]
+    assert schemas["dory_link"]["parameters"]["properties"]["max_edges"]["default"] == 40
+    assert "exclude_prefixes" in schemas["dory_link"]["parameters"]["properties"]
     assert schemas["dory_purge"]["parameters"]["properties"]["dry_run"]["default"] is True
+
+
+def test_hermes_provider_tool_errors_are_structured() -> None:
+    module = _load_provider_module()
+
+    class _ErrorResponse:
+        status_code = 404
+        text = '{"detail":"missing memory file"}'
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"detail": "missing memory file"}
+
+    class _FakeClient:
+        def request(self, method: str, path: str, **kwargs):
+            del method, path, kwargs
+            return _ErrorResponse()
+
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766", client=_FakeClient())
+
+    payload = json.loads(provider.handle_tool_call("dory_get", {"path": "missing.md"}))
+
+    assert payload == {
+        "ok": False,
+        "error": "missing memory file",
+        "error_type": "not_found",
+        "status_code": 404,
+    }
+
+
+def test_hermes_memory_mirror_uses_date_partitioned_path() -> None:
+    module = _load_provider_module()
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766")
+
+    target = provider._memory_mirror_target()
+
+    assert target.startswith("inbox/hermes-memory-mirror/")
+    assert target.endswith(".md")
+    assert target != "inbox/hermes-memory-mirror.md"
 
 
 def test_hermes_plugin_manifest_exists() -> None:

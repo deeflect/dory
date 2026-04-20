@@ -139,6 +139,8 @@ DORY_LOCAL_LLM_API_KEY=
 
 `DORY_DATA_ROOT` is the host directory mounted into the container at `/var/lib/dory`. Any host path works as long as Docker can write to it.
 
+Compose uses host networking during image build so dependency install steps inherit the host resolver. At runtime, leave `DORY_DOCKER_DNS_SERVERS` blank unless Docker bridge DNS cannot resolve your provider hosts. `GEMINI_API_KEY` and `OPENROUTER_API_KEY` are also passed through as provider compatibility aliases.
+
 `DORY_ACTIVE_MEMORY_LLM_PROVIDER` controls the optional active-memory planner/composer. Use `local` for an OpenAI-compatible local/LAN endpoint, `openrouter` for the hosted path, `auto` to prefer local then fall back to OpenRouter, or `off` for deterministic retrieval only. `DORY_ACTIVE_MEMORY_LLM_STAGES` can be `both`, `plan`, or `compose`; `compose` is usually safest for small local models because deterministic retrieval stays fast while the model only compresses selected evidence. `plan` is useful when the local model is good at strict JSON query expansion. Dory skips LLM stages when the request deadline is too tight. `DORY_LOCAL_LLM_BASE_URL` may be either the service root or its `/v1` OpenAI-compatible root.
 
 Create a bearer token inside the container so it lands in the mounted token store:
@@ -186,6 +188,10 @@ Agents should follow this read loop:
 5. `link` when backlinks or graph relationships matter
 
 Exact tool names and parameters → [agent-integration.md](agent-integration.md).
+
+OpenClaw plugin source lives under `packages/openclaw-dory/`; external OpenClaw installs should load the parent `packages` directory so OpenClaw can discover `package.json` and `openclaw.plugin.json`.
+
+Hermes provider source lives under `plugins/hermes-dory/`. Use `memory_mode: hybrid` when you want automatic prefetched context plus tools, `context` for context only, or `tools` when you want manual tool calls with no automatic context injection.
 
 ## Session shipping
 

@@ -149,16 +149,25 @@ def build_tool_schemas() -> list[dict[str, Any]]:
         },
         {
             "name": "dory_write",
-            "description": "Exact-path markdown write. Use when you know the target path; replace/forget require expected_hash from dory_get. Set dry_run=true to validate and preview without writing.",
+            "description": (
+                "Exact-path markdown write. kind is append|create|replace|forget. "
+                "Creating a new file requires frontmatter.title and frontmatter.type; inbox paths should use type='capture' "
+                "and note pages should live under references/notes/ with type='note'. "
+                "replace/forget require expected_hash from dory_get; forget also requires reason. "
+                "Set dry_run=true to validate and preview without writing."
+            ),
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "kind": {"type": "string"},
+                    "kind": {"type": "string", "enum": ["append", "create", "replace", "forget"]},
                     "target": {"type": "string"},
                     "content": {"type": "string"},
                     "soft": {"type": "boolean"},
                     "dry_run": {"type": "boolean"},
-                    "frontmatter": {"type": "object"},
+                    "frontmatter": {
+                        "type": "object",
+                        "description": "Required when creating a new file; must include title and type.",
+                    },
                     "agent": {"type": "string"},
                     "session_id": {"type": "string"},
                     "expected_hash": {"type": "string"},
@@ -193,6 +202,8 @@ def build_tool_schemas() -> list[dict[str, Any]]:
                     "path": {"type": "string"},
                     "direction": {"type": "string", "enum": ["out", "in", "both"]},
                     "depth": {"type": "integer"},
+                    "max_edges": {"type": "integer", "minimum": 1, "maximum": 500, "default": 40},
+                    "exclude_prefixes": {"type": "array", "items": {"type": "string"}},
                 },
                 "required": ["op"],
             },

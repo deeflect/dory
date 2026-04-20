@@ -13,7 +13,7 @@ def test_build_local_llm_client_requires_key() -> None:
 def test_build_local_llm_client_uses_settings() -> None:
     client = build_local_llm_client(
         DorySettings(
-            local_llm_api_key="test-key",
+            local_llm_api_key="test",
             local_llm_base_url="https://llm.example.test",
             local_llm_model="Qwen3.5-4B-4bit",
             local_llm_timeout_seconds=4.0,
@@ -22,7 +22,7 @@ def test_build_local_llm_client_uses_settings() -> None:
     )
 
     assert client is not None
-    assert client.api_key == "test-key"
+    assert client.api_key == "test"
     assert client.base_url == "https://llm.example.test"
     assert client.model == "Qwen3.5-4B-4bit"
     assert client.timeout_seconds == 4.0
@@ -56,7 +56,7 @@ def test_openai_compatible_generate_json_uses_strict_schema(monkeypatch) -> None
 
     monkeypatch.setattr("dory_core.llm.openai_compatible.httpx.Client", _Client)
     client = OpenAICompatibleJSONClient(
-        api_key="test-key",
+        api_key="test",
         base_url="https://llm.example.test",
         model="local-model",
         timeout_seconds=3.0,

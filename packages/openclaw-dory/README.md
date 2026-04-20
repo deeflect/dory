@@ -61,13 +61,31 @@ The exported default entrypoint uses the documented OpenClaw plugin SDK shape:
 
 Compaction flush is now Dory-backed as well: the plugin advertises a real flush plan so OpenClaw can prepare durable memory summaries before compaction, and those summaries are intended to flow through semantic memory writes instead of markdown-path mutation.
 
-## Build
+## Source Audit / Benchmark
+
+The plugin source lives in this package:
+
+- `packages/openclaw-dory/package.json`
+- `packages/openclaw-dory/openclaw.plugin.json`
+- `packages/openclaw-dory/src/index.ts`
+- `packages/openclaw-dory/dist/index.js`
+
+When benchmarking from another OpenClaw workspace, point the harness at the package parent directory, not only the live installed plugin. From this repo:
 
 ```bash
 cd packages/openclaw-dory
 npm install
 npm run build
 ```
+
+Then verify:
+
+- `package.json` has `openclaw.extensions`
+- `openclaw.plugin.json` has the config schema
+- `dist/index.js` is present after build
+- live `doctor.memory.status` reports provider `dory-http`
+
+## Build
 
 External OpenClaw installs should point at the package parent directory, not directly at `dist/index.js`. For this repo that means adding the absolute `packages` directory to OpenClaw's plugin load path; OpenClaw then discovers `packages/openclaw-dory/package.json` and loads `openclaw.extensions`.
 

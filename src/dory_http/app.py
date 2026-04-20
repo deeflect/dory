@@ -353,12 +353,18 @@ def build_app(
                 normalized_path.as_posix(),
                 direction=req.direction,
                 depth=req.depth,
+                max_edges=req.max_edges,
+                exclude_prefixes=req.exclude_prefixes,
             )
         if req.op == "backlinks":
             if req.path is None:
                 raise HTTPException(status_code=400, detail="link backlinks requires path")
             normalized_path = _resolve_corpus_path(runtime.corpus_root, req.path).relative_to(runtime.corpus_root)
-            return service.backlinks(normalized_path.as_posix())
+            return service.backlinks(
+                normalized_path.as_posix(),
+                max_edges=req.max_edges,
+                exclude_prefixes=req.exclude_prefixes,
+            )
         if req.op == "lint":
             return service.lint()
         raise HTTPException(status_code=400, detail=f"unsupported link op: {req.op}")

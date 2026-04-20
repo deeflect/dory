@@ -7,10 +7,11 @@ Current state:
 - Hermes `MemoryProvider`-compatible plugin class
 - plugin manifest at `plugin.yaml`
 - config loading from environment, `~/.hermes/dory.yaml`, or `~/.hermes/config.yaml`
-- provider lifecycle hooks for prefetch, turn sync, session-end ingest, and built-in memory mirroring
+- provider lifecycle hooks for prefetch, turn sync, session-end ingest, and date-partitioned built-in memory mirroring
 - semantic `memory_write(...)` for first-class remember/update/forget actions
 - exact-path `write(...)` for controlled file writes, hash-guarded replaces, and dry-run previews
 - `research(...)` and guarded `purge(...)` support for the finalized Dory HTTP/MCP surface
+- structured tool errors with `error_type` and HTTP `status_code` when Dory rejects a request
 
 Recommended model:
 
@@ -85,6 +86,7 @@ Write safety notes:
 - semantic memory-write actions are `write`, `replace`, and `forget`; legacy built-in Hermes `add`/`remove` hooks are normalized before they hit Dory
 - `write` is the safer exact-path API when the target path is known; use `dry_run` and `expected_hash` for replace/forget flows
 - `purge` defaults to dry-run and live purge requires an explicit reason plus the right guard flags
+- Hermes built-in memory events mirror to `inbox/hermes-memory-mirror/YYYY-MM-DD.md`, not one unbounded file
 
 Memory mode notes:
 

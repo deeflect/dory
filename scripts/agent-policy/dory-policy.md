@@ -38,9 +38,11 @@ After preview, live canonical semantic writes require `allow_canonical=true`.
 If the fact is tentative or needs review, use
 `dory_memory_write(force_inbox=true)` or write to an explicit `inbox/` target
 with `dory_write`. Use `dory_write` only when you know the exact target path
-and have read the current hash first. `forget` retires/supersedes; it is not a
-hard delete. Use `dory_purge` only for exact eval/test/scratch cleanup; live
-purge requires `reason` and matching `expected_hash`.
+and have read the current hash first. New exact-path files require
+`frontmatter.title` and `frontmatter.type`; use `type: capture` for `inbox/**`.
+`forget` retires/supersedes; it is not a hard delete. Use `dory_purge` only for
+exact eval/test/scratch cleanup; live purge requires `reason` and matching
+`expected_hash`.
 
 Do not persist transient conversation turns.
 

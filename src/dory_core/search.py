@@ -95,6 +95,17 @@ _TEMPORAL_QUERY_TOKENS = {
     "when",
     "yesterday",
 }
+_SESSION_QUERY_TOKENS = {
+    "chat",
+    "conversation",
+    "log",
+    "logs",
+    "recent",
+    "session",
+    "sessions",
+    "transcript",
+    "transcripts",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,7 +259,13 @@ class SearchEngine:
             if search_plan is not None and search_plan.include_session_results:
                 session = self._search_session_plane_multi(search_plan.session_queries, req.k, started=started)
                 merged = _apply_min_score(
-                    self._merge_with_session_results(durable, session, req.query, req.k, started=started),
+                    self._merge_with_session_results(
+                        durable,
+                        session,
+                        req.query,
+                        req.k,
+                        started=started,
+                    ),
                     req.min_score,
                 )
                 merged = self._select_results(merged, req=req)
@@ -272,7 +289,14 @@ class SearchEngine:
         session = self._search_session_plane_multi(session_queries, req.k, started=started)
         if req.corpus == "all":
             merged = _apply_min_score(
-                self._merge_with_session_results(durable, session, req.query, req.k, started=started),
+                self._merge_with_session_results(
+                    durable,
+                    session,
+                    req.query,
+                    req.k,
+                    started=started,
+                    include_session_tail=True,
+                ),
                 req.min_score,
             )
             merged = self._select_results(merged, req=req)
@@ -353,8 +377,9 @@ class SearchEngine:
                 continue
             seen_paths.add(row.path)
             filtered_rows.append((row, frontmatter))
-            if len(filtered_rows) >= req.k:
-                break
+        if req.mode != "exact":
+            filtered_rows = _collapse_duplicate_documents(filtered_rows)
+        filtered_rows = filtered_rows[: req.k]
 
         query_profile = _build_query_profile(req.query)
         normalized_scores = _normalized_scores(
@@ -785,6 +810,7 @@ class SearchEngine:
         limit: int,
         *,
         started: float,
+        include_session_tail: bool = False,
     ) -> SearchResp:
         query_profile = _build_query_profile(query)
         scored_results: dict[str, tuple[float, SearchResult]] = {}
@@ -804,13 +830,18 @@ class SearchEngine:
         ordered = sorted(scored_results.values(), key=lambda item: (-item[0], item[1].path))
         merged = [result for _score, result in ordered[:limit]]
 
-        if session.results and not any(result.path.startswith("logs/sessions/") for result in merged):
+        wants_sessions = _query_requests_session_evidence(query_profile)
+        if session.results and (wants_sessions or include_session_tail) and not any(
+            result.path.startswith("logs/sessions/") for result in merged
+        ):
             top_session = next((item for item in ordered if item[1].path.startswith("logs/sessions/")), None)
             if top_session is not None:
                 top_session_score, top_session_result = top_session
                 if len(merged) < limit:
                     merged.append(top_session_result)
-                elif ordered and top_session_score >= ordered[min(limit - 1, len(ordered) - 1)][0] * 0.9:
+                elif include_session_tail and len(merged) > 1:
+                    merged[-1] = top_session_result
+                elif wants_sessions and ordered and top_session_score >= ordered[min(limit - 1, len(ordered) - 1)][0] * 0.9:
                     merged[-1] = top_session_result
 
         took_ms = max(durable.took_ms, session.took_ms)
@@ -889,6 +920,79 @@ def _is_low_trust_search_document(path: str, frontmatter: dict[str, object]) -> 
         return True
     status = str(frontmatter.get("status", "")).strip().lower()
     return status in {"quarantined", "quarantine"}
+
+
+def _collapse_duplicate_documents(
+    rows: Sequence[tuple[_ChunkRow, dict[str, object]]],
+) -> list[tuple[_ChunkRow, dict[str, object]]]:
+    collapsed: list[tuple[_ChunkRow, dict[str, object]]] = []
+    for row, frontmatter in rows:
+        duplicate_index = next(
+            (
+                index
+                for index, (existing_row, _existing_frontmatter) in enumerate(collapsed)
+                if _documents_are_near_duplicates(existing_row, row)
+            ),
+            None,
+        )
+        if duplicate_index is None:
+            collapsed.append((row, frontmatter))
+            continue
+        existing_row, existing_frontmatter = collapsed[duplicate_index]
+        if _document_precedence(row, frontmatter) > _document_precedence(existing_row, existing_frontmatter):
+            collapsed[duplicate_index] = (row, frontmatter)
+    return collapsed
+
+
+def _documents_are_near_duplicates(left: _ChunkRow, right: _ChunkRow) -> bool:
+    if left.path == right.path:
+        return True
+    left_text = _duplicate_signature_text(left.content)
+    right_text = _duplicate_signature_text(right.content)
+    if len(left_text) < 80 or len(right_text) < 80:
+        return False
+    shorter, longer = sorted((left_text, right_text), key=len)
+    if shorter in longer and len(shorter) / len(longer) >= 0.7:
+        return True
+    return SequenceMatcher(None, left_text, right_text).ratio() >= 0.9
+
+
+def _duplicate_signature_text(content: str) -> str:
+    body = _searchable_body(content).casefold()
+    lines = []
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        lines.append(line)
+    return " ".join(" ".join(lines).split())
+
+
+def _document_precedence(row: _ChunkRow, frontmatter: dict[str, object]) -> tuple[int, float, str]:
+    source_kind = str(frontmatter.get("source_kind", "")).strip().lower()
+    status = str(frontmatter.get("status", "")).strip().lower()
+    score = 0
+    if frontmatter.get("canonical") is True:
+        score += 100
+    if source_kind == "canonical":
+        score += 80
+    if row.path.startswith("core/"):
+        score += 50
+    if row.path.startswith("projects/") and row.path.endswith("/state.md"):
+        score += 45
+    if status == "active":
+        score += 10
+    if row.path.startswith("wiki/"):
+        score -= 40
+    if row.path.startswith("sources/semantic/"):
+        score -= 35
+    if row.path.startswith("inbox/"):
+        score -= 25
+    if row.path.startswith("logs/"):
+        score -= 50
+    if source_kind == "generated":
+        score -= 20
+    return score, row.score, row.path
 
 
 def _apply_min_score(response: SearchResp, min_score: float) -> SearchResp:
@@ -978,6 +1082,12 @@ def _score_document_prior(
             score += 0.035
         elif path.startswith("knowledge/personal/"):
             score -= 0.02
+    visibility = str(frontmatter.get("visibility", "")).strip().lower()
+    sensitivity = str(frontmatter.get("sensitivity", "")).strip().lower()
+    if visibility == "private" and not (tokens & _PRIVACY_QUERY_TOKENS):
+        score -= 0.025
+    if sensitivity and sensitivity != "none" and not (tokens & _PRIVACY_QUERY_TOKENS):
+        score -= 0.018
 
     source_kind = str(frontmatter.get("source_kind", "")).strip().lower()
     status = str(frontmatter.get("status", "")).strip().lower()
@@ -1136,8 +1246,54 @@ def _merge_result_score(
 ) -> float:
     coverage = _score_exact_result_coverage(result, query_profile)
     rank_score = 1.0 / (20 + position)
-    source_bonus = 0.0
+    source_bonus = _merge_source_prior(result, query_profile=query_profile, source=source)
     return rank_score + (coverage * 0.08) + source_bonus
+
+
+def _merge_source_prior(result: SearchResult, *, query_profile: QueryProfile, source: str) -> float:
+    path = result.path
+    frontmatter = result.frontmatter
+    evidence_class = result.evidence_class
+    source_kind = str(frontmatter.get("source_kind", "")).strip().lower()
+    is_canonical = frontmatter.get("canonical") is True or source_kind == "canonical" or evidence_class == "canonical"
+    wants_sessions = _query_requests_session_evidence(query_profile)
+    tokens = set(query_profile.tokens)
+
+    if source == "session" or path.startswith("logs/sessions/") or evidence_class == "session":
+        return 0.015 if wants_sessions else -0.09
+
+    score = 0.0
+    if is_canonical:
+        score += 0.055
+    if path.startswith("core/"):
+        score += 0.035
+    if path.startswith("projects/") and path.endswith("/state.md"):
+        score += 0.03
+    if path == "core/active.md" and tokens & _CURRENT_QUERY_TOKENS:
+        score += 0.035
+    if path == "core/env.md" and tokens & _ENV_QUERY_TOKENS:
+        score += 0.035
+    if tokens & _PRIVACY_QUERY_TOKENS:
+        if path in {"core/user.md", "core/identity.md", "core/defaults.md", "core/soul.md"}:
+            score += 0.06
+        if path.startswith(("knowledge/personal", "knowledge/personal-db")):
+            score -= 0.06
+    visibility = str(frontmatter.get("visibility", "")).strip().lower()
+    sensitivity = str(frontmatter.get("sensitivity", "")).strip().lower()
+    if visibility == "private" and not (tokens & _PRIVACY_QUERY_TOKENS):
+        score -= 0.035
+    if sensitivity and sensitivity != "none" and not (tokens & _PRIVACY_QUERY_TOKENS):
+        score -= 0.025
+    if evidence_class == "generated" or path.startswith("wiki/"):
+        score -= 0.03
+    if evidence_class in {"inbox", "raw", "archive"}:
+        score -= 0.045
+    return score
+
+
+def _query_requests_session_evidence(query_profile: QueryProfile) -> bool:
+    tokens = set(query_profile.tokens)
+    return query_profile.has_temporal_hint or bool(tokens & _SESSION_QUERY_TOKENS)
 
 
 def _evidence_class_for_document(path: str, frontmatter: dict[str, object]) -> str:

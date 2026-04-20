@@ -24,7 +24,7 @@ from dory_core.link import LinkService
 from dory_core.llm.active_memory import build_active_memory_components
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
 from dory_core.llm_rerank import build_reranker
-from dory_core.maintenance import MaintenanceReportWriter, OpenRouterMaintenanceInspector
+from dory_core.maintenance import MaintenanceReportWriter, OpenRouterMaintenanceInspector, PrivacyMetadataBackfiller
 from dory_core.migration_engine import MigrationEngine, MigrationProgress
 from dory_core.migration_llm import MigrationLLM
 from dory_core.migration_plan import MigrationPlan, MigrationPlanner, MigrationScope
@@ -810,9 +810,17 @@ def neighbors(
     path: str = typer.Argument(...),
     direction: str = typer.Option("out", "--direction"),
     depth: int = typer.Option(1, "--depth"),
+    max_edges: int = typer.Option(40, "--max-edges"),
+    exclude_prefix: list[str] | None = typer.Option(None, "--exclude-prefix"),
 ) -> None:
     config = _get_config(ctx)
-    result = LinkService(config.corpus_root, config.index_root).neighbors(path, direction=direction, depth=depth)
+    result = LinkService(config.corpus_root, config.index_root).neighbors(
+        path,
+        direction=direction,
+        depth=depth,
+        max_edges=max_edges,
+        exclude_prefixes=exclude_prefix or (),
+    )
     typer.echo(json.dumps(result, indent=2, sort_keys=True))
 
 
@@ -820,9 +828,15 @@ def neighbors(
 def backlinks(
     ctx: typer.Context,
     path: str = typer.Argument(...),
+    max_edges: int = typer.Option(40, "--max-edges"),
+    exclude_prefix: list[str] | None = typer.Option(None, "--exclude-prefix"),
 ) -> None:
     config = _get_config(ctx)
-    result = LinkService(config.corpus_root, config.index_root).backlinks(path)
+    result = LinkService(config.corpus_root, config.index_root).backlinks(
+        path,
+        max_edges=max_edges,
+        exclude_prefixes=exclude_prefix or (),
+    )
     typer.echo(json.dumps(result, indent=2, sort_keys=True))
 
 
@@ -972,6 +986,22 @@ def maintain_wiki_health(
     config = _get_config(ctx)
     payload = WikiHealthRunner(config.corpus_root).run(write_report=write_report)
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@maintain_app.command("backfill-privacy-metadata")
+def maintain_backfill_privacy_metadata(
+    ctx: typer.Context,
+    path: list[str] = typer.Option([], "--path", help="Limit to a corpus-relative markdown path. Repeatable."),
+    refresh: bool = typer.Option(False, "--refresh", help="Refresh wiki-health before planning paths."),
+    apply: bool = typer.Option(False, "--apply", help="Write changes. Default is dry-run only."),
+) -> None:
+    config = _get_config(ctx)
+    result = PrivacyMetadataBackfiller(config.corpus_root).run(
+        paths=path or None,
+        dry_run=not apply,
+        refresh=refresh,
+    )
+    typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
 
 
 @ops_app.command("dream-once")

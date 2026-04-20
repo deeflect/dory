@@ -79,7 +79,7 @@ def test_query_reranker_can_be_disabled(monkeypatch) -> None:
 def test_active_memory_planner_prefers_local_provider(monkeypatch) -> None:
     settings = DorySettings(
         active_memory_llm_provider="local",
-        local_llm_api_key="test-key",
+        local_llm_api_key="test",
         local_llm_base_url="https://llm.example.test",
         local_llm_model="Qwen3.5-4B-4bit",
     )
@@ -127,7 +127,7 @@ def test_active_memory_components_can_use_local_composer_only() -> None:
         DorySettings(
             active_memory_llm_provider="local",
             active_memory_llm_stages="compose",
-            local_llm_api_key="test-key",
+            local_llm_api_key="test",
             local_llm_base_url="https://llm.example.test",
             local_llm_model="Qwen3.5-4B-4bit",
         )

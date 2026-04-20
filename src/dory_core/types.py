@@ -223,6 +223,8 @@ class LinkReq(BaseModel):
     path: str | None = None
     direction: Literal["out", "in", "both"] = "out"
     depth: int = Field(default=1, ge=1)
+    max_edges: int = Field(default=40, ge=1, le=500)
+    exclude_prefixes: list[str] = Field(default_factory=list)
 
 
 class PublicArtifactResp(BaseModel):
