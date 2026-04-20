@@ -4,8 +4,8 @@ This is the public Dory repository. Dory is a local-first memory daemon for agen
 
 ## First Principles
 
-- Keep the public tree clean. Never add private corpus files, real personal memories, real contact identifiers, private hostnames, tokens, or local absolute paths.
-- Use synthetic examples in tests, docs, fixtures, and evals. Do not use real user biography, immigration, finance, health, contacts, or private relationship details as fixtures.
+- Keep the public tree clean. Never add private corpus files, real personal memories, direct contact details, private hostnames, tokens, or local absolute paths.
+- Use synthetic examples in tests, docs, fixtures, and evals. Do not use real user biography, finance, health, private life events, or private relationship details as fixtures.
 - Prefer the smallest correct diff. Avoid broad refactors unless the task explicitly calls for them.
 - Do not invent new framework layers when the existing `src/dory_core`, `src/dory_http`, `src/dory_mcp`, `src/dory_cli`, `plugins/`, and `packages/` boundaries already fit.
 - Keep generated artifacts intentional. `packages/openclaw-dory/dist/index.js` is tracked because OpenClaw loads it; most other build output is not.
@@ -34,7 +34,7 @@ Use Dory as the shared memory layer for agent work in this repo.
 Useful profile defaults:
 
 - Coding work: `wake(profile="coding", budget=1200)`.
-- Writing work: use writing/voice sources only when needed; do not copy private profile details into repo docs.
+- Writing work: use writing/voice sources only when needed; do not copy private user details into repo docs.
 - Privacy work: use privacy/boundary context, not full profile data.
 
 ## Dory Write Policy

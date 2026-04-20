@@ -4,7 +4,7 @@ Thanks for considering a contribution. Dory is a local-first memory daemon for a
 
 ## Ground Rules
 
-- Keep examples synthetic. Do not add real personal memories, contact identifiers, private hostnames, local absolute paths, tokens, or private session logs.
+- Keep examples synthetic. Do not add real personal memories, direct contact details, private hostnames, local absolute paths, tokens, or private session logs.
 - Prefer small, reviewable changes with focused tests.
 - Match the existing architecture before adding a new abstraction.
 - Document behavior changes in the same PR that introduces them.
@@ -58,7 +58,7 @@ python3 scripts/release/check-public-safety.py --path README.md --path docs
 
 - Bug fixes should include a regression test unless the behavior is already covered or impractical to isolate.
 - Search ranking, active-memory privacy, semantic-write safety, HTTP/MCP schemas, and agent plugin contracts should have focused tests.
-- Tests must use synthetic data. Do not encode real user identities, private biography, private relationship facts, immigration details, financial details, health details, contact IDs, or private corpus snippets.
+- Tests must use synthetic data. Do not encode real user identities, private biography, private relationship facts, sensitive life details, financial details, health details, direct contact details, or private corpus snippets.
 - Avoid tests that depend on a developer's machine, private Dory service, private corpus, or network-only resources.
 
 ## Commit Rules
