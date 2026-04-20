@@ -1,3 +1,8 @@
+---
+name: dory-maintain
+description: Inspect Dory corpus quality, run maintenance checks, and generate reviewable cleanup or wiki-health reports without mutating memory automatically.
+---
+
 # Dory Maintain
 
 Use Dory maintenance to inspect corpus quality and generate suggested cleanup reports.
