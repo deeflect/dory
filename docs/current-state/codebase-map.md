@@ -36,7 +36,7 @@ Where the real code for each concern lives.
 - `scripts/claude-code/dory-mcp-http-bridge.py`
   - Claude Code bridge that forwards tool calls to HTTP (separate from native MCP)
 - `scripts/agent-policy/install.sh`
-  - installer for the shared Dory policy snippet and HTTP-backed MCP bridge entries in Claude Code, Codex CLI, and opencode
+  - installer for the shared Dory policy snippet, Dory skill symlinks, and HTTP-backed MCP bridge entries in Claude Code, Codex CLI, and opencode
 
 ## `src/dory_core/` map
 
