@@ -144,7 +144,11 @@ class ProposalGenerator:
             action = str(raw_action.get("action", "")).strip()
             kind = str(raw_action.get("kind", "")).strip()
             subject = str(raw_action.get("subject", "")).strip()
-            if action not in {"write", "replace", "forget"} or kind not in {"fact", "preference", "state", "decision", "note"} or not subject:
+            if (
+                action not in {"write", "replace", "forget"}
+                or kind not in {"fact", "preference", "state", "decision", "note"}
+                or not subject
+            ):
                 continue
             scope = _optional_enum(raw_action.get("scope"), {"person", "project", "concept", "decision", "core"})
             confidence = _optional_enum(raw_action.get("confidence"), {"high", "medium", "low"})

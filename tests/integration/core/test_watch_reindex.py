@@ -69,7 +69,9 @@ Hello world.
 
     calls: list[list[str]] = []
 
-    def _fake_reindex_paths(root_path: Path, index_path: Path, embedder: object, relative_paths: list[str]) -> ReindexResult:
+    def _fake_reindex_paths(
+        root_path: Path, index_path: Path, embedder: object, relative_paths: list[str]
+    ) -> ReindexResult:
         assert root_path == root
         assert index_path == index_root
         assert embedder is fake_embedder

@@ -13,12 +13,8 @@ from dory_core.llm.openrouter import (
     resolve_openrouter_model_metadata,
 )
 from dory_core.migration_prompts import (
-    build_classification_system_prompt,
-    build_classification_user_prompt,
     build_document_extraction_system_prompt,
     build_document_extraction_user_prompt,
-    build_extraction_system_prompt,
-    build_extraction_user_prompt,
 )
 from dory_core.token_counting import TokenCounter, build_token_counter
 
@@ -110,9 +106,7 @@ class MigrationPlanner:
     classification_output_tokens: int = 120
     extraction_output_tokens: int = 180
     preview_limit: int = 8
-    metadata_resolver: MetadataResolver = field(
-        default=resolve_openrouter_model_metadata
-    )
+    metadata_resolver: MetadataResolver = field(default=resolve_openrouter_model_metadata)
 
     def scan_corpus(self, corpus_root: Path) -> MigrationCorpusScan:
         corpus_root = Path(corpus_root)
@@ -120,7 +114,8 @@ class MigrationPlanner:
             sorted(
                 path
                 for path in corpus_root.rglob("*.md")
-                if path.is_file() and not any(part in _IGNORED_SCAN_PARTS for part in path.relative_to(corpus_root).parts)
+                if path.is_file()
+                and not any(part in _IGNORED_SCAN_PARTS for part in path.relative_to(corpus_root).parts)
             )
         )
         folder_counts: dict[str, int] = {}
@@ -193,7 +188,9 @@ class MigrationPlanner:
 
         classification_output_tokens = 0
         extraction_input_tokens = 0
-        extraction_output_tokens = len(selected_files) * (self.classification_output_tokens + self.extraction_output_tokens)
+        extraction_output_tokens = len(selected_files) * (
+            self.classification_output_tokens + self.extraction_output_tokens
+        )
         estimated_input_tokens = classification_input_tokens + extraction_input_tokens
         estimated_output_tokens = classification_output_tokens + extraction_output_tokens
         estimated_total_tokens = estimated_input_tokens + estimated_output_tokens
@@ -273,4 +270,6 @@ def _estimate_costs(
     output_cost = (output_tokens / 1_000_000) * pricing.output_usd_per_million
     total_cost = input_cost + output_cost
     return input_cost, output_cost, total_cost
+
+
 MetadataResolver = Callable[..., OpenRouterModelMetadata]

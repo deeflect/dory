@@ -90,7 +90,9 @@ def test_phase6_dream_apply(cli_runner, tmp_path: Path, sample_corpus_root: Path
 
     assert apply_result.exit_code == 0
     assert reject_result.exit_code == 0
-    assert "Alex is now tracked as a design reviewer." in (corpus_root / "people" / "alex.md").read_text(encoding="utf-8")
+    assert "Alex is now tracked as a design reviewer." in (corpus_root / "people" / "alex.md").read_text(
+        encoding="utf-8"
+    )
     assert (corpus_root / "decisions" / "2026-04-07-homeserver.tombstone.md").exists()
     assert (corpus_root / "inbox" / "rejected" / "proposal-reject.json").exists()
     assert not (corpus_root / "inbox" / "never-written.md").exists()

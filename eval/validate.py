@@ -11,6 +11,7 @@ Use flags to validate a private canonical suite:
 
 Exits 0 if all questions pass, 1 otherwise.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,7 +20,7 @@ from pathlib import Path
 from collections.abc import Sequence
 
 try:
-    import yaml  # type: ignore
+    import yaml
 except ImportError:
     print("ERROR: pyyaml not installed. Run: pip install pyyaml")
     sys.exit(2)
@@ -39,9 +40,7 @@ def resolve(path_str: str, *, corpus_root: Path, spec_root: Path) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Validate eval question files against a corpus tree."
-    )
+    parser = argparse.ArgumentParser(description="Validate eval question files against a corpus tree.")
     parser.add_argument(
         "--questions-root",
         type=Path,
@@ -148,13 +147,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 p.read_text(encoding="utf-8", errors="replace").lower() for p in resolved_existing
             )
             missing_keywords = [
-                kw for kw in expected_keywords
-                if isinstance(kw, str) and kw.lower() not in combined_text
+                kw for kw in expected_keywords if isinstance(kw, str) and kw.lower() not in combined_text
             ]
             if missing_keywords:
-                failures.append(
-                    f"{yaml_path.name}: expected_keywords not found in sources: {missing_keywords}"
-                )
+                failures.append(f"{yaml_path.name}: expected_keywords not found in sources: {missing_keywords}")
 
     print(f"Checked {total} question files.")
     if warnings:

@@ -23,6 +23,7 @@ from dory_core.embedding import (
 from dory_core.errors import DoryValidationError
 from dory_core.frontmatter import load_markdown_document
 from dory_core.link import LinkService
+from dory_core.llm.active_memory import build_active_memory_components
 from dory_core.llm.openrouter import build_openrouter_client
 from dory_core.llm_rerank import build_reranker
 from dory_core.migration_engine import MigrationEngine
@@ -179,14 +180,18 @@ def build_app(
     def search(req: SearchReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
         try:
-            return SearchEngine(
-                runtime.index_root,
-                runtime.embedder,
-                query_expander=runtime.query_expander,
-                retrieval_planner=runtime.retrieval_planner,
-                result_selector=runtime.retrieval_planner,
-                reranker=runtime.reranker,
-            ).search(req).model_dump(mode="json")
+            return (
+                SearchEngine(
+                    runtime.index_root,
+                    runtime.embedder,
+                    query_expander=runtime.query_expander,
+                    retrieval_planner=runtime.retrieval_planner,
+                    result_selector=runtime.retrieval_planner,
+                    reranker=runtime.reranker,
+                )
+                .search(req)
+                .model_dump(mode="json")
+            )
         except EmbeddingProviderError as err:
             raise HTTPException(status_code=503, detail=str(err)) from err
 
@@ -265,11 +270,15 @@ def build_app(
     def write(req: WriteReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
         try:
-            return WriteEngine(
-                root=runtime.corpus_root,
-                index_root=runtime.index_root,
-                embedder=runtime.embedder,
-            ).write(req).model_dump(mode="json")
+            return (
+                WriteEngine(
+                    root=runtime.corpus_root,
+                    index_root=runtime.index_root,
+                    embedder=runtime.embedder,
+                )
+                .write(req)
+                .model_dump(mode="json")
+            )
         except DoryValidationError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
         except EmbeddingProviderError as err:
@@ -279,11 +288,15 @@ def build_app(
     def purge(req: PurgeReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
         try:
-            return PurgeEngine(
-                root=runtime.corpus_root,
-                index_root=runtime.index_root,
-                embedder=runtime.embedder,
-            ).purge(req).model_dump(mode="json")
+            return (
+                PurgeEngine(
+                    root=runtime.corpus_root,
+                    index_root=runtime.index_root,
+                    embedder=runtime.embedder,
+                )
+                .purge(req)
+                .model_dump(mode="json")
+            )
         except DoryValidationError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
         except EmbeddingProviderError as err:
@@ -302,9 +315,7 @@ def build_app(
     @app.post("/v1/recall-event")
     def recall_event(req: RecallEventReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
-        return _build_openclaw_parity_store(runtime).record_recall_event(
-            req
-        ).model_dump(mode="json")
+        return _build_openclaw_parity_store(runtime).record_recall_event(req).model_dump(mode="json")
 
     @app.get("/v1/public-artifacts")
     def public_artifacts(request: Request) -> dict[str, Any]:
@@ -319,10 +330,14 @@ def build_app(
     def session_ingest(req: SessionIngestReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
         try:
-            return SessionIngestService(
-                corpus_root=runtime.corpus_root,
-                session_db_path=runtime.index_root / "session_plane.db",
-            ).ingest(req).model_dump(mode="json")
+            return (
+                SessionIngestService(
+                    corpus_root=runtime.corpus_root,
+                    session_db_path=runtime.index_root / "session_plane.db",
+                )
+                .ingest(req)
+                .model_dump(mode="json")
+            )
         except DoryValidationError as err:
             raise HTTPException(status_code=400, detail=str(err)) from err
 
@@ -438,11 +453,7 @@ def _authorize_wiki_or_redirect(
 
 
 def _request_wiki_next(request: Request) -> str:
-    query = [
-        (key, value)
-        for key, value in request.query_params.multi_items()
-        if key != "token"
-    ]
+    query = [(key, value) for key, value in request.query_params.multi_items() if key != "token"]
     if not query:
         return request.url.path
     return f"{request.url.path}?{urlencode(query)}"
@@ -563,7 +574,7 @@ def _build_retrieval_planner(settings: DorySettings, *, purpose: str) -> OpenRou
 
 
 def _build_active_memory_engine(runtime: HttpRuntime) -> ActiveMemoryEngine:
-    planner = _build_retrieval_planner(DorySettings(), purpose="maintenance")
+    planner, composer = build_active_memory_components(DorySettings())
     return ActiveMemoryEngine(
         wake_builder=WakeBuilder(runtime.corpus_root),
         search_engine=SearchEngine(
@@ -575,7 +586,7 @@ def _build_active_memory_engine(runtime: HttpRuntime) -> ActiveMemoryEngine:
         ),
         root=runtime.corpus_root,
         planner=planner,
-        composer=planner,
+        composer=composer,
     )
 
 

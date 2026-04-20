@@ -82,11 +82,7 @@ class SessionSpool:
         if not self.root.exists():
             return ()
         return tuple(
-            sorted(
-                path
-                for path in self.root.glob("*.json")
-                if path.is_file() and path.name != "checkpoints.json"
-            )
+            sorted(path for path in self.root.glob("*.json") if path.is_file() and path.name != "checkpoints.json")
         )
 
     def load(self, path: Path) -> SessionShipJob:

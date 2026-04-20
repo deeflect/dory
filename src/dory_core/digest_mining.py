@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Literal, Protocol, Sequence
+from typing import Any, Literal, Protocol, Sequence
 
 from dory_core.claim_store import ClaimStore
 from dory_core.frontmatter import load_markdown_document
@@ -72,7 +72,7 @@ _SYSTEM_PROMPT = (
     "Rules:\n"
     "1. Extract ONLY claims the digest actually supports. No inference.\n"
     "2. Skip session-level detail that won't matter in 30 days.\n"
-    "3. Ephemeral TODOs (\"follow up on X\") are NOT claims. Skip them.\n"
+    '3. Ephemeral TODOs ("follow up on X") are NOT claims. Skip them.\n'
     "4. If nothing in the digest is durable, return an empty array.\n"
     "5. Prefer the most specific subject_ref that applies."
 )
@@ -233,8 +233,8 @@ def mine_digest_file(
         body = text
         digest_date = None
 
-    evidence_path = digest_path.as_posix() if not digest_path.is_absolute() else (
-        absolute.relative_to(corpus_root).as_posix()
+    evidence_path = (
+        digest_path.as_posix() if not digest_path.is_absolute() else (absolute.relative_to(corpus_root).as_posix())
     )
 
     claims = extractor.extract(

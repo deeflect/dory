@@ -4,6 +4,24 @@ How to wire Claude Code, Codex CLI, opencode, OpenClaw, Hermes, or any other age
 
 Dory is a shared memory service, not a per-agent library. Run one daemon over a markdown corpus, then point each agent frontend at the same HTTP or MCP surface. Deployment URLs, corpus paths, and auth tokens are environment-specific and stay outside this repo.
 
+## Repo structure
+
+Agent-facing files live in these places:
+
+| Surface | Path | Purpose |
+|---|---|---|
+| Shared agent skills | `skills/dory-*/SKILL.md` | Portable wake/search/write/maintain/dream instructions for agents that support skill folders. |
+| Shared policy snippet | `scripts/agent-policy/dory-policy.md` | The global rule block installed into Claude Code, Codex CLI, and opencode rule files. |
+| Agent installer | `scripts/agent-policy/install.sh` | Idempotently registers the HTTP-backed MCP bridge and policy snippet for Claude Code, Codex CLI, and opencode. |
+| Claude/stdio bridge | `scripts/claude-code/dory-mcp-http-bridge.py` | Stdio MCP compatibility process that forwards tools to a running Dory HTTP server. |
+| Claude example config | `scripts/claude-code/mcp.example.json` | Minimal HTTP-bridge MCP config. Replace URL/token for remote or TLS deployments. |
+| Codex helper | `scripts/codex/dory` | CLI wrapper that defaults to `data/corpus` and `.dory/index` in this repo. |
+| OpenClaw plugin | `packages/openclaw-dory/` | Native OpenClaw memory-slot plugin package. |
+| Hermes plugin | `plugins/hermes-dory/` | Hermes external memory provider package. |
+| Live tool schema | `GET /v1/tools` | HTTP-published MCP schema consumed by bridges and used as the contract source. |
+
+Claude Code, Codex CLI, and opencode are rule/MCP clients. OpenClaw and Hermes are code-based clients and are configured through their plugin/provider systems instead of the policy installer.
+
 ## Tool surface
 
 | Tool | MCP | HTTP | CLI | When to use |
@@ -96,6 +114,8 @@ DORY_HTTP_URL=http://127.0.0.1:8766 ./scripts/agent-policy/install.sh
 ```
 
 Registers the HTTP-backed MCP bridge and inserts `scripts/agent-policy/dory-policy.md` into supported agent rule files. Idempotent. Flags: `--dry-run`, `--skip-claude`, `--skip-codex`, `--skip-opencode`.
+
+OpenClaw setup lives under `packages/openclaw-dory/`. Hermes setup lives under `plugins/hermes-dory/`. They use the same HTTP daemon and bearer-token model, but they are not installed by `scripts/agent-policy/install.sh`.
 
 ## Direct HTTP examples
 

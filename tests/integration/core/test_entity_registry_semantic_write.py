@@ -11,12 +11,7 @@ def test_semantic_write_resolves_new_subjects_added_after_engine_init(tmp_path) 
     root = tmp_path / "corpus"
     (root / "people").mkdir(parents=True)
     (root / "people" / "avery.md").write_text(
-        "---\n"
-        "title: Avery\n"
-        "aliases:\n"
-        "  - avery\n"
-        "---\n"
-        "# Avery\n",
+        "---\ntitle: Avery\naliases:\n  - avery\n---\n# Avery\n",
         encoding="utf-8",
     )
 
@@ -24,12 +19,7 @@ def test_semantic_write_resolves_new_subjects_added_after_engine_init(tmp_path) 
 
     (root / "projects" / "sample").mkdir(parents=True)
     (root / "projects" / "sample" / "state.md").write_text(
-        "---\n"
-        "title: Sample\n"
-        "aliases:\n"
-        "  - sample\n"
-        "---\n"
-        "# Sample\n",
+        "---\ntitle: Sample\naliases:\n  - sample\n---\n# Sample\n",
         encoding="utf-8",
     )
 
@@ -107,10 +97,7 @@ def test_semantic_write_uses_llm_resolution_for_partial_subject_queries(tmp_path
     (root / "people").mkdir(parents=True)
     person_path = root / "people" / "alex-example.md"
     person_path.write_text(
-        "---\n"
-        "title: Alex Example\n"
-        "---\n"
-        "# Alex Example\n",
+        "---\ntitle: Alex Example\n---\n# Alex Example\n",
         encoding="utf-8",
     )
 

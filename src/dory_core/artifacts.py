@@ -46,10 +46,12 @@ def render_artifact_markdown(req: ArtifactReq, *, created: str) -> str:
         "",
     ]
     lines.extend(_render_artifact_sections(req.kind, question=req.question, body=body))
-    lines.extend([
-        "## Sources",
-        source_lines,
-    ])
+    lines.extend(
+        [
+            "## Sources",
+            source_lines,
+        ]
+    )
     return "\n".join(lines).strip() + "\n"
 
 

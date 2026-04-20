@@ -7,14 +7,7 @@ from dory_core.frontmatter import dump_markdown_document, load_markdown_document
 
 def test_frontmatter_parses_required_fields() -> None:
     doc = load_markdown_document(
-        "---\n"
-        "title: User\n"
-        "created: 2026-04-07\n"
-        "type: core\n"
-        "status: active\n"
-        "---\n"
-        "\n"
-        "Hello world.\n"
+        "---\ntitle: User\ncreated: 2026-04-07\ntype: core\nstatus: active\n---\n\nHello world.\n"
     )
 
     assert doc.frontmatter["title"] == "User"
@@ -27,16 +20,7 @@ def test_frontmatter_requires_fenced_header() -> None:
 
 
 def test_frontmatter_parses_multiline_yaml_lists() -> None:
-    doc = load_markdown_document(
-        "---\n"
-        "title: Weekly Digest\n"
-        "priorities:\n"
-        "  - shipping\n"
-        "  - recovery\n"
-        "---\n"
-        "\n"
-        "Body.\n"
-    )
+    doc = load_markdown_document("---\ntitle: Weekly Digest\npriorities:\n  - shipping\n  - recovery\n---\n\nBody.\n")
 
     assert doc.frontmatter["priorities"] == ["shipping", "recovery"]
 

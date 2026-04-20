@@ -332,13 +332,15 @@ def build_collectors(
             case "claude":
                 collectors.append(
                     ClaudeProjectsCollector(
-                        root=claude_projects_root or _env_path("DORY_CLAUDE_PROJECTS_ROOT", Path.home() / ".claude" / "projects")
+                        root=claude_projects_root
+                        or _env_path("DORY_CLAUDE_PROJECTS_ROOT", Path.home() / ".claude" / "projects")
                     )
                 )
             case "codex":
                 collectors.append(
                     CodexSessionsCollector(
-                        root=codex_sessions_root or _env_path("DORY_CODEX_SESSIONS_ROOT", Path.home() / ".codex" / "sessions")
+                        root=codex_sessions_root
+                        or _env_path("DORY_CODEX_SESSIONS_ROOT", Path.home() / ".codex" / "sessions")
                     )
                 )
             case "opencode":

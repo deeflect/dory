@@ -4,7 +4,6 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 
-import yaml
 
 from dory_core.frontmatter import dump_markdown_document, load_markdown_document
 

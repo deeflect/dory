@@ -18,11 +18,9 @@ Batched in chunks of 30 ideas per call with strict JSON schema.
 
 from __future__ import annotations
 
-import json
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Literal, Protocol, Sequence
+from typing import Any, Literal, Protocol, Sequence
 
 from dory_core.frontmatter import (
     dump_markdown_document,

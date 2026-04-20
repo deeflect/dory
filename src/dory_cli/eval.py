@@ -194,17 +194,11 @@ def run_eval(
         if is_hot_block and wake_block is not None:
             block_lower = wake_block.lower()
             if question.expected_sources:
-                hot_block_hit = any(
-                    source in wake_sources for source in question.expected_sources
-                )
-            hot_block_keyword_hit = sum(
-                1 for kw in question.expected_keywords if kw.lower() in block_lower
-            )
+                hot_block_hit = any(source in wake_sources for source in question.expected_sources)
+            hot_block_keyword_hit = sum(1 for kw in question.expected_keywords if kw.lower() in block_lower)
 
         try:
-            resp = engine.search(
-                SearchReq(query=question.question, k=top_k, mode="hybrid")
-            )
+            resp = engine.search(SearchReq(query=question.question, k=top_k, mode="hybrid"))
             retrieved_paths = [r.path for r in resp.results]
             retrieved_snippets = [r.snippet for r in resp.results]
         except Exception as err:  # pragma: no cover - captured in record
@@ -213,9 +207,7 @@ def run_eval(
         elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
 
         top_paths_set = set(retrieved_paths)
-        source_hits = sum(
-            1 for source in question.expected_sources if source in top_paths_set
-        )
+        source_hits = sum(1 for source in question.expected_sources if source in top_paths_set)
         evidence_parts = list(retrieved_snippets)
         evidence_parts.extend(
             _load_retrieved_source_bodies(
@@ -227,9 +219,7 @@ def run_eval(
         if is_hot_block and wake_block is not None:
             evidence_parts.insert(0, wake_block)
         joined_snippets = "\n".join(evidence_parts).lower()
-        keyword_hits = sum(
-            1 for kw in question.expected_keywords if kw.lower() in joined_snippets
-        )
+        keyword_hits = sum(1 for kw in question.expected_keywords if kw.lower() in joined_snippets)
         judge_decision = _maybe_judge(
             judge=judge,
             question=question,
@@ -319,14 +309,10 @@ def _decide_outcome(
     expected_keywords = len(question.expected_keywords)
 
     source_pass = expected_sources == 0 or source_hits >= 1
-    keyword_pass = expected_keywords == 0 or keyword_hits >= max(
-        1, expected_keywords // 2
-    )
+    keyword_pass = expected_keywords == 0 or keyword_hits >= max(1, expected_keywords // 2)
 
     if is_hot_block:
-        hot_pass = hot_block_hit or hot_block_keyword_hits >= max(
-            1, expected_keywords // 2
-        )
+        hot_pass = hot_block_hit or hot_block_keyword_hits >= max(1, expected_keywords // 2)
         if source_pass and keyword_pass:
             return "passed"
         if hot_pass and (source_pass or keyword_pass):
@@ -405,9 +391,7 @@ def run_command(
     questions_root: Path = typer.Option(DEFAULT_QUESTIONS_ROOT, "--questions-root"),
     runs_root: Path = typer.Option(DEFAULT_RUNS_ROOT, "--runs-root"),
     top_k: int = typer.Option(5, "--top-k", help="Top-k chunks per search"),
-    list_only: bool = typer.Option(
-        False, "--list-only", help="Skip live search; just scaffold run dir"
-    ),
+    list_only: bool = typer.Option(False, "--list-only", help="Skip live search; just scaffold run dir"),
 ) -> None:
     corpus_root: Path | None = None
     index_root: Path | None = None
@@ -466,8 +450,8 @@ def _render_summary(
         for cat in sorted(by_type):
             b = by_type[cat]
             lines.append(
-                f"| {cat} | {b.get('passed',0)} | {b.get('partial',0)} | "
-                f"{b.get('failed',0)} | {b.get('skipped',0)} |"
+                f"| {cat} | {b.get('passed', 0)} | {b.get('partial', 0)} | "
+                f"{b.get('failed', 0)} | {b.get('skipped', 0)} |"
             )
         lines.append("")
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from os import cpu_count
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -45,6 +46,13 @@ class DorySettings(BaseSettings):
     openrouter_maintenance_model: str = "google/gemini-3.1-flash-lite-preview"
     openrouter_timeout_seconds: float = Field(default=30.0, gt=0.0, le=300.0)
     openrouter_reasoning_effort: str = "low"
+    local_llm_api_key: str | None = None
+    local_llm_base_url: str = "http://127.0.0.1:11434/v1"
+    local_llm_model: str = "qwen3.5:4b"
+    local_llm_timeout_seconds: float = Field(default=5.0, gt=0.0, le=120.0)
+    local_llm_max_tokens: int = Field(default=512, ge=64, le=2048)
+    active_memory_llm_provider: Literal["openrouter", "local", "auto", "off"] = "openrouter"
+    active_memory_llm_stages: Literal["both", "plan", "compose"] = "both"
     migration_concurrency: int = Field(default=max(2, min(8, cpu_count() or 4)), ge=1, le=64)
     query_planner_enabled: bool = False
     query_expansion_enabled: bool = False

@@ -9,16 +9,17 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from dory_core.session_capture import SessionCapture
-from dory_core.session_cleaner import SessionCleaner
-from dory_core.session_collectors import CollectorStateStore, build_collectors, collect_sessions
-from dory_core.session_shipper import SessionShipResult, build_default_shipper
+from dory_core.session_capture import SessionCapture  # noqa: E402
+from dory_core.session_cleaner import SessionCleaner  # noqa: E402
+from dory_core.session_collectors import CollectorStateStore, build_collectors, collect_sessions  # noqa: E402
+from dory_core.session_shipper import SessionShipResult, SessionShipper, build_default_shipper  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,7 +41,9 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--base-url", default=os.environ.get("DORY_HTTP_URL", "http://127.0.0.1:8766"))
-    parser.add_argument("--auth-token", default=os.environ.get("DORY_HTTP_TOKEN") or os.environ.get("DORY_CLIENT_AUTH_TOKEN"))
+    parser.add_argument(
+        "--auth-token", default=os.environ.get("DORY_HTTP_TOKEN") or os.environ.get("DORY_CLIENT_AUTH_TOKEN")
+    )
     parser.add_argument("--checkpoints-path", default=os.environ.get("DORY_CLIENT_CHECKPOINTS_PATH", ""))
     parser.add_argument(
         "--harnesses",
@@ -70,7 +73,9 @@ def main() -> int:
     harnesses = tuple(part.strip() for part in args.harnesses.split() if part.strip())
     if not harnesses:
         raise SystemExit("no harnesses selected for auto-discovery")
-    checkpoints_path = Path(args.checkpoints_path) if args.checkpoints_path else Path(args.spool_root) / "checkpoints.json"
+    checkpoints_path = (
+        Path(args.checkpoints_path) if args.checkpoints_path else Path(args.spool_root) / "checkpoints.json"
+    )
 
     if args.watch:
         while True:
@@ -81,7 +86,11 @@ def main() -> int:
                 shipper=shipper,
                 no_flush=bool(args.no_flush),
             )
-            if payload["queued"] or payload["result"]["sent"] or payload["result"]["failed"]:
+            result = payload["result"]
+            if not isinstance(result, dict):
+                raise TypeError("session shipper result payload must be a mapping")
+            result_payload = cast(dict[str, object], result)
+            if payload["queued"] or result_payload["sent"] or result_payload["failed"]:
                 print(json.dumps(payload, indent=2, sort_keys=True))
             time.sleep(max(args.poll_seconds, 1.0))
     else:
@@ -96,7 +105,7 @@ def main() -> int:
     return 0
 
 
-def _run_manual_mode(args: argparse.Namespace, *, shipper: object) -> dict[str, object]:
+def _run_manual_mode(args: argparse.Namespace, *, shipper: SessionShipper) -> dict[str, object]:
     raw_text = _read_source(args.source)
     cleaner = SessionCleaner()
     cleaned = cleaner.clean(raw_text)
@@ -129,7 +138,7 @@ def _run_auto_mode(
     harnesses: tuple[str, ...],
     device: str,
     checkpoints_path: Path,
-    shipper: object,
+    shipper: SessionShipper,
     no_flush: bool,
 ) -> dict[str, object]:
     state_store = CollectorStateStore(checkpoints_path)

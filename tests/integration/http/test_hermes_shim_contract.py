@@ -49,9 +49,7 @@ def test_hermes_provider_covers_http_verbs(
 
     reindex_corpus(corpus_root, index_root, fake_embedder)
     token = issue_token("hermes", auth_tokens_path)
-    client = TestClient(
-        build_app(corpus_root, index_root, auth_tokens_path=auth_tokens_path, embedder=fake_embedder)
-    )
+    client = TestClient(build_app(corpus_root, index_root, auth_tokens_path=auth_tokens_path, embedder=fake_embedder))
     provider_cls = _load_provider_class()
     provider = provider_cls(
         base_url=str(client.base_url),
@@ -143,8 +141,7 @@ def test_hermes_provider_covers_http_verbs(
     semantic_artifacts = sorted((corpus_root / "sources" / "semantic").rglob("*.md"))
     assert len(semantic_artifacts) == 2
     artifact_frontmatters = [
-        load_markdown_document(path.read_text(encoding="utf-8")).frontmatter
-        for path in semantic_artifacts
+        load_markdown_document(path.read_text(encoding="utf-8")).frontmatter for path in semantic_artifacts
     ]
     assert {frontmatter["action"] for frontmatter in artifact_frontmatters} == {
         "write",
@@ -179,9 +176,7 @@ def test_hermes_provider_supports_hermes_plugin_surface(
 
     reindex_corpus(corpus_root, index_root, fake_embedder)
     token = issue_token("hermes", auth_tokens_path)
-    client = TestClient(
-        build_app(corpus_root, index_root, auth_tokens_path=auth_tokens_path, embedder=fake_embedder)
-    )
+    client = TestClient(build_app(corpus_root, index_root, auth_tokens_path=auth_tokens_path, embedder=fake_embedder))
     provider_cls = _load_provider_class()
     provider = provider_cls(
         base_url=str(client.base_url),
@@ -256,7 +251,7 @@ def test_hermes_provider_supports_hermes_plugin_surface(
                 "target": "inbox/hermes-sync.md",
                 "content": "Synced durable memory.",
                 "frontmatter": {"title": "Hermes sync", "type": "capture"},
-            }
+            },
         ]
     )
 
@@ -288,7 +283,4 @@ def test_hermes_provider_supports_hermes_plugin_surface(
     assert "Remember my async preferences." in session_text
     assert "I will keep that in mind." in session_text
     mirrored_memory_paths = sorted(corpus_root.rglob("*.md"))
-    assert any(
-        "Hermes mirrored memory write." in path.read_text(encoding="utf-8")
-        for path in mirrored_memory_paths
-    )
+    assert any("Hermes mirrored memory write." in path.read_text(encoding="utf-8") for path in mirrored_memory_paths)

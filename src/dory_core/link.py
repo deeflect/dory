@@ -223,11 +223,7 @@ def extract_known_entity_edges(
         if entity.target_path == from_path:
             continue
         matched_alias = next(
-            (
-                alias
-                for alias in entity.aliases
-                if alias and f" {alias} " in normalized_text
-            ),
+            (alias for alias in entity.aliases if alias and f" {alias} " in normalized_text),
             None,
         )
         if matched_alias is None:

@@ -20,7 +20,7 @@ Recommended model:
 
 ## Config
 
-Environment-first:
+Environment variables:
 
 - `DORY_HTTP_URL`
 - `DORY_HTTP_TOKEN`
@@ -49,15 +49,22 @@ Provider-native config:
 
 Config resolution order:
 
+1. Environment variables provide defaults.
+2. The first discovered provider/main config file overrides those defaults value-by-value.
+3. If no config file exists, the provider runs from environment/default values only.
+
+Config file candidates are checked in this order:
+
 1. `$HERMES_HOME/dory.yaml`
 2. `$HERMES_HOME/dory.yml`
 3. `$HERMES_HOME/dory/config.yaml`
 4. `$HERMES_HOME/config.yaml`
-5. `~/.hermes/dory.yaml`
-6. `~/.hermes/dory.yml`
-7. `~/.hermes/dory/config.yaml`
-8. `~/.hermes/config.yaml`
-9. environment variables
+5. `$HERMES_HOME/config.yml`
+6. `~/.hermes/dory.yaml`
+7. `~/.hermes/dory.yml`
+8. `~/.hermes/dory/config.yaml`
+9. `~/.hermes/config.yaml`
+10. `~/.hermes/config.yml`
 
 Search mode notes:
 

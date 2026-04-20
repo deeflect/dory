@@ -30,7 +30,6 @@ from dory_core.metadata import (
     normalize_frontmatter,
 )
 from dory_core.migration_source_router import RoutingDecision, walk_source_tree
-from dory_core.slug import slugify_path_segment
 
 
 ProgressCallback = Callable[["ExecutionProgress"], None]

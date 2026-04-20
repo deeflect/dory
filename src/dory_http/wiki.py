@@ -47,7 +47,7 @@ def render_wiki_page(corpus_root: Path, page: str) -> HTMLResponse:
     meta_html = _render_metadata(document.frontmatter, document.relative_path)
     html = _layout(
         title=document.title,
-        content=f"{meta_html}<article class=\"wiki-doc\">{body_html}</article>",
+        content=f'{meta_html}<article class="wiki-doc">{body_html}</article>',
     )
     return HTMLResponse(html)
 
@@ -64,13 +64,13 @@ def render_wiki_search(corpus_root: Path, query: str) -> HTMLResponse:
         _search_form(normalized_query),
     ]
     if normalized_query:
-        content.append(f"<p class=\"muted\">{len(hits)} result(s)</p>")
+        content.append(f'<p class="muted">{len(hits)} result(s)</p>')
     if hits:
-        content.append("<ol class=\"search-results\">")
+        content.append('<ol class="search-results">')
         for hit in hits:
             content.append(
                 "<li>"
-                f"<a href=\"{escape(hit.href, quote=True)}\">{escape(hit.title)}</a>"
+                f'<a href="{escape(hit.href, quote=True)}">{escape(hit.title)}</a>'
                 f"<code>{escape(hit.relative_path)}</code>"
                 f"<p>{escape(hit.snippet)}</p>"
                 "</li>"
@@ -88,18 +88,18 @@ def render_wiki_login(
     error: str | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
-    error_html = f"<p class=\"error\">{escape(error)}</p>" if error else ""
+    error_html = f'<p class="error">{escape(error)}</p>' if error else ""
     content = (
-        "<section class=\"login-panel\">"
+        '<section class="login-panel">'
         "<h1>Dory Wiki</h1>"
-        "<p class=\"muted\">Enter the wiki password to open this browser session.</p>"
+        '<p class="muted">Enter the wiki password to open this browser session.</p>'
         f"{error_html}"
-        "<form class=\"login\" action=\"/wiki/login\" method=\"post\">"
-        f"<input type=\"hidden\" name=\"next\" value=\"{escape(next_path, quote=True)}\" />"
+        '<form class="login" action="/wiki/login" method="post">'
+        f'<input type="hidden" name="next" value="{escape(next_path, quote=True)}" />'
         "<label>Password"
-        "<input name=\"password\" type=\"password\" autocomplete=\"current-password\" autofocus />"
+        '<input name="password" type="password" autocomplete="current-password" autofocus />'
         "</label>"
-        "<button type=\"submit\">Open Wiki</button>"
+        '<button type="submit">Open Wiki</button>'
         "</form>"
         "</section>"
     )
@@ -208,7 +208,7 @@ def _render_metadata(frontmatter: dict[str, object], relative_path: str) -> str:
         value = frontmatter.get(key)
         if isinstance(value, str) and value.strip():
             chips.append(f"<span>{escape(key)}: {escape(value)}</span>")
-    return f"<div class=\"meta\">{''.join(chips)}</div>"
+    return f'<div class="meta">{"".join(chips)}</div>'
 
 
 def _render_markdown_body(markdown: str) -> str:
@@ -276,7 +276,7 @@ def _render_inline(text: str) -> str:
         target = match.group(1).strip()
         label = (match.group(2) or target).strip()
         href = _href_for_wikilink(target)
-        parts.append(f"<a href=\"{escape(href, quote=True)}\">{escape(label)}</a>")
+        parts.append(f'<a href="{escape(href, quote=True)}">{escape(label)}</a>')
         cursor = match.end()
     parts.append(escape(text[cursor:]))
     return "".join(parts)
@@ -323,18 +323,15 @@ def _plain_snippet(text: str) -> str:
 
 def _search_form(query: str = "") -> str:
     return (
-        "<form class=\"search\" action=\"/wiki/search\" method=\"get\">"
-        f"<input name=\"q\" value=\"{escape(query, quote=True)}\" placeholder=\"Search generated wiki pages\" />"
-        "<button type=\"submit\">Search</button>"
+        '<form class="search" action="/wiki/search" method="get">'
+        f'<input name="q" value="{escape(query, quote=True)}" placeholder="Search generated wiki pages" />'
+        '<button type="submit">Search</button>'
         "</form>"
     )
 
 
 def _layout(*, title: str, content: str, include_search: bool = True) -> str:
-    nav = "".join(
-        f"<a href=\"{href}\">{escape(label)}</a>"
-        for label, href in _NAV_LINKS
-    )
+    nav = "".join(f'<a href="{href}">{escape(label)}</a>' for label, href in _NAV_LINKS)
     search = _search_form() if include_search else ""
     return f"""<!doctype html>
 <html lang="en">

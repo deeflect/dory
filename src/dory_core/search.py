@@ -149,9 +149,7 @@ def _build_fts_query(query: str) -> str:
 def _build_query_profile(query: str) -> QueryProfile:
     raw_tokens = [token.lower() for token in _FTS_TOKEN_RE.findall(query)]
     normalized_tokens = _dedupe_preserve_order(
-        _normalize_match_token(token)
-        for token in raw_tokens
-        if token not in _STOPWORD_TOKENS and len(token) >= 3
+        _normalize_match_token(token) for token in raw_tokens if token not in _STOPWORD_TOKENS and len(token) >= 3
     )
     phrases = _dedupe_preserve_order(_extract_match_phrases(query))
     has_identifier_hint = bool(_FTS_SEGMENT_RE.search(query)) or any(char in query for char in "@/._-")
@@ -483,10 +481,7 @@ class SearchEngine:
         )
         return self._rows_for_chunk_ids(
             [record.chunk_id for record in ranking[:limit]],
-            score_map={
-                record.chunk_id: _cosine_similarity(query_vector, record.vector)
-                for record in ranking[:limit]
-            },
+            score_map={record.chunk_id: _cosine_similarity(query_vector, record.vector) for record in ranking[:limit]},
         )
 
     def _hybrid(
@@ -688,7 +683,9 @@ class SearchEngine:
             return ""
         if include_content:
             return body[:700]
-        first_line = next((line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#")), "")
+        first_line = next(
+            (line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#")), ""
+        )
         return first_line[:240]
 
     def _search_session_plane(
@@ -1133,10 +1130,7 @@ def _normalized_scores(rows: Sequence[_ChunkRow], *, mode: SearchMode) -> dict[s
     minimum = min(values)
     maximum = max(values)
     if maximum == minimum:
-        return {
-            row.chunk_id: _rank_normalized_score(index, total=len(rows))
-            for index, row in enumerate(rows, start=1)
-        }
+        return {row.chunk_id: _rank_normalized_score(index, total=len(rows)) for index, row in enumerate(rows, start=1)}
     return {
         row.chunk_id: max(0.0, min(1.0, (value - minimum) / (maximum - minimum)))
         for row, value in zip(rows, values, strict=True)
@@ -1150,14 +1144,7 @@ def _rank_normalized_score(position: int, *, total: int) -> float:
 
 
 def _scope_has_filters(scope: SearchScope) -> bool:
-    return bool(
-        scope.path_glob
-        or scope.type
-        or scope.status
-        or scope.tags
-        or scope.since
-        or scope.until
-    )
+    return bool(scope.path_glob or scope.type or scope.status or scope.tags or scope.since or scope.until)
 
 
 def _filter_scope_rows(rows: Sequence[_ChunkRow], scope: SearchScope) -> list[_ChunkRow]:
@@ -1203,11 +1190,7 @@ def _frontmatter_tag_set(frontmatter: dict[str, object]) -> set[str]:
     if isinstance(raw_tags, str):
         return {raw_tags.strip().lower()} if raw_tags.strip() else set()
     if isinstance(raw_tags, list):
-        return {
-            value.strip().lower()
-            for value in raw_tags
-            if isinstance(value, str) and value.strip()
-        }
+        return {value.strip().lower() for value in raw_tags if isinstance(value, str) and value.strip()}
     return set()
 
 
@@ -1235,11 +1218,7 @@ def _extract_match_phrases(query: str) -> tuple[str, ...]:
 
 
 def _extract_normalized_tokens(text: str) -> tuple[str, ...]:
-    return tuple(
-        _normalize_match_token(token)
-        for token in _FTS_TOKEN_RE.findall(text.lower())
-        if len(token) >= 2
-    )
+    return tuple(_normalize_match_token(token) for token in _FTS_TOKEN_RE.findall(text.lower()) if len(token) >= 2)
 
 
 def _normalize_text_for_matching(text: str) -> str:

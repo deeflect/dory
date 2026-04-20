@@ -13,10 +13,7 @@ def test_apply_migrations_creates_expected_tables(tmp_path: Path) -> None:
 
     with sqlite3.connect(db_path) as connection:
         tables = {
-            row[0]
-            for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
-            )
+            row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")
         }
 
     assert {

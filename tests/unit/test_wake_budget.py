@@ -53,9 +53,7 @@ def test_wake_builder_truncates_when_budget_is_tight(sample_corpus_root) -> None
 
 
 def test_wake_builder_includes_recent_sessions_when_budget_allows(sample_corpus_root) -> None:
-    resp = WakeBuilder(sample_corpus_root).build(
-        WakeReq(agent="codex", budget_tokens=200, include_recent_sessions=1)
-    )
+    resp = WakeBuilder(sample_corpus_root).build(WakeReq(agent="codex", budget_tokens=200, include_recent_sessions=1))
 
     assert "## Recent sessions" in resp.block
     assert "logs/sessions/claude-code/2026-04-07.md" in resp.block
@@ -87,19 +85,11 @@ def test_wake_builder_sorts_recent_sessions_by_mtime_and_skips_heading_lines(tmp
     older = sessions_root / "2026-04-10.md"
     newer = sessions_root / "2026-04-01.md"
     older.write_text(
-        "---\n"
-        "title: Older\n"
-        "---\n"
-        "# Session\n\n"
-        "Older focus note.\n",
+        "---\ntitle: Older\n---\n# Session\n\nOlder focus note.\n",
         encoding="utf-8",
     )
     newer.write_text(
-        "---\n"
-        "title: Newer\n"
-        "---\n"
-        "# Session\n\n"
-        "Newest focus note.\n",
+        "---\ntitle: Newer\n---\n# Session\n\nNewest focus note.\n",
         encoding="utf-8",
     )
     os.utime(older, (100, 100))

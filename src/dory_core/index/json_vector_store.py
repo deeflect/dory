@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable
 
 from dory_core.fs import atomic_write_text
 
@@ -65,8 +65,7 @@ class JsonVectorStore:
     def _validate_record(self, record: VectorRecord) -> None:
         if len(record.vector) != self.dimension:
             raise ValueError(
-                f"vector for {record.chunk_id!r} has dimension {len(record.vector)}; "
-                f"expected {self.dimension}"
+                f"vector for {record.chunk_id!r} has dimension {len(record.vector)}; expected {self.dimension}"
             )
 
     def _load(self) -> dict[str, VectorRecord]:

@@ -22,7 +22,7 @@ def _write_public_fixture(root: Path) -> None:
     (questions_root / "q01-atlas-overview.yaml").write_text(
         "\n".join(
             [
-                'id: q01',
+                "id: q01",
                 'question: "What is Atlas in the public eval suite?"',
                 "expected_sources:",
                 "  - projects/atlas/state.md",
@@ -90,7 +90,7 @@ def test_validate_accepts_custom_roots_and_reports_keyword_failures(
     (questions_root / "q01-custom.yaml").write_text(
         "\n".join(
             [
-                'id: q01',
+                "id: q01",
                 'question: "What lives in the custom corpus?"',
                 "expected_sources:",
                 "  - docs/example.md",

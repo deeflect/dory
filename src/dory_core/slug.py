@@ -10,9 +10,7 @@ _HYPHENS = re.compile(r"-{2,}")
 
 def slugify_path_segment(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value)
-    ascii_only = "".join(
-        ch for ch in normalized if not unicodedata.combining(ch)
-    ).lower()
+    ascii_only = "".join(ch for ch in normalized if not unicodedata.combining(ch)).lower()
     hyphenated = _WHITESPACE.sub("-", ascii_only)
     cleaned = _INVALID_CHARS.sub("", hyphenated)
     collapsed = _HYPHENS.sub("-", cleaned)

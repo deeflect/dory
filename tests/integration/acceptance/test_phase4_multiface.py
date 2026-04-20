@@ -46,9 +46,7 @@ class SharedCore:
         }
 
     def search(self, req: dict[str, object]):
-        return SearchEngine(self.index_root, self.fake_embedder).search(
-            SearchReq.model_validate(req)
-        )
+        return SearchEngine(self.index_root, self.fake_embedder).search(SearchReq.model_validate(req))
 
     def wake(self, req: dict[str, object]):
         return WakeBuilder(self.corpus_root).build(WakeReq.model_validate(req))

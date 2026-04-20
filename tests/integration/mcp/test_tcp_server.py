@@ -41,7 +41,8 @@ def test_tcp_server_lists_tools_and_calls_wake() -> None:
         with socket.create_connection((host, port), timeout=2.0) as connection:
             connection.sendall(
                 (
-                    json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"
+                    json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+                    + "\n"
                     + json.dumps(
                         {
                             "jsonrpc": "2.0",

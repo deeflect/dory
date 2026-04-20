@@ -12,14 +12,7 @@ def test_migration_forces_source_metadata_on_imported_evidence(tmp_path: Path) -
     legacy_root.mkdir()
     note = legacy_root / "legacy.md"
     note.write_text(
-        "---\n"
-        "title: Legacy\n"
-        "canonical: true\n"
-        "source_kind: human\n"
-        "status: active\n"
-        "---\n"
-        "\n"
-        "Legacy body.\n",
+        "---\ntitle: Legacy\ncanonical: true\nsource_kind: human\nstatus: active\n---\n\nLegacy body.\n",
         encoding="utf-8",
     )
 

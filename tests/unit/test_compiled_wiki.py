@@ -191,7 +191,10 @@ Avery source summary.
     assert "Avery source summary. [confirmed, high, fresh]" not in content
     assert "### Added" in content
     assert "### Replaced" in content
-    assert "sources/semantic/2026/04/16/avery-concise.md - Avery prefers written updates. - new preference confirmed" in content
+    assert (
+        "sources/semantic/2026/04/16/avery-concise.md - Avery prefers written updates. - new preference confirmed"
+        in content
+    )
     assert "2026-04-16T00:00:00Z: Replaced: Avery prefers written updates. (new preference confirmed)" in content
 
 

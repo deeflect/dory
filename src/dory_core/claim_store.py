@@ -206,7 +206,6 @@ class ClaimStore:
             claim_rows = connection.execute(query, params).fetchall()
             if not claim_rows:
                 return
-            claim_ids = [row[0] for row in claim_rows]
             if kind is None:
                 connection.execute(
                     """

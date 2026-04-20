@@ -99,7 +99,9 @@ def test_dream_distill_and_propose_commands(cli_runner, monkeypatch, tmp_path: P
     assert payload["actions"][0]["subject"] == "dory"
 
 
-def test_maintain_inspect_command_writes_report(cli_runner, monkeypatch, tmp_path: Path, sample_corpus_root: Path) -> None:
+def test_maintain_inspect_command_writes_report(
+    cli_runner, monkeypatch, tmp_path: Path, sample_corpus_root: Path
+) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / ".index"
     for source in sample_corpus_root.rglob("*.md"):

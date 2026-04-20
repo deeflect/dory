@@ -17,6 +17,7 @@ from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.artifacts import ArtifactWriter
 from dory_core.frontmatter import load_markdown_document
 from dory_core.link import LinkService
+from dory_core.llm.active_memory import build_active_memory_components
 from dory_core.llm.openrouter import build_openrouter_client
 from dory_core.llm_rerank import build_reranker
 from dory_core.purge import PurgeEngine
@@ -26,7 +27,16 @@ from dory_core.research import ResearchEngine
 from dory_core.search import SearchEngine
 from dory_core.semantic_write import SemanticWriteEngine
 from dory_core.status import build_status, serialize_status
-from dory_core.types import ActiveMemoryReq, LinkReq, MemoryWriteReq, PurgeReq, ResearchReq, SearchReq, WakeReq, WriteReq
+from dory_core.types import (
+    ActiveMemoryReq,
+    LinkReq,
+    MemoryWriteReq,
+    PurgeReq,
+    ResearchReq,
+    SearchReq,
+    WakeReq,
+    WriteReq,
+)
 from dory_core.wake import WakeBuilder
 from dory_core.write import WriteEngine
 from dory_mcp.tools import TOOL_MAP, build_tool_schemas
@@ -76,7 +86,7 @@ class RuntimeCore:
         return WakeBuilder(self.corpus_root).build(WakeReq.model_validate(req))
 
     def active_memory(self, req: dict[str, Any]) -> Any:
-        planner = _build_retrieval_planner(DorySettings(), purpose="maintenance")
+        planner, composer = build_active_memory_components(DorySettings())
         return ActiveMemoryEngine(
             wake_builder=WakeBuilder(self.corpus_root),
             search_engine=SearchEngine(
@@ -89,7 +99,7 @@ class RuntimeCore:
             ),
             root=self.corpus_root,
             planner=planner,
-            composer=planner,
+            composer=composer,
         ).build(ActiveMemoryReq.model_validate(req))
 
     def research(self, req: dict[str, Any]) -> Any:

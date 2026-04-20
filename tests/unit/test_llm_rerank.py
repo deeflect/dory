@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from dory_core.llm.openrouter import OpenRouterClient, OpenRouterProviderError
+from dory_core.llm.openrouter import OpenRouterProviderError
 from dory_core.llm_rerank import (
     OpenRouterReranker,
     RerankCandidate,
@@ -49,10 +49,14 @@ def _candidate(chunk_id: str, *, path: str = "", title: str = "", snippet: str =
 
 
 def test_openrouter_reranker_returns_ordered_result() -> None:
-    client = _FakeClient(payload={"ranking": [
-        {"chunk_id": "b", "score": 0.9},
-        {"chunk_id": "a", "score": 0.4},
-    ]})
+    client = _FakeClient(
+        payload={
+            "ranking": [
+                {"chunk_id": "b", "score": 0.9},
+                {"chunk_id": "a", "score": 0.4},
+            ]
+        }
+    )
     reranker = OpenRouterReranker(client=client)  # type: ignore[arg-type]
 
     result = reranker.rerank(query="q", candidates=[_candidate("a"), _candidate("b")])
@@ -103,10 +107,12 @@ def test_parse_appends_missing_candidates_at_end() -> None:
 
 
 def test_parse_rejects_unknown_chunk_ids() -> None:
-    payload = {"ranking": [
-        {"chunk_id": "nope", "score": 0.9},
-        {"chunk_id": "a", "score": 0.5},
-    ]}
+    payload = {
+        "ranking": [
+            {"chunk_id": "nope", "score": 0.9},
+            {"chunk_id": "a", "score": 0.5},
+        ]
+    }
     result = _parse_rerank_payload(payload, [_candidate("a"), _candidate("b")])
 
     assert result is not None
@@ -115,11 +121,13 @@ def test_parse_rejects_unknown_chunk_ids() -> None:
 
 
 def test_parse_deduplicates_repeated_ids() -> None:
-    payload = {"ranking": [
-        {"chunk_id": "a", "score": 0.9},
-        {"chunk_id": "a", "score": 0.1},
-        {"chunk_id": "b", "score": 0.4},
-    ]}
+    payload = {
+        "ranking": [
+            {"chunk_id": "a", "score": 0.9},
+            {"chunk_id": "a", "score": 0.1},
+            {"chunk_id": "b", "score": 0.4},
+        ]
+    }
     result = _parse_rerank_payload(payload, [_candidate("a"), _candidate("b")])
 
     assert result is not None

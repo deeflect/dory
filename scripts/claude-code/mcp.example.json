@@ -1,12 +1,15 @@
 {
   "mcpServers": {
     "dory": {
-      "command": "uv",
+      "command": "python3",
       "args": [
-        "run",
-        "dory-mcp"
+        "scripts/claude-code/dory-mcp-http-bridge.py"
       ],
-      "cwd": "."
+      "cwd": ".",
+      "env": {
+        "DORY_HTTP_URL": "http://127.0.0.1:8766",
+        "DORY_CLIENT_AUTH_TOKEN": ""
+      }
     }
   }
 }

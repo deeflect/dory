@@ -340,9 +340,13 @@ class SemanticWriteEngine:
         self.writer = WriteEngine(root=self.root, index_root=index_root, embedder=embedder)
         self.registry = EntityRegistry(self.root / ".dory" / "entity-registry.db")
         self.claim_store = ClaimStore(self.root / ".dory" / "claim-store.db")
-        resolved_client = resolver_client if resolver_client is not None else build_openrouter_client(
-            DorySettings(),
-            purpose="maintenance",
+        resolved_client = (
+            resolver_client
+            if resolver_client is not None
+            else build_openrouter_client(
+                DorySettings(),
+                purpose="maintenance",
+            )
         )
         self.resolver = RegistryBackedSubjectResolver(
             self.root,
@@ -676,10 +680,7 @@ class SemanticWriteEngine:
         while True:
             stamp = datetime.now(tz=UTC)
             day_path = stamp.strftime("%Y/%m/%d")
-            candidate = (
-                f"sources/semantic/{day_path}/"
-                f"{subject_slug}-{stamp.strftime('%Y%m%d-%H%M%S-%f')}-{action}.md"
-            )
+            candidate = f"sources/semantic/{day_path}/{subject_slug}-{stamp.strftime('%Y%m%d-%H%M%S-%f')}-{action}.md"
             if not resolve_corpus_target(self.root, Path(candidate)).exists():
                 return candidate
 
@@ -795,7 +796,9 @@ class SemanticWriteEngine:
             )
         )
 
-    def _canonical_rendered_document(self, plan: SemanticWritePlan, *, evidence_path: str) -> tuple[dict[str, object], str]:
+    def _canonical_rendered_document(
+        self, plan: SemanticWritePlan, *, evidence_path: str
+    ) -> tuple[dict[str, object], str]:
         target = self.root / plan.target_path
         current_text = target.read_text(encoding="utf-8") if target.exists() else None
         aliases = infer_aliases_from_subject(plan.target_subject_ref, requested_subject=plan.subject)
@@ -823,7 +826,9 @@ class SemanticWriteEngine:
                 current_text,
                 family=plan.family,
                 title=plan.title,
-                slug=Path(plan.target_path).parent.name if Path(plan.target_path).name == "state.md" else Path(plan.target_path).stem,
+                slug=Path(plan.target_path).parent.name
+                if Path(plan.target_path).name == "state.md"
+                else Path(plan.target_path).stem,
                 domain="mixed",
                 aliases=aliases,
                 section_updates=section_updates,
@@ -903,7 +908,9 @@ def build_semantic_write_plan(
         subject_ref=match.subject_ref,
         target_subject_ref=target_subject_ref,
         family=target_family,
-        title=canonical_title_from_subject(target_subject_ref) if target_family == "decision" and match.family != "decision" else match.title,
+        title=canonical_title_from_subject(target_subject_ref)
+        if target_family == "decision" and match.family != "decision"
+        else match.title,
         target_path=target_path,
         resolved_mode=resolved_mode,
         content=req.content,
@@ -1025,12 +1032,7 @@ def _subject_resolution_user_prompt(
         candidate_lines.append(
             f"- {entry.subject_ref} | family={entry.family} | title={entry.title} | aliases={aliases} | target={entry.target_path}"
         )
-    return (
-        f"Subject query: {subject}\n"
-        f"Requested scope: {scope_text}\n"
-        "Candidates:\n"
-        + "\n".join(candidate_lines)
-    )
+    return f"Subject query: {subject}\nRequested scope: {scope_text}\nCandidates:\n" + "\n".join(candidate_lines)
 
 
 def _parse_subject_resolution_decision(payload: Any) -> SubjectResolutionDecision:

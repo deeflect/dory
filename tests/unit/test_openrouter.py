@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dory_core.config import DorySettings
 from dory_core.eval_judge import EvalJudgeRequest, OpenRouterEvalJudge
-from dory_core.llm.openrouter import OpenRouterClient, OpenRouterProviderError, build_openrouter_client, resolve_openrouter_model_metadata
+from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client, resolve_openrouter_model_metadata
 from dory_core.query_expansion import OpenRouterQueryExpander
 
 

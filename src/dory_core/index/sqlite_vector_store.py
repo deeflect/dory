@@ -125,8 +125,7 @@ class SqliteVectorStore:
     def _validate_record(self, record: VectorRecord) -> None:
         if len(record.vector) != self.dimension:
             raise ValueError(
-                f"vector for {record.chunk_id!r} has dimension {len(record.vector)}; "
-                f"expected {self.dimension}"
+                f"vector for {record.chunk_id!r} has dimension {len(record.vector)}; expected {self.dimension}"
             )
 
     @staticmethod

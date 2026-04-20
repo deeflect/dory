@@ -76,7 +76,17 @@ def build_tool_schemas() -> list[dict[str, Any]]:
                     "k": {"type": "integer"},
                     "mode": {
                         "type": "string",
-                        "enum": ["bm25", "text", "keyword", "lexical", "vector", "semantic", "hybrid", "recall", "exact"],
+                        "enum": [
+                            "bm25",
+                            "text",
+                            "keyword",
+                            "lexical",
+                            "vector",
+                            "semantic",
+                            "hybrid",
+                            "recall",
+                            "exact",
+                        ],
                     },
                     "corpus": {"type": "string", "enum": ["durable", "sessions", "all"]},
                     "scope": {
