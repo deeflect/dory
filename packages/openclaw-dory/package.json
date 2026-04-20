@@ -1,0 +1,27 @@
+{
+  "name": "dory-memory",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Dory-backed OpenClaw memory plugin",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": "./dist/index.js",
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "dist",
+    "src",
+    "openclaw.plugin.json",
+    "README.md",
+    "tsconfig.json"
+  ]
+}

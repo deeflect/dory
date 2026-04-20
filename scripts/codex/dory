@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+
+exec uv run python -m dory_cli.main \
+  --corpus-root "${DORY_CORPUS_ROOT:-$repo_root/data/corpus}" \
+  --index-root "${DORY_INDEX_ROOT:-$repo_root/.dory/index}" \
+  "$@"

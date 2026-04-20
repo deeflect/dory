@@ -1,0 +1,14 @@
+id: q04
+question: "What changed on 2026-04-18 in the public eval work?"
+expected_sources:
+  - logs/daily/2026-04-18-public-eval.md
+expected_keywords:
+  - "public eval split"
+  - "validator defaults"
+  - "private corpus untouched"
+type: temporal
+freshness_sensitive: true
+task_grounded: false
+difficulty: easy
+notes: >
+  Simple dated log check to keep the public suite anchored in a time-stamped file.

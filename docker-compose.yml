@@ -1,0 +1,30 @@
+services:
+  doryd:
+    build: .
+    container_name: doryd
+    restart: unless-stopped
+    environment:
+      DORY_ROOT: /var/lib/dory
+      DORY_CORPUS_ROOT: /var/lib/dory
+      DORY_INDEX_ROOT: /var/lib/dory/.index
+      DORY_AUTH_TOKENS_PATH: /var/lib/dory/.dory/auth-tokens.json
+      DORY_ALLOW_NO_AUTH: ${DORY_ALLOW_NO_AUTH:-false}
+      DORY_WEB_PASSWORD: ${DORY_WEB_PASSWORD:-}
+      DORY_GEMINI_API_KEY: ${DORY_GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      DORY_OPENROUTER_API_KEY: ${DORY_OPENROUTER_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DORY_HTTP_HOST: 0.0.0.0
+      DORY_HTTP_PORT: 8766
+    ports:
+      - "${DORY_HTTP_BIND:-127.0.0.1}:${DORY_HTTP_PORT:-8766}:8766"
+    volumes:
+      - ${DORY_DATA_ROOT:-./data/corpus}:/var/lib/dory
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/healthz', timeout=2).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      dory.mcp.port: "8765"
+      dory.http.port: "8766"

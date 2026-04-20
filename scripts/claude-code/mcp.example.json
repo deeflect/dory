@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "dory": {
+      "command": "uv",
+      "args": [
+        "run",
+        "dory-mcp"
+      ],
+      "cwd": "."
+    }
+  }
+}

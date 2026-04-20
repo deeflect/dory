@@ -1,0 +1,47 @@
+# local corpus and private release-hold material are not part of the public repo
+data/
+content/
+.private/
+.env
+.env.*
+!.env.example
+.worktrees/
+
+# claude code project metadata
+.claude/
+
+# python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+!packages/openclaw-dory/dist/
+!packages/openclaw-dory/dist/index.js
+
+# uv
+.uv/
+# uv.lock is tracked on purpose — it's what the Docker build pins against
+
+# dory daemon runtime
+.index/
+.dory/
+eval/runs/*
+!eval/runs/.gitkeep
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

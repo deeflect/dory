@@ -1,0 +1,85 @@
+[project]
+name = "dory"
+version = "0.1.0"
+description = "Local-first memory daemon"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+  { name = "Dory contributors" },
+]
+dependencies = [
+  "fastapi>=0.116,<1",
+  "google-genai>=1.42,<2",
+  "httpx>=0.28,<1",
+  "pydantic>=2.11,<3",
+  "pydantic-settings>=2.10,<3",
+  "pyyaml>=6.0,<7",
+  "textual>=0.78,<1",
+  "tiktoken>=0.9,<1",
+  "typer>=0.16,<1",
+  "uvicorn>=0.35,<1",
+  "watchdog>=4,<7",
+]
+
+[project.scripts]
+dory = "dory_cli.main:run"
+dory-http = "dory_http.app:main"
+dory-mcp = "dory_mcp.server:main"
+
+[dependency-groups]
+dev = [
+  "pytest-asyncio>=0.25,<1",
+  "pytest>=8.4,<9",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+  "src/dory_core",
+  "src/dory_cli",
+  "src/dory_mcp",
+  "src/dory_http",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/docs",
+  "/eval/README.md",
+  "/eval/INDEX.md",
+  "/eval/categories.md",
+  "/eval/validate.py",
+  "/eval/public",
+  "/examples",
+  "/packages/openclaw-dory",
+  "/plugins/hermes-dory",
+  "/references",
+  "/scripts/agent-policy",
+  "/scripts/claude-code",
+  "/scripts/codex",
+  "/scripts/ops",
+  "/skills",
+  "/Dockerfile",
+  "/docker-compose.yml",
+  "/.env.example",
+  "/README.md",
+  "/LICENSE",
+  "/pyproject.toml",
+  "/uv.lock",
+]
+exclude = [
+  "/eval/runs",
+  "/scripts/release",
+  "*.env",
+  ".env",
+  ".env.*",
+  "__pycache__",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

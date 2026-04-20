@@ -1,0 +1,10 @@
+name: dory
+version: 1.0.0
+description: "Dory - shared durable memory over the Dory HTTP daemon."
+pip_dependencies:
+  - "httpx>=0.28"
+  - "PyYAML>=6.0"
+requires_env: []
+hooks:
+  - on_session_end
+  - on_memory_write

@@ -1,0 +1,14 @@
+id: q01
+question: "What is Atlas in the public eval suite?"
+expected_sources:
+  - projects/atlas/state.md
+expected_keywords:
+  - "Atlas"
+  - "public demo"
+  - "self-contained"
+type: entity-recall
+freshness_sensitive: false
+task_grounded: false
+difficulty: easy
+notes: >
+  Synthetic stand-in for a real project page. It should validate without touching the private corpus.
