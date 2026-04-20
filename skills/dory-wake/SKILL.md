@@ -1,3 +1,8 @@
+---
+name: dory-wake
+description: Use Dory wake at session start or task switches to load bounded hot context with the right profile before substantive work.
+---
+
 # Dory Wake
 
 Use `dory wake` at session start or task switch before doing substantive work.

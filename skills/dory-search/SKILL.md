@@ -1,3 +1,8 @@
+---
+name: dory-search
+description: Search Dory memory before factual claims about people, projects, decisions, dates, prior sessions, or cleanup markers; follow search results with exact gets.
+---
+
 # Dory Search
 
 Use `dory search` before answering factual questions about people, projects, decisions, dates, or prior sessions.

@@ -1,3 +1,8 @@
+---
+name: dory-write
+description: Safely write durable Dory memory through semantic or exact-path write surfaces using dry-run, inbox, canonical-write, and purge guards.
+---
+
 # Dory Write
 
 Use Dory write surfaces through CLI/MCP/HTTP when durable memory should change.

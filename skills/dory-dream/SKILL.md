@@ -1,3 +1,8 @@
+---
+name: dory-dream
+description: Use Dory dreaming after a session closes to distill logs, generate reviewable memory proposals, and apply or reject them safely.
+---
+
 # Dory Dream
 
 Use the dreaming flow after a session closes, never during live conversation.
