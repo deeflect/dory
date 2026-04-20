@@ -12,7 +12,6 @@ from dory_core.migration_entity_discovery import (
     _coerce_canonical_entity,
     _fallback_canonicalize,
     _normalize_slug,
-    _parse_canonical_entities,
     _parse_map_entities,
     discover_entities,
     write_entities,
@@ -165,27 +164,33 @@ def test_discover_entities_runs_map_then_reduce(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     batch = _batch(corpus, "projects#1", ["projects/clawsy/state.md"])
     client = _FakeClient(
-        map_payloads=[{
-            "entities": [{
-                "slug": "clawsy",
-                "family": "project",
-                "aliases": ["Clawsy"],
-                "one_liner": "AI hosting",
-                "status_signal": "active",
-                "evidence_paths": ["projects/clawsy/state.md"],
-                "mention_count": 1,
-            }]
-        }],
+        map_payloads=[
+            {
+                "entities": [
+                    {
+                        "slug": "clawsy",
+                        "family": "project",
+                        "aliases": ["Clawsy"],
+                        "one_liner": "AI hosting",
+                        "status_signal": "active",
+                        "evidence_paths": ["projects/clawsy/state.md"],
+                        "mention_count": 1,
+                    }
+                ]
+            }
+        ],
         reduce_payload={
-            "entities": [{
-                "canonical_slug": "clawsy",
-                "family": "project",
-                "aliases": ["Clawsy", "clawsy"],
-                "one_liner": "AI hosting SaaS",
-                "status_signal": "active",
-                "evidence_paths": ["projects/clawsy/state.md"],
-                "mention_count": 1,
-            }]
+            "entities": [
+                {
+                    "canonical_slug": "clawsy",
+                    "family": "project",
+                    "aliases": ["Clawsy", "clawsy"],
+                    "one_liner": "AI hosting SaaS",
+                    "status_signal": "active",
+                    "evidence_paths": ["projects/clawsy/state.md"],
+                    "mention_count": 1,
+                }
+            ]
         },
     )
 
@@ -204,17 +209,21 @@ def test_discover_entities_falls_back_on_reduce_error(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     batch = _batch(corpus, "ideas#1", ["ideas/a.md"])
     client = _FakeClient(
-        map_payloads=[{
-            "entities": [{
-                "slug": "ai-bubble",
-                "family": "concept",
-                "aliases": [],
-                "one_liner": "viz concept",
-                "status_signal": "active",
-                "evidence_paths": ["ideas/a.md"],
-                "mention_count": 1,
-            }]
-        }],
+        map_payloads=[
+            {
+                "entities": [
+                    {
+                        "slug": "ai-bubble",
+                        "family": "concept",
+                        "aliases": [],
+                        "one_liner": "viz concept",
+                        "status_signal": "active",
+                        "evidence_paths": ["ideas/a.md"],
+                        "mention_count": 1,
+                    }
+                ]
+            }
+        ],
         reduce_error=True,
     )
 
@@ -229,17 +238,21 @@ def test_discover_entities_counts_failed_batches(tmp_path: Path) -> None:
     b1 = _batch(corpus, "batch#1", ["a.md"])
     b2 = _batch(corpus, "batch#2", ["b.md"])
     client = _FakeClient(
-        map_payloads=[{
-            "entities": [{
-                "slug": "keep",
-                "family": "project",
-                "aliases": [],
-                "one_liner": "ok",
-                "status_signal": "active",
-                "evidence_paths": ["a.md"],
-                "mention_count": 1,
-            }]
-        }],
+        map_payloads=[
+            {
+                "entities": [
+                    {
+                        "slug": "keep",
+                        "family": "project",
+                        "aliases": [],
+                        "one_liner": "ok",
+                        "status_signal": "active",
+                        "evidence_paths": ["a.md"],
+                        "mention_count": 1,
+                    }
+                ]
+            }
+        ],
         map_errors=[False, True],
         reduce_payload={"entities": []},
     )

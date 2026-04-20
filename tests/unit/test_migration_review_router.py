@@ -34,11 +34,13 @@ def test_review_router_upgrades_decision_to_route(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     decision = RoutingDecision.review(source, reason="root-level dated file")
-    client = _FakeClient(payload={
-        "bucket": "logs/daily",
-        "filename_hint": None,
-        "reason": "the file reads as a daily memory audit on 2026-04-16",
-    })
+    client = _FakeClient(
+        payload={
+            "bucket": "logs/daily",
+            "filename_hint": None,
+            "reason": "the file reads as a daily memory audit on 2026-04-16",
+        }
+    )
     router = OpenRouterReviewRouter(client=client)  # type: ignore[arg-type]
 
     upgraded = router.resolve(decision)
@@ -64,11 +66,13 @@ def test_review_router_keeps_decision_when_bucket_invalid(tmp_path: Path) -> Non
     source = tmp_path / "foo.md"
     source.write_text("---\ntitle: foo\n---\n\nbody\n", encoding="utf-8")
     decision = RoutingDecision.review(source, reason="ambiguous")
-    client = _FakeClient(payload={
-        "bucket": "nonsense",
-        "filename_hint": None,
-        "reason": "whatever",
-    })
+    client = _FakeClient(
+        payload={
+            "bucket": "nonsense",
+            "filename_hint": None,
+            "reason": "whatever",
+        }
+    )
     router = OpenRouterReviewRouter(client=client)  # type: ignore[arg-type]
 
     result = router.resolve(decision)
@@ -80,11 +84,13 @@ def test_review_router_respects_filename_hint(tmp_path: Path) -> None:
     source = tmp_path / "odd-name.md"
     source.write_text("---\ntitle: odd\n---\n\nbody\n", encoding="utf-8")
     decision = RoutingDecision.review(source, reason="ambiguous")
-    client = _FakeClient(payload={
-        "bucket": "references/reports",
-        "filename_hint": "weekly sync",
-        "reason": "reads as a meeting sync summary",
-    })
+    client = _FakeClient(
+        payload={
+            "bucket": "references/reports",
+            "filename_hint": "weekly sync",
+            "reason": "reads as a meeting sync summary",
+        }
+    )
     router = OpenRouterReviewRouter(client=client)  # type: ignore[arg-type]
 
     result = router.resolve(decision)

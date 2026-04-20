@@ -21,6 +21,7 @@ from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.embedding import EmbeddingConfigurationError, EmbeddingProviderError, build_runtime_embedder
 from dory_core.index.reindex import reindex_corpus
 from dory_core.link import LinkService
+from dory_core.llm.active_memory import build_active_memory_components
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
 from dory_core.llm_rerank import build_reranker
 from dory_core.maintenance import MaintenanceReportWriter, OpenRouterMaintenanceInspector
@@ -54,7 +55,14 @@ from dory_core.migration_executor import (
 )
 from dory_core.migration_review_router import OpenRouterReviewRouter
 from dory_core.migration_source_router import build_manifest, walk_source_tree
-from dory_core.ops import DreamOnceRunner, EvalOnceRunner, MaintenanceOnceRunner, OpsWatchRunner, WikiHealthRunner, serialize_result
+from dory_core.ops import (
+    DreamOnceRunner,
+    EvalOnceRunner,
+    MaintenanceOnceRunner,
+    OpsWatchRunner,
+    WikiHealthRunner,
+    serialize_result,
+)
 from dory_core.ops import run_compiled_wiki_refresh, run_wiki_index_refresh
 from dory_core.purge import PurgeEngine
 from dory_core.research import ResearchEngine
@@ -189,8 +197,14 @@ def memory_write(
     source: str | None = typer.Option(None, "--source", help="Optional source label"),
     soft: bool = typer.Option(False, "--soft/--no-soft", help="Quarantine instead of rejecting on ambiguity"),
     dry_run: bool = typer.Option(False, "--dry-run/--no-dry-run", help="Preview routing without writing"),
-    force_inbox: bool = typer.Option(False, "--force-inbox/--no-force-inbox", help="Bypass subject resolution and capture under inbox/semantic"),
-    allow_canonical: bool = typer.Option(False, "--allow-canonical/--no-allow-canonical", help="Permit a live semantic write to canonical memory after preview"),
+    force_inbox: bool = typer.Option(
+        False, "--force-inbox/--no-force-inbox", help="Bypass subject resolution and capture under inbox/semantic"
+    ),
+    allow_canonical: bool = typer.Option(
+        False,
+        "--allow-canonical/--no-allow-canonical",
+        help="Permit a live semantic write to canonical memory after preview",
+    ),
 ) -> None:
     config = _get_config(ctx)
     request = MemoryWriteReq.model_validate(
@@ -219,8 +233,12 @@ def purge(
     target: str = typer.Argument(..., help="Exact corpus-relative markdown path to hard-delete"),
     expected_hash: str | None = typer.Option(None, "--expected-hash", help="Required for live purge"),
     reason: str | None = typer.Option(None, "--reason", help="Required for live purge"),
-    dry_run: bool = typer.Option(True, "--dry-run/--no-dry-run", help="Preview by default; pass --no-dry-run to delete"),
-    allow_canonical: bool = typer.Option(False, "--allow-canonical/--no-allow-canonical", help="Permit protected/canonical paths"),
+    dry_run: bool = typer.Option(
+        True, "--dry-run/--no-dry-run", help="Preview by default; pass --no-dry-run to delete"
+    ),
+    allow_canonical: bool = typer.Option(
+        False, "--allow-canonical/--no-allow-canonical", help="Permit protected/canonical paths"
+    ),
     include_related_tombstone: bool = typer.Option(
         False,
         "--include-related-tombstone/--no-include-related-tombstone",
@@ -295,7 +313,9 @@ def migrate(
     use_llm: bool = typer.Option(True, "--llm/--no-llm", help="Use OpenRouter semantic migration when configured"),
     jobs: int | None = typer.Option(None, "--jobs", min=1, help="Parallel classify/extract workers"),
     estimate: bool = typer.Option(False, "--estimate", help="Show a preflight estimate without running migration"),
-    interactive: bool = typer.Option(False, "--interactive", help="Run an interactive migration selector in the terminal"),
+    interactive: bool = typer.Option(
+        False, "--interactive", help="Run an interactive migration selector in the terminal"
+    ),
     folder: list[str] = typer.Option([], "--folder", help="Restrict migration to top-level legacy folders"),
     sample: int | None = typer.Option(None, "--sample", min=1, help="Run an evenly sampled subset of markdown files"),
     pricing_file: Path | None = typer.Option(
@@ -336,9 +356,7 @@ def migrate(
 def migrate_route(
     source_root: Path = typer.Argument(..., help="Path to the legacy memory root"),
     corpus_root: Path = typer.Argument(..., help="Target Dory corpus root"),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Preview the migration without writing files"
-    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview the migration without writing files"),
     include_review: bool = typer.Option(
         False,
         "--include-review",
@@ -354,9 +372,7 @@ def migrate_route(
         "--core-from",
         help="Additional path whose UPPERCASE-stem *.md files seed core/",
     ),
-    do_reindex: bool = typer.Option(
-        False, "--reindex", help="Reindex the corpus after routing"
-    ),
+    do_reindex: bool = typer.Option(False, "--reindex", help="Reindex the corpus after routing"),
     do_mine: bool = typer.Option(
         False,
         "--mine-digests",
@@ -380,9 +396,7 @@ def migrate_route(
             "--mine-digests, and --core-from <source_root.parent>. The full pipeline."
         ),
     ),
-    limit: int | None = typer.Option(
-        None, "--limit", min=1, help="Process only the first N files"
-    ),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Process only the first N files"),
 ) -> None:
     """Execute the deterministic router's decisions against a target corpus.
 
@@ -437,18 +451,14 @@ def migrate_route(
         settings = DorySettings()
         client = build_openrouter_client(settings, purpose="maintenance")
         if client is None:
-            _fail_with_runtime_error(
-                "--llm-route requires an OpenRouter API key"
-            )
+            _fail_with_runtime_error("--llm-route requires an OpenRouter API key")
         review_router = OpenRouterReviewRouter(client=client)
         typer.echo("→ walking source tree and resolving review cases via LLM…", err=True)
         decisions = walk_source_tree(source_root)
         review_count = sum(1 for d in decisions if d.kind == "review")
         if review_count:
             typer.echo(f"  {review_count} review case(s) to LLM-route", err=True)
-        decisions = [
-            review_router.resolve(d) if d.kind == "review" else d for d in decisions
-        ]
+        decisions = [review_router.resolve(d) if d.kind == "review" else d for d in decisions]
         typer.echo(f"→ executing {len(decisions)} decisions…", err=True)
         report = execute_manifest(
             decisions,
@@ -545,9 +555,7 @@ def migrate_route(
     if do_promote_ideas:
         promote_client = _require_openrouter("idea_promotion")
         if promote_client is not None:
-            loaded_entities = (
-                load_entities_from_json(entities_path) if entities_path.exists() else []
-            )
+            loaded_entities = load_entities_from_json(entities_path) if entities_path.exists() else []
             typer.echo("→ classifying and promoting ideas…", err=True)
             promote_report = promote_ideas(
                 paths.corpus_root,
@@ -576,8 +584,7 @@ def migrate_route(
                 "vectors_indexed": reindex_result.vectors_indexed,
             }
             typer.echo(
-                f"  indexed {reindex_result.files_indexed} files, "
-                f"{reindex_result.chunks_indexed} chunks",
+                f"  indexed {reindex_result.files_indexed} files, {reindex_result.chunks_indexed} chunks",
                 err=True,
             )
         except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
@@ -624,18 +631,10 @@ def mine_digests_command(
         "--path",
         help="Single digest file (corpus-relative or absolute). Mines one file and returns.",
     ),
-    since: str | None = typer.Option(
-        None, "--since", help="Only mine digests dated at or after YYYY-MM-DD"
-    ),
-    limit: int | None = typer.Option(
-        None, "--limit", min=1, help="Process at most N digest files"
-    ),
-    include_weekly: bool = typer.Option(
-        True, "--weekly/--no-weekly", help="Include weekly digests in the scan"
-    ),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Extract claims but do not store them"
-    ),
+    since: str | None = typer.Option(None, "--since", help="Only mine digests dated at or after YYYY-MM-DD"),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Process at most N digest files"),
+    include_weekly: bool = typer.Option(True, "--weekly/--no-weekly", help="Include weekly digests in the scan"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Extract claims but do not store them"),
 ) -> None:
     """Extract durable claims from daily/weekly digests into the claim store.
 
@@ -652,8 +651,7 @@ def mine_digests_command(
     client = build_openrouter_client(settings, purpose="dream")
     if client is None:
         _fail_with_runtime_error(
-            "digest mining requires an OpenRouter API key "
-            "(set DORY_OPENROUTER_API_KEY or OPENROUTER_API_KEY)."
+            "digest mining requires an OpenRouter API key (set DORY_OPENROUTER_API_KEY or OPENROUTER_API_KEY)."
         )
     extractor = OpenRouterDigestExtractor(client=client)
     store: ClaimStore | None = None
@@ -957,7 +955,9 @@ def maintain_inspect(
     report = inspector.inspect(path, target.read_text(encoding="utf-8"))
     payload = asdict(report)
     if write_report:
-        payload["report_path"] = str(MaintenanceReportWriter(config.corpus_root).write(report).relative_to(config.corpus_root))
+        payload["report_path"] = str(
+            MaintenanceReportWriter(config.corpus_root).write(report).relative_to(config.corpus_root)
+        )
     typer.echo(json.dumps(payload, indent=2, sort_keys=True))
 
 
@@ -1175,9 +1175,7 @@ def _build_query_expander(settings: DorySettings) -> OpenRouterQueryExpander | N
 def _require_openrouter_client(settings: DorySettings, *, purpose: str = "default"):
     client = _build_openrouter_client_for_purpose(settings, purpose=purpose)
     if client is None:
-        _fail_with_runtime_error(
-            "OpenRouter API key is missing. Set DORY_OPENROUTER_API_KEY or OPENROUTER_API_KEY."
-        )
+        _fail_with_runtime_error("OpenRouter API key is missing. Set DORY_OPENROUTER_API_KEY or OPENROUTER_API_KEY.")
     return client
 
 
@@ -1191,7 +1189,7 @@ def _build_openrouter_client_for_purpose(settings: DorySettings, *, purpose: str
 
 def _build_active_memory_engine(config: RuntimeConfig) -> ActiveMemoryEngine:
     settings = DorySettings()
-    planner = _build_retrieval_planner(settings, purpose="maintenance")
+    planner, composer = build_active_memory_components(settings)
     query_planner = _build_retrieval_planner(settings, purpose="query")
     return ActiveMemoryEngine(
         wake_builder=WakeBuilder(config.corpus_root),
@@ -1205,7 +1203,7 @@ def _build_active_memory_engine(config: RuntimeConfig) -> ActiveMemoryEngine:
         ),
         root=config.corpus_root,
         planner=planner,
-        composer=planner,
+        composer=composer,
     )
 
 
@@ -1339,10 +1337,14 @@ def _run_interactive_migration_plan(
     while True:
         plan = planner.build_plan(base_scan, scope=scope)
         _print_interactive_migration_plan(plan)
-        choice = typer.prompt(
-            "Choose scope [full/sample/folders/run/quit]",
-            default="run" if scope.selection_mode != "full" else "sample",
-        ).strip().lower()
+        choice = (
+            typer.prompt(
+                "Choose scope [full/sample/folders/run/quit]",
+                default="run" if scope.selection_mode != "full" else "sample",
+            )
+            .strip()
+            .lower()
+        )
         if choice in {"quit", "q"}:
             typer.echo("Migration cancelled.")
             return None
@@ -1521,15 +1523,7 @@ def _init_seed_documents(corpus_root: Path) -> dict[Path, str]:
 
 
 def _render_seed_doc(*, title: str, created: str, body: str) -> str:
-    return (
-        "---\n"
-        f"title: {title}\n"
-        f"created: {created}\n"
-        "type: core\n"
-        "status: active\n"
-        "---\n\n"
-        f"{body}\n"
-    )
+    return f"---\ntitle: {title}\ncreated: {created}\ntype: core\nstatus: active\n---\n\n{body}\n"
 
 
 if __name__ == "__main__":

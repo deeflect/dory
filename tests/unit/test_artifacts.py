@@ -128,9 +128,7 @@ def test_artifact_writer_persists_markdown(tmp_path: Path) -> None:
     assert "## Notes" in written
 
 
-def test_artifact_writer_triggers_reindex_when_index_wired(
-    tmp_path: Path, fake_embedder
-) -> None:
+def test_artifact_writer_triggers_reindex_when_index_wired(tmp_path: Path, fake_embedder) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / "index"
     corpus_root.mkdir()

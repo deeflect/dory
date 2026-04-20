@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import pytest
 
 from dory_core.claim_store import ClaimStore
 from dory_core.digest_mining import (
@@ -55,26 +54,28 @@ def _write_digest(corpus_root: Path, relative: str, content: str) -> Path:
 
 
 def test_extractor_parses_valid_payload() -> None:
-    client = _FakeClient(payload={
-        "claims": [
-            {
-                "subject_ref": "project:rooster-spec",
-                "kind": "state",
-                "statement": "Rooster moved from spec to build",
-                "confidence": "high",
-                "time_ref": "2026-04-10",
-                "reason": "Shipped 3-tab UX",
-            },
-            {
-                "subject_ref": "core:soul",
-                "kind": "preference",
-                "statement": "Casey prefers ADHD-friendly minimal UI",
-                "confidence": "medium",
-                "time_ref": "2026-04-10",
-                "reason": "Stated during dashboard review",
-            },
-        ]
-    })
+    client = _FakeClient(
+        payload={
+            "claims": [
+                {
+                    "subject_ref": "project:rooster-spec",
+                    "kind": "state",
+                    "statement": "Rooster moved from spec to build",
+                    "confidence": "high",
+                    "time_ref": "2026-04-10",
+                    "reason": "Shipped 3-tab UX",
+                },
+                {
+                    "subject_ref": "core:soul",
+                    "kind": "preference",
+                    "statement": "Casey prefers ADHD-friendly minimal UI",
+                    "confidence": "medium",
+                    "time_ref": "2026-04-10",
+                    "reason": "Stated during dashboard review",
+                },
+            ]
+        }
+    )
     extractor = OpenRouterDigestExtractor(client=client)  # type: ignore[arg-type]
 
     claims = extractor.extract(
@@ -110,11 +111,46 @@ def test_extractor_returns_empty_for_empty_digest() -> None:
 def test_parse_claims_drops_malformed_entries() -> None:
     payload = {
         "claims": [
-            {"subject_ref": "project:alpha", "kind": "state", "statement": "ok", "confidence": "high", "time_ref": None, "reason": None},
-            {"subject_ref": "no-colon", "kind": "state", "statement": "x", "confidence": "high", "time_ref": None, "reason": None},
-            {"subject_ref": "project:alpha", "kind": "bogus", "statement": "x", "confidence": "high", "time_ref": None, "reason": None},
-            {"subject_ref": "project:alpha", "kind": "state", "statement": "", "confidence": "high", "time_ref": None, "reason": None},
-            {"subject_ref": "project:alpha", "kind": "state", "statement": "ok", "confidence": "bogus", "time_ref": None, "reason": None},
+            {
+                "subject_ref": "project:alpha",
+                "kind": "state",
+                "statement": "ok",
+                "confidence": "high",
+                "time_ref": None,
+                "reason": None,
+            },
+            {
+                "subject_ref": "no-colon",
+                "kind": "state",
+                "statement": "x",
+                "confidence": "high",
+                "time_ref": None,
+                "reason": None,
+            },
+            {
+                "subject_ref": "project:alpha",
+                "kind": "bogus",
+                "statement": "x",
+                "confidence": "high",
+                "time_ref": None,
+                "reason": None,
+            },
+            {
+                "subject_ref": "project:alpha",
+                "kind": "state",
+                "statement": "",
+                "confidence": "high",
+                "time_ref": None,
+                "reason": None,
+            },
+            {
+                "subject_ref": "project:alpha",
+                "kind": "state",
+                "statement": "ok",
+                "confidence": "bogus",
+                "time_ref": None,
+                "reason": None,
+            },
         ]
     }
 
@@ -144,23 +180,25 @@ def test_parse_claims_inherits_digest_date_when_time_ref_missing() -> None:
 
 def test_mine_digest_file_stores_claims(tmp_path: Path) -> None:
     corpus = tmp_path
-    digest_path = _write_digest(
+    _write_digest(
         corpus,
         "logs/daily/2026-04-10.md",
         "---\ntitle: digest\ntype: daily\ndate: 2026-04-10\n---\n\nBody\n",
     )
 
-    extractor = _StubExtractor(claims=[
-        DigestClaim(
-            subject_ref="project:clawsy",
-            kind="state",
-            statement="Clawsy is active focus",
-            confidence="high",
-            time_ref="2026-04-10",
-            evidence_path="logs/daily/2026-04-10.md",
-            reason=None,
-        )
-    ])
+    extractor = _StubExtractor(
+        claims=[
+            DigestClaim(
+                subject_ref="project:clawsy",
+                kind="state",
+                statement="Clawsy is active focus",
+                confidence="high",
+                time_ref="2026-04-10",
+                evidence_path="logs/daily/2026-04-10.md",
+                reason=None,
+            )
+        ]
+    )
     store = ClaimStore(tmp_path / "claims.db")
 
     result = mine_digest_file(
@@ -180,17 +218,19 @@ def test_mine_digest_file_stores_claims(tmp_path: Path) -> None:
 def test_mine_digest_file_dry_run_does_not_store(tmp_path: Path) -> None:
     corpus = tmp_path
     _write_digest(corpus, "logs/daily/2026-04-10.md", "---\ntype: daily\ndate: 2026-04-10\ntitle: x\n---\n\nBody\n")
-    extractor = _StubExtractor(claims=[
-        DigestClaim(
-            subject_ref="core:soul",
-            kind="preference",
-            statement="x",
-            confidence="high",
-            time_ref=None,
-            evidence_path="logs/daily/2026-04-10.md",
-            reason=None,
-        )
-    ])
+    extractor = _StubExtractor(
+        claims=[
+            DigestClaim(
+                subject_ref="core:soul",
+                kind="preference",
+                statement="x",
+                confidence="high",
+                time_ref=None,
+                evidence_path="logs/daily/2026-04-10.md",
+                reason=None,
+            )
+        ]
+    )
     store = ClaimStore(tmp_path / "claims.db")
 
     result = mine_digest_file(
@@ -214,9 +254,7 @@ def test_mine_digest_tree_filters_since_and_limit(tmp_path: Path) -> None:
     _write_digest(corpus, "logs/daily/2026-04-10.md", "---\ntitle: c\ntype: daily\ndate: 2026-04-10\n---\n\nb\n")
     extractor = _StubExtractor(claims=[])
 
-    results = mine_digest_tree(
-        corpus, extractor=extractor, since="2026-03-01", dry_run=True
-    )
+    results = mine_digest_tree(corpus, extractor=extractor, since="2026-03-01", dry_run=True)
     dates = [Path(r.digest_path).stem for r in results]
     assert "2026-02-01" not in dates
     assert "2026-03-15" in dates
@@ -227,10 +265,6 @@ def test_mine_digest_tree_filters_since_and_limit(tmp_path: Path) -> None:
 
 
 def test_format_mining_summary_aggregates() -> None:
-    results = [
-        mine_digest_file.__wrapped__ if hasattr(mine_digest_file, "__wrapped__") else None
-        for _ in []
-    ]
     # Build results manually to avoid filesystem churn.
     from dory_core.digest_mining import MiningResult
 

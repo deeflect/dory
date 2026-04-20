@@ -23,12 +23,7 @@ def test_link_queries_use_edges_table(
     project_target = corpus_root / "projects" / "dory" / "state.md"
     project_target.parent.mkdir(parents=True, exist_ok=True)
     project_target.write_text(
-        "---\n"
-        "title: Dory\n"
-        "type: project\n"
-        "status: active\n"
-        "---\n\n"
-        "Canonical Dory state.\n",
+        "---\ntitle: Dory\ntype: project\nstatus: active\n---\n\nCanonical Dory state.\n",
         encoding="utf-8",
     )
 
@@ -64,12 +59,7 @@ def test_write_auto_detects_known_entity_mentions(tmp_path: Path, sample_corpus_
     project_target = corpus_root / "projects" / "dory" / "state.md"
     project_target.parent.mkdir(parents=True, exist_ok=True)
     project_target.write_text(
-        "---\n"
-        "title: Dory\n"
-        "type: project\n"
-        "status: active\n"
-        "---\n\n"
-        "Canonical Dory state.\n",
+        "---\ntitle: Dory\ntype: project\nstatus: active\n---\n\nCanonical Dory state.\n",
         encoding="utf-8",
     )
 
@@ -98,22 +88,12 @@ def test_reindex_paths_removes_edges_for_deleted_docs(tmp_path: Path, fake_embed
     (corpus_root / "notes").mkdir(parents=True)
 
     (corpus_root / "people" / "alex.md").write_text(
-        "---\n"
-        "title: Alex\n"
-        "type: person\n"
-        "status: active\n"
-        "---\n\n"
-        "Alex profile.\n",
+        "---\ntitle: Alex\ntype: person\nstatus: active\n---\n\nAlex profile.\n",
         encoding="utf-8",
     )
     note_path = corpus_root / "notes" / "meeting.md"
     note_path.write_text(
-        "---\n"
-        "title: Meeting\n"
-        "type: knowledge\n"
-        "status: done\n"
-        "---\n\n"
-        "Talked to [[people/alex|Alex]].\n",
+        "---\ntitle: Meeting\ntype: knowledge\nstatus: done\n---\n\nTalked to [[people/alex|Alex]].\n",
         encoding="utf-8",
     )
 

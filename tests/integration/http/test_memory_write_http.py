@@ -17,34 +17,15 @@ def _seed_semantic_write_corpus(root: Path) -> None:
     (root / "core").mkdir(parents=True)
 
     (root / "people" / "alex-example.md").write_text(
-        "---\n"
-        "title: Alex Example\n"
-        "aliases:\n"
-        "  - anna\n"
-        "---\n"
-        "# Anna\n"
-        "\n"
-        "## Summary\n"
-        "\n"
-        "Initial summary.\n",
+        "---\ntitle: Alex Example\naliases:\n  - anna\n---\n# Anna\n\n## Summary\n\nInitial summary.\n",
         encoding="utf-8",
     )
     (root / "projects" / "rooster" / "state.md").write_text(
-        "---\n"
-        "title: Rooster\n"
-        "---\n"
-        "# Rooster\n"
-        "\n"
-        "## Current State\n"
-        "\n"
-        "Rooster is active.\n",
+        "---\ntitle: Rooster\n---\n# Rooster\n\n## Current State\n\nRooster is active.\n",
         encoding="utf-8",
     )
     (root / "core" / "user.md").write_text(
-        "---\n"
-        "title: User\n"
-        "---\n"
-        "# User\n",
+        "---\ntitle: User\n---\n# User\n",
         encoding="utf-8",
     )
 
@@ -77,9 +58,7 @@ def test_http_memory_write_handles_write_replace_and_forget(
     assert write_payload["result"] == "written"
     assert write_payload["target_path"] == "people/alex-example.md"
     assert write_payload["indexed"] is True
-    assert "Prefers async work." in (corpus_root / "people" / "alex-example.md").read_text(
-        encoding="utf-8"
-    )
+    assert "Prefers async work." in (corpus_root / "people" / "alex-example.md").read_text(encoding="utf-8")
 
     replace = client.post(
         "/v1/memory-write",
@@ -124,8 +103,7 @@ def test_http_memory_write_handles_write_replace_and_forget(
     semantic_artifacts = sorted((corpus_root / "sources" / "semantic").rglob("*.md"))
     assert len(semantic_artifacts) == 3
     artifact_frontmatters = [
-        load_markdown_document(path.read_text(encoding="utf-8")).frontmatter
-        for path in semantic_artifacts
+        load_markdown_document(path.read_text(encoding="utf-8")).frontmatter for path in semantic_artifacts
     ]
     assert {frontmatter["action"] for frontmatter in artifact_frontmatters} == {
         "write",
@@ -134,9 +112,7 @@ def test_http_memory_write_handles_write_replace_and_forget(
     }
     assert all(frontmatter["source_kind"] == "semantic" for frontmatter in artifact_frontmatters)
 
-    person_document = load_markdown_document(
-        (corpus_root / "people" / "alex-example.md").read_text(encoding="utf-8")
-    )
+    person_document = load_markdown_document((corpus_root / "people" / "alex-example.md").read_text(encoding="utf-8"))
     assert person_document.frontmatter["superseded_by"] == "alex-example.tombstone.md"
     tombstone_path = corpus_root / "people" / "alex-example.tombstone.md"
     assert tombstone_path.exists()
@@ -222,9 +198,7 @@ def test_http_memory_write_rejects_canonical_without_allow_flag(
     assert payload["result"] == "rejected"
     assert payload["target_path"] == "people/alex-example.md"
     assert "allow_canonical=true" in payload["message"]
-    assert "Prefers async work." not in (corpus_root / "people" / "alex-example.md").read_text(
-        encoding="utf-8"
-    )
+    assert "Prefers async work." not in (corpus_root / "people" / "alex-example.md").read_text(encoding="utf-8")
 
 
 def test_http_memory_write_respects_bearer_auth(

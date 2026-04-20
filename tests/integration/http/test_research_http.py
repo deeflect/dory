@@ -36,6 +36,7 @@ def test_http_research_writes_artifact(
 ) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / "index"
+
     class _FakeEmbedder:
         dimension = 1
 

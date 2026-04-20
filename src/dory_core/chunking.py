@@ -59,9 +59,7 @@ def _split_oversized_block(
 
     for offset, line in enumerate(block_lines):
         line_chars = len(line) + 1
-        if current and (
-            len(current) >= lines_per_chunk or current_chars + line_chars > max_chars
-        ):
+        if current and (len(current) >= lines_per_chunk or current_chars + line_chars > max_chars):
             end_line = block_start + offset - 1
             sub_blocks.append((current_start, end_line, current))
             current = []
@@ -88,7 +86,6 @@ def _split_frontmatter(lines: list[str]) -> tuple[list[str], list[str]]:
 
 
 def _iter_blocks(lines: list[str]) -> Iterable[tuple[int, int, list[str]]]:
-    block_start = 0
     current: list[str] = []
     current_start = 1
 
@@ -210,9 +207,7 @@ def chunk_markdown(
             if not current_lines:
                 current_start = block_start_line
 
-            current_lines.extend(
-                sub_lines if not current_lines else [""] + sub_lines
-            )
+            current_lines.extend(sub_lines if not current_lines else [""] + sub_lines)
             current_token_count += block_tokens
             current_char_count += block_chars
 

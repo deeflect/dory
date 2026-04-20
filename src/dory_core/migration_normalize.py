@@ -135,7 +135,14 @@ def _normalized_target_path(classified: ClassifiedDocument) -> str:
         return _normalized_bucket_path(classified.target_path, expected_root=("references", "slides"))
     if doc_class == "reference_note":
         return _normalized_bucket_path(classified.target_path, expected_root=("references", "notes"))
-    if doc_class in {"idea_note", "draft_note", "inbox_capture", "quarantine_case", "migration_note", "misc_operational"}:
+    if doc_class in {
+        "idea_note",
+        "draft_note",
+        "inbox_capture",
+        "quarantine_case",
+        "migration_note",
+        "misc_operational",
+    }:
         return _normalized_bucket_path(classified.target_path, expected_root=("inbox",))
     return classified.target_path
 

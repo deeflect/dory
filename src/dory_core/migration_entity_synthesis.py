@@ -23,7 +23,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Literal, Protocol, Sequence
+from typing import Any, Literal, Protocol, Sequence
 
 from dory_core.fs import atomic_write_text, resolve_corpus_target
 from dory_core.frontmatter import dump_markdown_document
@@ -169,18 +169,14 @@ def synthesize_entities(
         if not evidence.files:
             skipped_no_evidence += 1
             if progress is not None:
-                progress(
-                    index=index, total=total, slug=entity.slug, result="skipped-no-evidence"
-                )
+                progress(index=index, total=total, slug=entity.slug, result="skipped-no-evidence")
             continue
 
         result = _synthesize_one(client, entity, evidence)
         if result is None:
             skipped_llm_error += 1
             if progress is not None:
-                progress(
-                    index=index, total=total, slug=entity.slug, result="skipped-llm-error"
-                )
+                progress(index=index, total=total, slug=entity.slug, result="skipped-llm-error")
             continue
 
         destination = _destination_for(entity)
@@ -394,12 +390,8 @@ def _parse_synthesis(
             )
         )
 
-    aliases = tuple(
-        sorted({a.strip() for a in raw_aliases if isinstance(a, str) and a.strip()})
-    )
-    cited = tuple(
-        sorted({c.strip() for c in raw_cited if isinstance(c, str) and c.strip()})
-    )
+    aliases = tuple(sorted({a.strip() for a in raw_aliases if isinstance(a, str) and a.strip()}))
+    cited = tuple(sorted({c.strip() for c in raw_cited if isinstance(c, str) and c.strip()}))
 
     return SynthesizedEntity(
         entity=entity,

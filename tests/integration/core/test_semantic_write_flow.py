@@ -15,35 +15,16 @@ def test_semantic_write_flow_handles_write_replace_and_forget(tmp_path: Path) ->
 
     person_path = root / "people" / "alex-example.md"
     person_path.write_text(
-        "---\n"
-        "title: Alex Example\n"
-        "aliases:\n"
-        "  - anna\n"
-        "---\n"
-        "# Anna\n"
-        "\n"
-        "## Summary\n"
-        "\n"
-        "Initial summary.\n",
+        "---\ntitle: Alex Example\naliases:\n  - anna\n---\n# Anna\n\n## Summary\n\nInitial summary.\n",
         encoding="utf-8",
     )
     project_path = root / "projects" / "rooster" / "state.md"
     project_path.write_text(
-        "---\n"
-        "title: Rooster\n"
-        "---\n"
-        "# Rooster\n"
-        "\n"
-        "## Current State\n"
-        "\n"
-        "Rooster is active.\n",
+        "---\ntitle: Rooster\n---\n# Rooster\n\n## Current State\n\nRooster is active.\n",
         encoding="utf-8",
     )
     (root / "core" / "user.md").write_text(
-        "---\n"
-        "title: User\n"
-        "---\n"
-        "# User\n",
+        "---\ntitle: User\n---\n# User\n",
         encoding="utf-8",
     )
 
@@ -124,11 +105,7 @@ def test_semantic_write_flow_creates_structured_decision_pages(tmp_path: Path) -
     root = tmp_path / "corpus"
     (root / "projects" / "rooster").mkdir(parents=True)
     (root / "projects" / "rooster" / "state.md").write_text(
-        "---\n"
-        "title: Rooster\n"
-        "aliases: []\n"
-        "---\n"
-        "# Rooster\n",
+        "---\ntitle: Rooster\naliases: []\n---\n# Rooster\n",
         encoding="utf-8",
     )
 
@@ -160,16 +137,7 @@ def test_semantic_write_dry_run_reports_canonical_target_without_persisting(tmp_
     (root / "projects" / "dory").mkdir(parents=True)
     project_path = root / "projects" / "dory" / "state.md"
     project_path.write_text(
-        "---\n"
-        "title: Dory\n"
-        "aliases:\n"
-        "  - dory\n"
-        "---\n"
-        "# Dory\n"
-        "\n"
-        "## Current State\n"
-        "\n"
-        "Dory is active.\n",
+        "---\ntitle: Dory\naliases:\n  - dory\n---\n# Dory\n\n## Current State\n\nDory is active.\n",
         encoding="utf-8",
     )
     before = project_path.read_text(encoding="utf-8")
@@ -201,16 +169,7 @@ def test_semantic_write_rejects_live_canonical_write_without_explicit_allow(tmp_
     (root / "projects" / "dory").mkdir(parents=True)
     project_path = root / "projects" / "dory" / "state.md"
     project_path.write_text(
-        "---\n"
-        "title: Dory\n"
-        "aliases:\n"
-        "  - dory\n"
-        "---\n"
-        "# Dory\n"
-        "\n"
-        "## Current State\n"
-        "\n"
-        "Dory is active.\n",
+        "---\ntitle: Dory\naliases:\n  - dory\n---\n# Dory\n\n## Current State\n\nDory is active.\n",
         encoding="utf-8",
     )
     before = project_path.read_text(encoding="utf-8")
@@ -288,10 +247,7 @@ def test_semantic_write_flow_rejects_low_confidence_subjects(tmp_path: Path) -> 
     root = tmp_path / "corpus"
     (root / "people").mkdir(parents=True)
     (root / "people" / "anna.md").write_text(
-        "---\n"
-        "title: Anna\n"
-        "---\n"
-        "# Anna\n",
+        "---\ntitle: Anna\n---\n# Anna\n",
         encoding="utf-8",
     )
 
@@ -326,15 +282,7 @@ def test_semantic_write_flow_persists_quarantine_artifacts_for_soft_validation_f
     (root / "people").mkdir(parents=True)
     person_path = root / "people" / "anna.md"
     person_path.write_text(
-        "---\n"
-        "title: Anna\n"
-        "aliases:\n"
-        "  - anna\n"
-        "type: person\n"
-        "status: active\n"
-        "---\n\n"
-        "## Summary\n\n"
-        "Anna.\n",
+        "---\ntitle: Anna\naliases:\n  - anna\ntype: person\nstatus: active\n---\n\n## Summary\n\nAnna.\n",
         encoding="utf-8",
     )
 

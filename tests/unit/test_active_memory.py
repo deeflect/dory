@@ -245,6 +245,86 @@ def test_active_memory_filters_low_trust_durable_evidence(tmp_path: Path) -> Non
     assert "Stale project note." not in result.block
 
 
+def test_active_memory_uses_wiki_as_helper_not_durable_evidence(tmp_path: Path) -> None:
+    class WikiHeavySearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="wiki/hot.md",
+                        snippet="Generated wiki cache should not be rendered as durable evidence.",
+                        score=0.99,
+                    ),
+                    _make_result(
+                        path="projects/dory/state.md",
+                        snippet="Dory active-memory local LLM work is current.",
+                        score=0.4,
+                    ),
+                ]
+            )
+
+    (tmp_path / "wiki").mkdir(parents=True)
+    (tmp_path / "wiki" / "hot.md").write_text(
+        "# Hot\n\n## Current Focus\n- Dory active-memory tuning.\n",
+        encoding="utf-8",
+    )
+    engine = ActiveMemoryEngine(
+        wake_builder=_CountingWakeBuilder(),
+        search_engine=WikiHeavySearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what matters for Dory active memory?",
+            agent="codex",
+            include_wake=False,
+        )
+    )
+
+    assert "wiki/hot.md" in result.sources
+    assert "projects/dory/state.md" in result.sources
+    assert "Generated wiki cache should not be rendered" not in result.block
+    assert "projects/dory/state.md" in result.block
+
+
+def test_active_memory_truncates_large_snippets_for_bounded_blocks(tmp_path: Path) -> None:
+    class LongSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            del req
+            return _make_response(
+                [
+                    _make_result(
+                        path="projects/dory/state.md",
+                        snippet="Important current Dory detail. " + ("extra context " * 80),
+                        score=0.9,
+                    )
+                ]
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=_CountingWakeBuilder(),
+        search_engine=LongSearchEngine(),
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what matters for Dory?",
+            agent="codex",
+            include_wake=False,
+        )
+    )
+
+    assert "Important current Dory detail." in result.block
+    assert (
+        "extra context extra context extra context extra context extra context extra context extra context"
+        in result.block
+    )
+    assert len(result.block) < 1400
+
+
 def test_active_memory_triggers_for_recent_work_question(tmp_path: Path) -> None:
     (tmp_path / "core").mkdir(parents=True)
     (tmp_path / "core" / "active.md").write_text(
@@ -272,21 +352,11 @@ def test_active_memory_triggers_for_recent_work_question(tmp_path: Path) -> None
 def test_active_memory_reads_wiki_hot_and_index_first(tmp_path: Path) -> None:
     (tmp_path / "wiki").mkdir(parents=True)
     (tmp_path / "wiki" / "hot.md").write_text(
-        "---\n"
-        "title: Hot Cache\n"
-        "---\n\n"
-        "# Recent Context\n\n"
-        "## Summary\n"
-        "Rooster remains the active focus.\n",
+        "---\ntitle: Hot Cache\n---\n\n# Recent Context\n\n## Summary\nRooster remains the active focus.\n",
         encoding="utf-8",
     )
     (tmp_path / "wiki" / "index.md").write_text(
-        "---\n"
-        "title: Wiki\n"
-        "---\n\n"
-        "# Wiki\n\n"
-        "## Summary\n"
-        "Compiled wiki entry point.\n",
+        "---\ntitle: Wiki\n---\n\n# Wiki\n\n## Summary\nCompiled wiki entry point.\n",
         encoding="utf-8",
     )
     search_engine = _StubSearchEngine()
@@ -304,12 +374,11 @@ def test_active_memory_reads_wiki_hot_and_index_first(tmp_path: Path) -> None:
         )
     )
 
-    assert "## Hot Cache" in result.block
-    assert "## Wiki Index" in result.block
     assert "wiki/hot.md" in result.sources
     assert "wiki/index.md" in result.sources
     assert "## Active memory" in result.block
-    assert "Rooster remains the active focus." in result.block
+    assert "## Hot Cache" not in result.block
+    assert "## Wiki Index" not in result.block
 
 
 def test_active_memory_synthesizes_current_focus_and_evidence(tmp_path: Path) -> None:
@@ -339,6 +408,7 @@ def test_active_memory_synthesizes_current_focus_and_evidence(tmp_path: Path) ->
             prompt="what are we working on today",
             agent="claude",
             cwd=str(tmp_path),
+            timeout_ms=5000,
         )
     )
 
@@ -360,6 +430,7 @@ def test_active_memory_uses_planner_queries_and_llm_composition(tmp_path: Path) 
             prompt="what are we working on today",
             agent="claude",
             cwd=str(tmp_path),
+            timeout_ms=5000,
         )
     )
 

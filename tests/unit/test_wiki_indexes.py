@@ -11,22 +11,12 @@ def test_wiki_index_builder_writes_global_and_family_indexes(tmp_path: Path) -> 
     wiki_root = tmp_path / "wiki"
     (wiki_root / "projects").mkdir(parents=True)
     (wiki_root / "projects" / "rooster.md").write_text(
-        "---\n"
-        "title: Rooster\n"
-        "type: wiki\n"
-        "status: active\n"
-        "---\n\n"
-        "Rooster is the active focus.\n",
+        "---\ntitle: Rooster\ntype: wiki\nstatus: active\n---\n\nRooster is the active focus.\n",
         encoding="utf-8",
     )
     (wiki_root / "people").mkdir(parents=True)
     (wiki_root / "people" / "anna.md").write_text(
-        "---\n"
-        "title: Anna\n"
-        "type: wiki\n"
-        "status: active\n"
-        "---\n\n"
-        "Anna is a person.\n",
+        "---\ntitle: Anna\ntype: wiki\nstatus: active\n---\n\nAnna is a person.\n",
         encoding="utf-8",
     )
 
@@ -96,23 +86,11 @@ def test_wiki_index_builder_sorts_family_pages_by_updated_then_title(tmp_path: P
     wiki_root = tmp_path / "wiki" / "projects"
     wiki_root.mkdir(parents=True)
     (wiki_root / "older.md").write_text(
-        "---\n"
-        "title: Older\n"
-        "type: wiki\n"
-        "status: active\n"
-        "updated: 2026-04-10\n"
-        "---\n\n"
-        "# Older\n",
+        "---\ntitle: Older\ntype: wiki\nstatus: active\nupdated: 2026-04-10\n---\n\n# Older\n",
         encoding="utf-8",
     )
     (wiki_root / "newer.md").write_text(
-        "---\n"
-        "title: Newer\n"
-        "type: wiki\n"
-        "status: active\n"
-        "updated: 2026-04-12\n"
-        "---\n\n"
-        "# Newer\n",
+        "---\ntitle: Newer\ntype: wiki\nstatus: active\nupdated: 2026-04-12\n---\n\n# Newer\n",
         encoding="utf-8",
     )
 
@@ -147,23 +125,11 @@ def test_wiki_index_builder_prefers_claim_event_recency_over_frontmatter_updated
     wiki_root = tmp_path / "wiki" / "projects"
     wiki_root.mkdir(parents=True)
     (wiki_root / "older.md").write_text(
-        "---\n"
-        "title: Older\n"
-        "type: wiki\n"
-        "status: active\n"
-        "updated: 2026-04-01\n"
-        "---\n\n"
-        "# Older\n",
+        "---\ntitle: Older\ntype: wiki\nstatus: active\nupdated: 2026-04-01\n---\n\n# Older\n",
         encoding="utf-8",
     )
     (wiki_root / "newer.md").write_text(
-        "---\n"
-        "title: Newer\n"
-        "type: wiki\n"
-        "status: active\n"
-        "updated: 2026-04-13\n"
-        "---\n\n"
-        "# Newer\n",
+        "---\ntitle: Newer\ntype: wiki\nstatus: active\nupdated: 2026-04-13\n---\n\n# Newer\n",
         encoding="utf-8",
     )
 

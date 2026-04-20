@@ -64,7 +64,18 @@ def test_build_extracted_decision_from_marker_lines() -> None:
 def test_parse_headless_json_response_unwraps_cli_wrapper() -> None:
     payload = {
         "session_id": "123",
-        "response": json.dumps([{"source_rel": "projects/foo.md", "action": "leave_for_review", "target_slug": None, "knowledge_area": None, "confidence": 0.2, "reason": "ambiguous"}]),
+        "response": json.dumps(
+            [
+                {
+                    "source_rel": "projects/foo.md",
+                    "action": "leave_for_review",
+                    "target_slug": None,
+                    "knowledge_area": None,
+                    "confidence": 0.2,
+                    "reason": "ambiguous",
+                }
+            ]
+        ),
         "stats": {},
     }
     parsed = parse_headless_json_response(json.dumps(payload))

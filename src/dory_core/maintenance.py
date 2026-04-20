@@ -244,8 +244,7 @@ def _has_meaningful_section_items(body: str, heading: str) -> bool:
 
 def _has_claim_or_state_section(body: str) -> bool:
     return any(
-        _extract_list_items(body, heading)
-        for heading in ("Key Claims", "Key claims", "Current Facts", "Current State")
+        _extract_list_items(body, heading) for heading in ("Key Claims", "Key claims", "Current Facts", "Current State")
     )
 
 
@@ -319,7 +318,9 @@ def _has_claim_evidence_mismatch(rel_path: str, body: str, claim_store: ClaimSto
     claim_events = claim_store.claim_events(entity_id)
     if not claim_events:
         return False
-    expected_paths = {_normalize_evidence_path(event.evidence_path) for event in claim_events if event.evidence_path.strip()}
+    expected_paths = {
+        _normalize_evidence_path(event.evidence_path) for event in claim_events if event.evidence_path.strip()
+    }
     expected_paths.discard("")
     if not expected_paths:
         return False

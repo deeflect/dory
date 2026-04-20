@@ -55,14 +55,17 @@ def _entity(slug: str, family: str = "project") -> CanonicalEntity:
 
 def test_coerce_decision_rejects_invalid_rows() -> None:
     assert _coerce_decision({"source_path": ""}) is None
-    assert _coerce_decision(
-        {
-            "source_path": "ideas/a.md",
-            "classification": "bogus",
-            "target_slug": None,
-            "rationale": "x",
-        }
-    ) is None
+    assert (
+        _coerce_decision(
+            {
+                "source_path": "ideas/a.md",
+                "classification": "bogus",
+                "target_slug": None,
+                "rationale": "x",
+            }
+        )
+        is None
+    )
     good = _coerce_decision(
         {
             "source_path": "ideas/a.md",
@@ -79,14 +82,18 @@ def test_promote_to_project_moves_idea_file(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     _write_idea(corpus, "2026-02-19-casey-ceo", "spec for casey-ceo site with domain\n")
     client = _FakeClient(
-        payloads=[{
-            "decisions": [{
-                "source_path": "ideas/2026-02-19-casey-ceo.md",
-                "classification": "promote_to_project",
-                "target_slug": "casey-ceo",
-                "rationale": "has spec and domain",
-            }]
-        }]
+        payloads=[
+            {
+                "decisions": [
+                    {
+                        "source_path": "ideas/2026-02-19-casey-ceo.md",
+                        "classification": "promote_to_project",
+                        "target_slug": "casey-ceo",
+                        "rationale": "has spec and domain",
+                    }
+                ]
+            }
+        ]
     )
 
     report = promote_ideas(corpus, [], client=client)  # type: ignore[arg-type]
@@ -94,9 +101,7 @@ def test_promote_to_project_moves_idea_file(tmp_path: Path) -> None:
     assert report.promoted_to_project == 1
     assert (corpus / "projects" / "casey-ceo" / "state.md").exists()
     assert not (corpus / "ideas" / "2026-02-19-casey-ceo.md").exists()
-    doc = load_markdown_document(
-        (corpus / "projects" / "casey-ceo" / "state.md").read_text(encoding="utf-8")
-    )
+    doc = load_markdown_document((corpus / "projects" / "casey-ceo" / "state.md").read_text(encoding="utf-8"))
     assert doc.frontmatter["type"] == "project"
     assert doc.frontmatter["canonical"] is True
 
@@ -105,23 +110,25 @@ def test_promote_to_concept_moves_to_concepts_bucket(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     _write_idea(corpus, "2026-02-19-fly-mode", "working style pattern")
     client = _FakeClient(
-        payloads=[{
-            "decisions": [{
-                "source_path": "ideas/2026-02-19-fly-mode.md",
-                "classification": "promote_to_concept",
-                "target_slug": "fly-mode",
-                "rationale": "durable mental model",
-            }]
-        }]
+        payloads=[
+            {
+                "decisions": [
+                    {
+                        "source_path": "ideas/2026-02-19-fly-mode.md",
+                        "classification": "promote_to_concept",
+                        "target_slug": "fly-mode",
+                        "rationale": "durable mental model",
+                    }
+                ]
+            }
+        ]
     )
 
     report = promote_ideas(corpus, [], client=client)  # type: ignore[arg-type]
 
     assert report.promoted_to_concept == 1
     assert (corpus / "concepts" / "fly-mode.md").exists()
-    doc = load_markdown_document(
-        (corpus / "concepts" / "fly-mode.md").read_text(encoding="utf-8")
-    )
+    doc = load_markdown_document((corpus / "concepts" / "fly-mode.md").read_text(encoding="utf-8"))
     assert doc.frontmatter["type"] == "concept"
 
 
@@ -129,14 +136,18 @@ def test_stay_keeps_idea_in_place(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     _write_idea(corpus, "unformed")
     client = _FakeClient(
-        payloads=[{
-            "decisions": [{
-                "source_path": "ideas/unformed.md",
-                "classification": "stay",
-                "target_slug": None,
-                "rationale": "too raw",
-            }]
-        }]
+        payloads=[
+            {
+                "decisions": [
+                    {
+                        "source_path": "ideas/unformed.md",
+                        "classification": "stay",
+                        "target_slug": None,
+                        "rationale": "too raw",
+                    }
+                ]
+            }
+        ]
     )
 
     report = promote_ideas(corpus, [], client=client)  # type: ignore[arg-type]
@@ -149,14 +160,18 @@ def test_merge_with_entity_appends_backlink(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     _write_idea(corpus, "clawsy-pricing-thoughts", "just notes about clawsy pricing\n")
     client = _FakeClient(
-        payloads=[{
-            "decisions": [{
-                "source_path": "ideas/clawsy-pricing-thoughts.md",
-                "classification": "merge_with_entity",
-                "target_slug": "clawsy",
-                "rationale": "direct pricing evidence for clawsy",
-            }]
-        }]
+        payloads=[
+            {
+                "decisions": [
+                    {
+                        "source_path": "ideas/clawsy-pricing-thoughts.md",
+                        "classification": "merge_with_entity",
+                        "target_slug": "clawsy",
+                        "rationale": "direct pricing evidence for clawsy",
+                    }
+                ]
+            }
+        ]
     )
 
     report = promote_ideas(corpus, [_entity("clawsy")], client=client)  # type: ignore[arg-type]
@@ -170,14 +185,18 @@ def test_dry_run_leaves_files_in_place(tmp_path: Path) -> None:
     corpus = tmp_path / "corpus"
     _write_idea(corpus, "casey-ceo-spec")
     client = _FakeClient(
-        payloads=[{
-            "decisions": [{
-                "source_path": "ideas/casey-ceo-spec.md",
-                "classification": "promote_to_project",
-                "target_slug": "casey-ceo",
-                "rationale": "spec-heavy",
-            }]
-        }]
+        payloads=[
+            {
+                "decisions": [
+                    {
+                        "source_path": "ideas/casey-ceo-spec.md",
+                        "classification": "promote_to_project",
+                        "target_slug": "casey-ceo",
+                        "rationale": "spec-heavy",
+                    }
+                ]
+            }
+        ]
     )
 
     report = promote_ideas(corpus, [], client=client, dry_run=True)  # type: ignore[arg-type]

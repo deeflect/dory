@@ -12,12 +12,7 @@ def test_semantic_write_creates_evidence_artifact_and_claim_provenance(tmp_path:
     (root / "people").mkdir(parents=True)
     person_path = root / "people" / "anna.md"
     person_path.write_text(
-        "---\n"
-        "title: Anna\n"
-        "aliases:\n"
-        "  - anna\n"
-        "---\n"
-        "# Anna\n",
+        "---\ntitle: Anna\naliases:\n  - anna\n---\n# Anna\n",
         encoding="utf-8",
     )
 

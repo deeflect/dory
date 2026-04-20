@@ -51,8 +51,7 @@ class MigrationLLMClient(Protocol):
         user_prompt: str,
         schema_name: str,
         schema: dict[str, Any],
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
 
 @dataclass(frozen=True, slots=True)

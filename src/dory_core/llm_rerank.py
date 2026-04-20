@@ -96,13 +96,8 @@ class OpenRouterReranker:
 def _build_user_prompt(query: str, candidates: Sequence[RerankCandidate]) -> str:
     lines = [f"Query: {query}", "", "Candidates:"]
     for candidate in candidates:
-        hint_text = ", ".join(
-            f"{key}={value}" for key, value in candidate.frontmatter_hints.items() if value
-        )
-        header = (
-            f"- id={candidate.chunk_id} | path={candidate.path} | "
-            f"title={candidate.title or '(untitled)'}"
-        )
+        hint_text = ", ".join(f"{key}={value}" for key, value in candidate.frontmatter_hints.items() if value)
+        header = f"- id={candidate.chunk_id} | path={candidate.path} | title={candidate.title or '(untitled)'}"
         if hint_text:
             header += f" | {hint_text}"
         lines.append(header)

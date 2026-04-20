@@ -319,9 +319,7 @@ def _build_reduce_prompt(raw: Iterable[BatchEntity]) -> str:
     return "\n".join(lines)
 
 
-def _parse_map_entities(
-    payload: Any, *, batch_label: str
-) -> list[BatchEntity]:
+def _parse_map_entities(payload: Any, *, batch_label: str) -> list[BatchEntity]:
     if not isinstance(payload, dict):
         return []
     raw = payload.get("entities")
@@ -349,9 +347,7 @@ def _parse_canonical_entities(payload: Any) -> list[CanonicalEntity]:
     return canonical
 
 
-def _coerce_batch_entity(
-    item: Any, *, batch_label: str
-) -> BatchEntity | None:
+def _coerce_batch_entity(item: Any, *, batch_label: str) -> BatchEntity | None:
     if not isinstance(item, dict):
         return None
     slug = item.get("slug")
@@ -381,9 +377,7 @@ def _coerce_batch_entity(
         aliases=tuple(a.strip() for a in aliases if isinstance(a, str) and a.strip()),
         one_liner=one_liner.strip(),
         status_signal=status_signal,  # type: ignore[arg-type]
-        evidence_paths=tuple(
-            p.strip() for p in evidence_paths if isinstance(p, str) and p.strip()
-        ),
+        evidence_paths=tuple(p.strip() for p in evidence_paths if isinstance(p, str) and p.strip()),
         mention_count=mention_count,
         batch_label=batch_label,
     )
@@ -419,9 +413,7 @@ def _coerce_canonical_entity(item: Any) -> CanonicalEntity | None:
         aliases=tuple(sorted({a.strip() for a in aliases if isinstance(a, str) and a.strip()})),
         one_liner=one_liner.strip(),
         status_signal=status_signal,  # type: ignore[arg-type]
-        evidence_paths=tuple(
-            sorted({p.strip() for p in evidence_paths if isinstance(p, str) and p.strip()})
-        ),
+        evidence_paths=tuple(sorted({p.strip() for p in evidence_paths if isinstance(p, str) and p.strip()})),
         mention_count=mention_count,
     )
 

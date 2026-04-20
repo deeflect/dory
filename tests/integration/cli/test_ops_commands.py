@@ -18,7 +18,9 @@ class _QueuedOpenRouterClient:
         return self.payloads.pop(0)
 
 
-def test_ops_dream_once_writes_distilled_and_proposed(cli_runner, monkeypatch, tmp_path: Path, sample_corpus_root: Path) -> None:
+def test_ops_dream_once_writes_distilled_and_proposed(
+    cli_runner, monkeypatch, tmp_path: Path, sample_corpus_root: Path
+) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / ".index"
     for source in sample_corpus_root.rglob("*.md"):

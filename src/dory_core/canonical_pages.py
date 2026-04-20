@@ -44,11 +44,7 @@ def render_canonical_from_claims(
         )
     )
     evidence_paths = tuple(
-        _dedupe_strings(
-            event.evidence_path
-            for event in timeline_events
-            if event.evidence_path.strip()
-        )
+        _dedupe_strings(event.evidence_path for event in timeline_events if event.evidence_path.strip())
     )
     section_updates = _section_updates_from_claims(family=family, claims=active_claims)
     return patch_canonical_markdown(
@@ -426,24 +422,16 @@ def _section_updates_from_claims(*, family: str, claims: Sequence[ClaimRecord]) 
                 "Current State": _render_claim_statements(
                     claim for claim in active if claim.kind in {"state", "fact", "note"}
                 ),
-                "Open Work": _render_claim_statements(
-                    claim for claim in active if claim.kind == "note"
-                ),
-                "Key Decisions": _render_claim_statements(
-                    claim for claim in active if claim.kind == "decision"
-                ),
+                "Open Work": _render_claim_statements(claim for claim in active if claim.kind == "note"),
+                "Key Decisions": _render_claim_statements(claim for claim in active if claim.kind == "decision"),
             }
         )
     if family == "concept":
         return _compact_updates(
             {
                 "Summary": _render_claim_statements(active),
-                "Current Understanding": _render_claim_statements(
-                    claim for claim in active if claim.kind != "note"
-                ),
-                "Open Questions": _render_claim_statements(
-                    claim for claim in active if claim.kind == "note"
-                ),
+                "Current Understanding": _render_claim_statements(claim for claim in active if claim.kind != "note"),
+                "Open Questions": _render_claim_statements(claim for claim in active if claim.kind == "note"),
             }
         )
     if family == "decision":

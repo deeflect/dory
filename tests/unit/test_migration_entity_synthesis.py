@@ -86,9 +86,7 @@ def test_synthesize_writes_canonical_page_with_timeline(tmp_path: Path) -> None:
     )
 
     client = _FakeClient(payloads=[_synthesis_payload()])
-    entities = [
-        _entity("clawsy", evidence_paths=("projects/clawsy/state.md",))
-    ]
+    entities = [_entity("clawsy", evidence_paths=("projects/clawsy/state.md",))]
 
     report = synthesize_entities(entities, corpus_root=corpus, client=client)  # type: ignore[arg-type]
 
@@ -150,9 +148,7 @@ def test_synthesize_merges_active_and_archive_as_evidence(tmp_path: Path) -> Non
     report = synthesize_entities(entities, corpus_root=corpus, client=client)  # type: ignore[arg-type]
 
     assert report.synthesized == 1
-    doc = load_markdown_document(
-        (corpus / "projects" / "borb-bot" / "state.md").read_text(encoding="utf-8")
-    )
+    doc = load_markdown_document((corpus / "projects" / "borb-bot" / "state.md").read_text(encoding="utf-8"))
     assert "projects/borb-bot/state.md" in doc.body
     assert "archive/projects/borb-bot.md" in doc.body
 
@@ -174,9 +170,7 @@ def test_synthesize_person_family_lands_under_people(tmp_path: Path) -> None:
     report = synthesize_entities(entities, corpus_root=corpus, client=client)  # type: ignore[arg-type]
 
     assert report.synthesized == 1
-    doc = load_markdown_document(
-        (corpus / "people" / "casey.md").read_text(encoding="utf-8")
-    )
+    doc = load_markdown_document((corpus / "people" / "casey.md").read_text(encoding="utf-8"))
     assert doc.frontmatter["type"] == "person"
     assert "## Current Facts" in doc.body
 

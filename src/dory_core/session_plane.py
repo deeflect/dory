@@ -149,11 +149,12 @@ class SessionEvidencePlane:
                     device=row[4],
                     session_id=row[5],
                     status=row[6],
-                    score=_session_score(content=row[1], updated=row[2], bm25_rank=float(row[7]), query_terms=query_terms),
+                    score=_session_score(
+                        content=row[1], updated=row[2], bm25_rank=float(row[7]), query_terms=query_terms
+                    ),
                 )
                 for row in rows
-            )
-            ,
+            ),
             key=lambda result: (-result.score, result.path),
         )
         results = tuple(ranked[: query.limit])

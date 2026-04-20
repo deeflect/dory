@@ -97,7 +97,7 @@ Main file: `src/dory_http/app.py`
 Notes:
 
 - HTTP auth is fail-closed by default: bearer tokens are enforced unless `DORY_ALLOW_NO_AUTH=true`. `/healthz` stays unauthenticated for container healthchecks. Wiki routes use their own web session login. Browser wiki login requires `DORY_WEB_PASSWORD`; if unset, `/wiki/login` form submission returns 503.
-- `/v1/search` and `/v1/active-memory` can use `src/dory_core/retrieval_planner.py` when an OpenRouter client is configured and the relevant `DORY_QUERY_*` feature flags are enabled. `/v1/search` can also use strict-schema result selection over the final candidate set. Planner/composer/selection failures fall back to deterministic behavior instead of failing the request.
+- `/v1/search` can use `src/dory_core/retrieval_planner.py` when an OpenRouter client is configured and the relevant `DORY_QUERY_*` feature flags are enabled, including strict-schema result selection over the final candidate set. `/v1/active-memory` uses the same planner/composer, but picks its backend from `DORY_ACTIVE_MEMORY_LLM_PROVIDER` (`off` / `local` / `openrouter` / `auto`); the `local` path targets any OpenAI-compatible endpoint via `DORY_LOCAL_LLM_*`. Planner/composer/selection failures fall back to deterministic behavior instead of failing the request.
 - Semantic `memory-write` responses imply a semantic evidence artifact write on successful resolved mutations. Parity coverage: `tests/integration/http/test_memory_write_http.py`.
 - No route declares a `response_model`, so OpenAPI response schemas aren't auto-generated.
 - Error responses use FastAPI's default `{"detail": "..."}` format, not the contract's `{"error": {"code": ..., "message": ...}}` (see known drift below).

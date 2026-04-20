@@ -78,24 +78,18 @@ class GeminiEmbedder:
 
         vectors: list[list[float]] = []
         total_batches = (len(texts) + self.batch_size - 1) // self.batch_size
-        for batch_index, start in enumerate(
-            range(0, len(texts), self.batch_size), start=1
-        ):
+        for batch_index, start in enumerate(range(0, len(texts), self.batch_size), start=1):
             batch = list(texts[start : start + self.batch_size])
             response = self._invoke_with_retry(batch, task_type=task_type)
 
             embeddings = response.embeddings or []
             if len(embeddings) != len(batch):
-                raise EmbeddingProviderError(
-                    f"Gemini returned {len(embeddings)} embeddings for {len(batch)} inputs"
-                )
+                raise EmbeddingProviderError(f"Gemini returned {len(embeddings)} embeddings for {len(batch)} inputs")
 
             for embedding in embeddings:
                 values = embedding.values or []
                 if len(values) != self.dimension:
-                    raise EmbeddingProviderError(
-                        f"Gemini returned dimension {len(values)}; expected {self.dimension}"
-                    )
+                    raise EmbeddingProviderError(f"Gemini returned dimension {len(values)}; expected {self.dimension}")
                 vectors.append([float(value) for value in values])
 
             if self.inter_batch_delay > 0 and batch_index < total_batches:
@@ -147,9 +141,7 @@ class GeminiEmbedder:
                 if status is not None:
                     suffix.append(f"status={status}")
                 suffix_str = f" ({', '.join(suffix)})" if suffix else ""
-                raise EmbeddingProviderError(
-                    f"Gemini embedding request failed{suffix_str}: {detail}"
-                ) from err
+                raise EmbeddingProviderError(f"Gemini embedding request failed{suffix_str}: {detail}") from err
 
 
 def build_runtime_embedder(settings: object | None = None) -> GeminiEmbedder:

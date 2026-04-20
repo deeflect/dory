@@ -156,8 +156,7 @@ def test_hybrid_uses_expanded_queries_for_bm25_recall(monkeypatch, tmp_path: Pat
         engine,
         "_rows_for_chunk_ids",
         lambda chunk_ids, score_map=None: [
-            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0)))
-            for chunk_id in chunk_ids
+            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0))) for chunk_id in chunk_ids
         ],
     )
 
@@ -203,8 +202,7 @@ def test_hybrid_uses_retrieval_planner_queries_when_present(monkeypatch, tmp_pat
         engine,
         "_rows_for_chunk_ids",
         lambda chunk_ids, score_map=None: [
-            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0)))
-            for chunk_id in chunk_ids
+            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0))) for chunk_id in chunk_ids
         ],
     )
 
@@ -257,7 +255,9 @@ def test_search_uses_planner_session_queries_for_durable_hybrid(monkeypatch, tmp
         },
     )()
 
-    monkeypatch.setattr(engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: durable_result)
+    monkeypatch.setattr(
+        engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: durable_result
+    )
     monkeypatch.setattr(engine, "_search_session_plane_multi", lambda queries, limit, started: session_result)
 
     response = engine.search(SearchReq(query="what are we working on today", mode="hybrid", corpus="durable", k=5))
@@ -296,10 +296,14 @@ def test_search_can_reorder_results_with_result_selector(monkeypatch, tmp_path: 
         },
     )()
 
-    monkeypatch.setattr(engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: durable_result)
+    monkeypatch.setattr(
+        engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: durable_result
+    )
     monkeypatch.setattr(engine, "_should_fallback_to_session_plane", lambda req, response: False)
 
-    response = engine.search(SearchReq(query="What's the pricing plan for Clawzy?", mode="hybrid", corpus="durable", k=2))
+    response = engine.search(
+        SearchReq(query="What's the pricing plan for Clawzy?", mode="hybrid", corpus="durable", k=2)
+    )
 
     assert [result.path for result in response.results] == [
         "projects/clawsy/state.md",
@@ -338,10 +342,14 @@ def test_search_reports_selection_warning_when_selector_fails(monkeypatch, tmp_p
         },
     )()
 
-    monkeypatch.setattr(engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: durable_result)
+    monkeypatch.setattr(
+        engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: durable_result
+    )
     monkeypatch.setattr(engine, "_should_fallback_to_session_plane", lambda req, response: False)
 
-    response = engine.search(SearchReq(query="What's the pricing plan for Clawzy?", mode="hybrid", corpus="durable", k=2))
+    response = engine.search(
+        SearchReq(query="What's the pricing plan for Clawzy?", mode="hybrid", corpus="durable", k=2)
+    )
 
     assert [result.path for result in response.results] == [
         "projects/claws-studio/state.md",
@@ -387,8 +395,7 @@ def test_hybrid_uses_expanded_queries_for_vector_recall(monkeypatch, tmp_path: P
         engine,
         "_rows_for_chunk_ids",
         lambda chunk_ids, score_map=None: [
-            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0)))
-            for chunk_id in chunk_ids
+            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0))) for chunk_id in chunk_ids
         ],
     )
 
@@ -432,8 +439,7 @@ def test_hybrid_skips_expansion_for_current_state_queries(monkeypatch, tmp_path:
         engine,
         "_rows_for_chunk_ids",
         lambda chunk_ids, score_map=None: [
-            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0)))
-            for chunk_id in chunk_ids
+            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0))) for chunk_id in chunk_ids
         ],
     )
 
@@ -461,8 +467,7 @@ def test_search_reports_query_expansion_warning_when_expander_fails(monkeypatch,
         engine,
         "_rows_for_chunk_ids",
         lambda chunk_ids, score_map=None: [
-            replace(row, score=float((score_map or {}).get(chunk_id, 0.0)))
-            for chunk_id in chunk_ids
+            replace(row, score=float((score_map or {}).get(chunk_id, 0.0))) for chunk_id in chunk_ids
         ],
     )
     monkeypatch.setattr(engine, "_should_expand", lambda profile, rows: True)
@@ -496,34 +501,38 @@ def test_search_reorders_results_with_result_selector(monkeypatch, tmp_path: Pat
         ),
     }
 
-    monkeypatch.setattr(engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: type(
-        "Resp",
-        (),
-        {
-            "query": req.query,
-            "count": 2,
-            "results": [
-                SearchResult(
-                    path=rows["studio"].path,
-                    lines="1-4",
-                    snippet="Hosted site plans.",
-                    score=rows["studio"].score,
-                    frontmatter={},
-                    stale_warning=None,
-                ),
-                SearchResult(
-                    path=rows["clawsy"].path,
-                    lines="1-4",
-                    snippet="Pricing: $19/mo BYOK. Hetzner CX22.",
-                    score=rows["clawsy"].score,
-                    frontmatter={},
-                    stale_warning=None,
-                ),
-            ],
-            "took_ms": 5,
-            "warnings": [],
-        },
-    )())
+    monkeypatch.setattr(
+        engine,
+        "_search_durable",
+        lambda req, started, rerank_enabled, search_plan=None: type(
+            "Resp",
+            (),
+            {
+                "query": req.query,
+                "count": 2,
+                "results": [
+                    SearchResult(
+                        path=rows["studio"].path,
+                        lines="1-4",
+                        snippet="Hosted site plans.",
+                        score=rows["studio"].score,
+                        frontmatter={},
+                        stale_warning=None,
+                    ),
+                    SearchResult(
+                        path=rows["clawsy"].path,
+                        lines="1-4",
+                        snippet="Pricing: $19/mo BYOK. Hetzner CX22.",
+                        score=rows["clawsy"].score,
+                        frontmatter={},
+                        stale_warning=None,
+                    ),
+                ],
+                "took_ms": 5,
+                "warnings": [],
+            },
+        )(),
+    )
 
     response = engine.search(SearchReq(query="What's the pricing plan for Clawzy?", mode="hybrid", k=2))
 
@@ -535,34 +544,38 @@ def test_search_reorders_results_with_result_selector(monkeypatch, tmp_path: Pat
 
 def test_search_reports_warning_when_result_selector_fails(monkeypatch, tmp_path: Path) -> None:
     engine = SearchEngine(tmp_path, _FakeEmbedder(), result_selector=_ExplodingResultSelector())
-    monkeypatch.setattr(engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: type(
-        "Resp",
-        (),
-        {
-            "query": req.query,
-            "count": 2,
-            "results": [
-                SearchResult(
-                    path="projects/claws-studio/state.md",
-                    lines="1-4",
-                    snippet="Hosted site plans.",
-                    score=0.9,
-                    frontmatter={},
-                    stale_warning=None,
-                ),
-                SearchResult(
-                    path="projects/clawsy/state.md",
-                    lines="1-4",
-                    snippet="Pricing: $19/mo BYOK. Hetzner CX22.",
-                    score=0.8,
-                    frontmatter={},
-                    stale_warning=None,
-                ),
-            ],
-            "took_ms": 5,
-            "warnings": [],
-        },
-    )())
+    monkeypatch.setattr(
+        engine,
+        "_search_durable",
+        lambda req, started, rerank_enabled, search_plan=None: type(
+            "Resp",
+            (),
+            {
+                "query": req.query,
+                "count": 2,
+                "results": [
+                    SearchResult(
+                        path="projects/claws-studio/state.md",
+                        lines="1-4",
+                        snippet="Hosted site plans.",
+                        score=0.9,
+                        frontmatter={},
+                        stale_warning=None,
+                    ),
+                    SearchResult(
+                        path="projects/clawsy/state.md",
+                        lines="1-4",
+                        snippet="Pricing: $19/mo BYOK. Hetzner CX22.",
+                        score=0.8,
+                        frontmatter={},
+                        stale_warning=None,
+                    ),
+                ],
+                "took_ms": 5,
+                "warnings": [],
+            },
+        )(),
+    )
 
     response = engine.search(SearchReq(query="What's the pricing plan for Clawzy?", mode="hybrid", k=2))
 
@@ -602,8 +615,7 @@ def test_hybrid_prefers_canonical_project_state_over_support_notes(monkeypatch, 
         engine,
         "_rows_for_chunk_ids",
         lambda chunk_ids, score_map=None: [
-            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0)))
-            for chunk_id in chunk_ids
+            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0))) for chunk_id in chunk_ids
         ],
     )
 
@@ -641,8 +653,7 @@ def test_hybrid_prefers_canonical_decision_over_extracted_variant(monkeypatch, t
         engine,
         "_rows_for_chunk_ids",
         lambda chunk_ids, score_map=None: [
-            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0)))
-            for chunk_id in chunk_ids
+            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0))) for chunk_id in chunk_ids
         ],
     )
 
@@ -680,8 +691,7 @@ def test_hybrid_recovers_close_identifier_renames(monkeypatch, tmp_path: Path) -
         engine,
         "_rows_for_chunk_ids",
         lambda chunk_ids, score_map=None: [
-            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0)))
-            for chunk_id in chunk_ids
+            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0))) for chunk_id in chunk_ids
         ],
     )
 
@@ -719,8 +729,7 @@ def test_hybrid_prefers_temporal_daily_digest_over_general_soul_docs(monkeypatch
         engine,
         "_rows_for_chunk_ids",
         lambda chunk_ids, score_map=None: [
-            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0)))
-            for chunk_id in chunk_ids
+            replace(rows[chunk_id], score=float((score_map or {}).get(chunk_id, 0.0))) for chunk_id in chunk_ids
         ],
     )
 

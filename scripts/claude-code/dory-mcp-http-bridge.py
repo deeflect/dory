@@ -9,6 +9,7 @@ Usage in Claude Code MCP config:
   "args": ["/path/to/dory-mcp-http-bridge.py"],
   "env": { "DORY_HTTP_URL": "http://127.0.0.1:8766" }
 """
+
 from __future__ import annotations
 
 import json
@@ -86,7 +87,11 @@ TOOLS = [
             "type": "object",
             "properties": {
                 "question": {"type": "string"},
-                "kind": {"type": "string", "default": "report", "enum": ["report", "briefing", "wiki-note", "proposal"]},
+                "kind": {
+                    "type": "string",
+                    "default": "report",
+                    "enum": ["report", "briefing", "wiki-note", "proposal"],
+                },
                 "corpus": {"type": "string", "default": "all", "enum": ["durable", "sessions", "all"]},
                 "limit": {"type": "integer", "default": 8, "minimum": 1, "maximum": 20},
                 "save": {"type": "boolean", "default": True},

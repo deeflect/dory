@@ -64,8 +64,6 @@ def test_forget_retires_original_from_search_results(tmp_path: Path, fake_embedd
     assert person_document.frontmatter["status"] == "superseded"
     assert person_document.frontmatter["canonical"] is False
 
-    response = SearchEngine(index_root, fake_embedder).search(
-        SearchReq(query="Prefers async work", mode="hybrid")
-    )
+    response = SearchEngine(index_root, fake_embedder).search(SearchReq(query="Prefers async work", mode="hybrid"))
 
     assert all(result.path != "people/alex-example.md" for result in response.results)

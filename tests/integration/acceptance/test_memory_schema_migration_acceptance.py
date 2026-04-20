@@ -22,9 +22,9 @@ def test_memory_schema_migration_acceptance(cli_runner, tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    assert "\"staged_count\"" in result.output
-    assert "\"canonical_created_count\"" in result.output
-    assert "\"quarantined_count\": 0" in result.output
+    assert '"staged_count"' in result.output
+    assert '"canonical_created_count"' in result.output
+    assert '"quarantined_count": 0' in result.output
 
     assert not (corpus_root / "core" / "user.md").exists()
     assert not (corpus_root / "core" / "soul.md").exists()

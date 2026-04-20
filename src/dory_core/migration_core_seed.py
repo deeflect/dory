@@ -13,7 +13,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Sequence
 
 from dory_core.frontmatter import (
     dump_markdown_document,
@@ -35,9 +34,7 @@ _DEFAULT_CORE_FRONTMATTER = {
 # Dory's canonical core set. Brain-file imports that match one of these
 # stems after lowercasing land under core/. Anything else gets skipped
 # and should be routed to references/ops or knowledge/ manually.
-_DORY_CORE_STEMS: frozenset[str] = frozenset(
-    {"user", "soul", "identity", "env", "active", "defaults"}
-)
+_DORY_CORE_STEMS: frozenset[str] = frozenset({"user", "soul", "identity", "env", "active", "defaults"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,9 +115,7 @@ def _render_core_document(source: Path, destination: Path) -> str:
     return dump_markdown_document(normalized, body)
 
 
-def _infer_title(
-    frontmatter: dict[str, object], body: str, *, fallback: str
-) -> str:
+def _infer_title(frontmatter: dict[str, object], body: str, *, fallback: str) -> str:
     existing = frontmatter.get("title")
     if isinstance(existing, str) and existing.strip():
         return existing.strip()

@@ -84,9 +84,7 @@ def route_source_path(source_path: Path, *, source_root: Path) -> RoutingDecisio
     try:
         relative = source_path.resolve().relative_to(source_root.resolve())
     except ValueError:
-        return RoutingDecision.exclude(
-            source_path, reason="source_path is not under source_root"
-        )
+        return RoutingDecision.exclude(source_path, reason="source_path is not under source_root")
 
     if source_path.suffix.lower() != ".md":
         return RoutingDecision.exclude(source_path, reason="non-markdown file")
@@ -98,9 +96,7 @@ def route_source_path(source_path: Path, *, source_root: Path) -> RoutingDecisio
     top = parts[0]
 
     if top in _EXCLUDED_ROOTS:
-        return RoutingDecision.exclude(
-            source_path, reason=f"excluded top-level directory: {top}/"
-        )
+        return RoutingDecision.exclude(source_path, reason=f"excluded top-level directory: {top}/")
 
     if top == "ops":
         return _route_ops(source_path, relative)
@@ -422,9 +418,7 @@ def _route_reference(source_path: Path, relative: Path) -> RoutingDecision:
     )
 
 
-def _route_reference_supporting(
-    source_path: Path, relative: Path
-) -> RoutingDecision:
+def _route_reference_supporting(source_path: Path, relative: Path) -> RoutingDecision:
     """Handle reference/supporting/** — structured by sub-purpose.
 
     Sub-folders like ``project-architecture/<slug>-architecture.md`` encode
@@ -499,9 +493,7 @@ def _route_archive(source_path: Path, relative: Path) -> RoutingDecision:
     """
     tail = Path(*relative.parts[1:]) if len(relative.parts) > 1 else Path(relative.name)
     if not tail.parts:
-        return RoutingDecision.exclude(
-            source_path, reason="archive/ root file without sub-bucket"
-        )
+        return RoutingDecision.exclude(source_path, reason="archive/ root file without sub-bucket")
     return RoutingDecision.route(
         source_path,
         Path("archive") / tail,
@@ -555,9 +547,7 @@ def build_manifest(source_root: Path) -> dict[str, object]:
         "total_files": len(decisions),
         "summary": {
             "by_kind": by_kind,
-            "by_destination_bucket": dict(
-                sorted(by_destination_bucket.items(), key=lambda kv: -kv[1])
-            ),
+            "by_destination_bucket": dict(sorted(by_destination_bucket.items(), key=lambda kv: -kv[1])),
         },
         "entries": entries,
     }

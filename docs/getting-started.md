@@ -128,9 +128,18 @@ DORY_ALLOW_NO_AUTH=false
 DORY_WEB_PASSWORD=
 DORY_GEMINI_API_KEY=...
 DORY_OPENROUTER_API_KEY=
+DORY_ACTIVE_MEMORY_LLM_PROVIDER=off
+DORY_ACTIVE_MEMORY_LLM_STAGES=compose
+DORY_LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1
+DORY_LOCAL_LLM_MODEL=qwen3.5:4b
+DORY_LOCAL_LLM_TIMEOUT_SECONDS=5
+DORY_LOCAL_LLM_MAX_TOKENS=512
+DORY_LOCAL_LLM_API_KEY=
 ```
 
 `DORY_DATA_ROOT` is the host directory mounted into the container at `/var/lib/dory`. Any host path works as long as Docker can write to it.
+
+`DORY_ACTIVE_MEMORY_LLM_PROVIDER` controls the optional active-memory planner/composer. Use `local` for an OpenAI-compatible local/LAN endpoint, `openrouter` for the hosted path, `auto` to prefer local then fall back to OpenRouter, or `off` for deterministic retrieval only. `DORY_ACTIVE_MEMORY_LLM_STAGES` can be `both`, `plan`, or `compose`; `compose` is usually safest for small local models because deterministic retrieval stays fast while the model only compresses selected evidence. `plan` is useful when the local model is good at strict JSON query expansion. Dory skips LLM stages when the request deadline is too tight. `DORY_LOCAL_LLM_BASE_URL` may be either the service root or its `/v1` OpenAI-compatible root.
 
 Create a bearer token inside the container so it lands in the mounted token store:
 

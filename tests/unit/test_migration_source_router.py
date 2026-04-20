@@ -105,18 +105,14 @@ def test_active_analysis_routes_to_reports(tmp_path: Path) -> None:
     decision = _route(tmp_path, "active/analysis/2026-04-16-work-pattern-analysis.md")
 
     assert decision.kind == "route"
-    assert decision.destination == Path(
-        "references/reports/2026-04-16-work-pattern-analysis.md"
-    )
+    assert decision.destination == Path("references/reports/2026-04-16-work-pattern-analysis.md")
 
 
 def test_active_strategy_routes_to_reports(tmp_path: Path) -> None:
     decision = _route(tmp_path, "active/strategy/2026-04-16-income-strategy.md")
 
     assert decision.kind == "route"
-    assert decision.destination == Path(
-        "references/reports/2026-04-16-income-strategy.md"
-    )
+    assert decision.destination == Path("references/reports/2026-04-16-income-strategy.md")
 
 
 def test_reference_knowledge_preserves_subtree(tmp_path: Path) -> None:
@@ -144,9 +140,7 @@ def test_reference_resources_routes_to_references_notes(tmp_path: Path) -> None:
     decision = _route(tmp_path, "reference/resources/fitness-app-competitors.md")
 
     assert decision.kind == "route"
-    assert decision.destination == Path(
-        "references/notes/fitness-app-competitors.md"
-    )
+    assert decision.destination == Path("references/notes/fitness-app-competitors.md")
 
 
 def test_reference_tweets_routes_to_references_tweets(tmp_path: Path) -> None:
@@ -171,9 +165,7 @@ def test_reference_supporting_flat_file_needs_review(tmp_path: Path) -> None:
 
 
 def test_reference_supporting_unknown_subpurpose_preserved(tmp_path: Path) -> None:
-    decision = _route(
-        tmp_path, "reference/supporting/ad-hoc/some-notes.md"
-    )
+    decision = _route(tmp_path, "reference/supporting/ad-hoc/some-notes.md")
 
     assert decision.kind == "route"
     assert decision.destination == Path("references/supporting/ad-hoc/some-notes.md")
@@ -224,9 +216,7 @@ def test_reference_supporting_generated_output_routes_to_reports(
     )
 
     assert decision.kind == "route"
-    assert decision.destination == Path(
-        "references/reports/generated/book-production-pipeline.md"
-    )
+    assert decision.destination == Path("references/reports/generated/book-production-pipeline.md")
 
 
 def test_reference_supporting_graphs_routes_to_knowledge_graphs(
@@ -277,9 +267,7 @@ def test_ops_reports_routed_under_references(tmp_path: Path) -> None:
     decision = _route(tmp_path, "ops/reports/audit/memory-audit-2026-04-16.md")
 
     assert decision.kind == "route"
-    assert decision.destination == Path(
-        "references/reports/ops/reports/audit/memory-audit-2026-04-16.md"
-    )
+    assert decision.destination == Path("references/reports/ops/reports/audit/memory-audit-2026-04-16.md")
 
 
 def test_inbox_preserved(tmp_path: Path) -> None:

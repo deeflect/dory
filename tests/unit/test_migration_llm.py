@@ -15,8 +15,6 @@ from dory_core.migration_llm import (
 from dory_core.migration_prompts import (
     build_classification_system_prompt,
     build_classification_user_prompt,
-    build_document_extraction_system_prompt,
-    build_document_extraction_user_prompt,
     build_entity_resolution_system_prompt,
     build_entity_resolution_user_prompt,
     build_extraction_system_prompt,

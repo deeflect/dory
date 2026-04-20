@@ -30,6 +30,7 @@ def test_cli_research_writes_artifact_and_returns_path(
 ) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / "index"
+
     class _FakeEmbedder:
         dimension = 1
 
@@ -72,6 +73,7 @@ def test_cli_research_briefing_writes_briefing_path(
 ) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / "index"
+
     class _FakeEmbedder:
         dimension = 1
 
@@ -112,12 +114,7 @@ def test_cli_wiki_refresh_indexes_writes_indexes(cli_runner, tmp_path: Path) -> 
     wiki_root = corpus_root / "wiki" / "projects"
     wiki_root.mkdir(parents=True)
     (wiki_root / "rooster.md").write_text(
-        "---\n"
-        "title: Rooster\n"
-        "type: wiki\n"
-        "status: active\n"
-        "---\n\n"
-        "Rooster.\n",
+        "---\ntitle: Rooster\ntype: wiki\nstatus: active\n---\n\nRooster.\n",
         encoding="utf-8",
     )
     index_root = tmp_path / "index"

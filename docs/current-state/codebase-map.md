@@ -18,6 +18,8 @@ Where the real code for each concern lives.
   - Hermes provider implementation over HTTP
 - `scripts/`
   - install/bootstrap scripts, session shipper, Claude bridge, Codex wrapper, migration helpers
+- `skills/`
+  - portable Dory skill folders for agents that consume `SKILL.md` instructions
 - `tests/`
   - unit, integration, and acceptance coverage
 - `references/`
@@ -33,6 +35,8 @@ Where the real code for each concern lives.
   - repo-local wrapper that injects `--corpus-root` and `--index-root`
 - `scripts/claude-code/dory-mcp-http-bridge.py`
   - Claude Code bridge that forwards tool calls to HTTP (separate from native MCP)
+- `scripts/agent-policy/install.sh`
+  - installer for the shared Dory policy snippet and HTTP-backed MCP bridge entries in Claude Code, Codex CLI, and opencode
 
 ## `src/dory_core/` map
 

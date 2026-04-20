@@ -120,7 +120,8 @@ The corpus, index, auth tokens, public URL, and model provider keys are environm
 - **Language** — Python (uv + pyproject)
 - **Storage** — Markdown source of truth · SQLite (FTS5, graph edges, embedding cache, chunk vectors, session evidence)
 - **Embeddings** — Gemini Embedding 2 (Matryoshka 768); required for the HTTP/MCP/search/write runtime today
-- **Dreaming LLM** — Gemini 3.1 Flash via OpenRouter · optional local ollama for sovereign mode
+- **Dreaming & maintenance LLM** — Gemini 3.1 Flash via OpenRouter
+- **Active-memory LLM** — optional · OpenRouter or any OpenAI-compatible local/LAN endpoint (Ollama, LM Studio, vLLM). Off by default; deterministic retrieval still works without it
 - **Auth** — bearer tokens via `.dory/auth-tokens.json`; `DORY_ALLOW_NO_AUTH=true` for local dev only
 
 ## Design influences
@@ -128,9 +129,9 @@ The corpus, index, auth tokens, public URL, and model provider keys are environm
 Dory is a composite of patterns that already worked:
 
 - **[Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)** — a persistent markdown layer that compounds instead of forcing rediscovery. Dory keeps that, but generates the wiki from a structured memory core.
-- **gbrain** — human-readable canonical pages, source-backed evidence, entity resolution, backlinks, read-before-write discipline.
-- **Mem0** — scoped memory APIs, explicit add/update/delete semantics, memory ops as first-class tools instead of hidden chat history.
-- **MemPalace / memory palace systems** — bounded wake-up context, local-first session storage, transcript mining, layered recall.
+- **[gbrain](https://github.com/garrytan/gbrain)** — human-readable canonical pages, source-backed evidence, entity resolution, backlinks, read-before-write discipline.
+- **[Mem0](https://github.com/mem0ai/mem0)** — scoped memory APIs, explicit add/update/delete semantics, memory ops as first-class tools instead of hidden chat history.
+- **[MemPalace](https://github.com/MemPalace/mempalace) / memory palace systems** — bounded wake-up context, local-first session storage, transcript mining, layered recall.
 - **Markdown + git** — plain files, diffs, reviews, backups, human inspection.
 
 The goal is practical: one memory layer for all agents, with enough structure to stay useful and enough plain text to stay debuggable.

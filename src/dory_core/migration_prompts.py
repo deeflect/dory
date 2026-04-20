@@ -433,11 +433,7 @@ def build_extraction_user_prompt(
         decision_refs=decision_refs,
         target_path=target_path,
     )
-    return (
-        f"Document path:\n{path}\n\n"
-        f"{guidance}\n\n"
-        f"Document text:\n{text}"
-    )
+    return f"Document path:\n{path}\n\n{guidance}\n\nDocument text:\n{text}"
 
 
 def build_document_extraction_user_prompt(*, path: str, text: str) -> str:

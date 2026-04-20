@@ -93,9 +93,7 @@ def test_search_records_recall_log_rows(
 
     assert response.results
     with sqlite3.connect(tmp_path / "dory.db") as connection:
-        row = connection.execute(
-            "SELECT query, chunk_ids FROM recall_log ORDER BY id DESC LIMIT 1"
-        ).fetchone()
+        row = connection.execute("SELECT query, chunk_ids FROM recall_log ORDER BY id DESC LIMIT 1").fetchone()
     assert row is not None
     assert row[0] == "private mesh VPN"
     assert "core/env.md" in row[1]
@@ -348,15 +346,7 @@ def _make_chunk_row(chunk_id: str, path: str, content: str, *, score: float = 1.
     return _ChunkRow(
         chunk_id=chunk_id,
         path=path,
-        content=(
-            "---\n"
-            "title: Test\n"
-            "type: project\n"
-            "status: active\n"
-            "canonical: true\n"
-            "---\n\n"
-            f"{content}\n"
-        ),
+        content=(f"---\ntitle: Test\ntype: project\nstatus: active\ncanonical: true\n---\n\n{content}\n"),
         start_line=1,
         end_line=6,
         frontmatter_json='{"title":"Test","type":"project","status":"active","canonical":true}',

@@ -47,9 +47,7 @@ def test_cli_memory_write_routes_to_existing_subject(
     assert payload["resolved"] is True
     assert payload["result"] == "written"
     assert payload["target_path"] == "people/alex.md"
-    assert "Alex is now tracking memory routing." in (corpus_root / "people" / "alex.md").read_text(
-        encoding="utf-8"
-    )
+    assert "Alex is now tracking memory routing." in (corpus_root / "people" / "alex.md").read_text(encoding="utf-8")
 
 
 def test_cli_memory_write_quarantines_unknown_subjects(
@@ -147,8 +145,7 @@ def test_cli_memory_write_forget_retires_existing_subject(
     semantic_artifacts = sorted((corpus_root / "sources" / "semantic").rglob("*.md"))
     assert len(semantic_artifacts) == 2
     artifact_frontmatters = [
-        load_markdown_document(path.read_text(encoding="utf-8")).frontmatter
-        for path in semantic_artifacts
+        load_markdown_document(path.read_text(encoding="utf-8")).frontmatter for path in semantic_artifacts
     ]
     assert {frontmatter["action"] for frontmatter in artifact_frontmatters} == {
         "write",

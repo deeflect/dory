@@ -12,12 +12,7 @@ def test_mcp_get_returns_http_parity_fields(tmp_path: Path, fake_embedder) -> No
     index_root = tmp_path / "index"
     (corpus_root / "core").mkdir(parents=True)
     (corpus_root / "core" / "user.md").write_text(
-        "---\n"
-        "title: User\n"
-        "type: core\n"
-        "---\n"
-        "# User\n\n"
-        "Hello world.\n",
+        "---\ntitle: User\ntype: core\n---\n# User\n\nHello world.\n",
         encoding="utf-8",
     )
 

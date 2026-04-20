@@ -108,10 +108,26 @@ def test_migration_engine_selected_paths_accept_json_inputs(tmp_path: Path) -> N
 @pytest.mark.parametrize(
     ("file_name", "raw_text", "expected_snippets"),
     [
-        ("capture.txt", "Legacy scratch note\nSecond line\n", ("Source format: txt", "## Raw Text", "Legacy scratch note")),
-        ("capture.yaml", "title: Legacy Capture\nstatus: active\n", ("Source format: yaml", "## Raw YAML", "title: Legacy Capture")),
-        ("capture.yml", "title: Legacy Capture\nstatus: active\n", ("Source format: yml", "## Raw YML", "title: Legacy Capture")),
-        ("capture.toml", 'title = "Legacy Capture"\nstatus = "active"\n', ("Source format: toml", "## Raw TOML", 'title = "Legacy Capture"')),
+        (
+            "capture.txt",
+            "Legacy scratch note\nSecond line\n",
+            ("Source format: txt", "## Raw Text", "Legacy scratch note"),
+        ),
+        (
+            "capture.yaml",
+            "title: Legacy Capture\nstatus: active\n",
+            ("Source format: yaml", "## Raw YAML", "title: Legacy Capture"),
+        ),
+        (
+            "capture.yml",
+            "title: Legacy Capture\nstatus: active\n",
+            ("Source format: yml", "## Raw YML", "title: Legacy Capture"),
+        ),
+        (
+            "capture.toml",
+            'title = "Legacy Capture"\nstatus = "active"\n',
+            ("Source format: toml", "## Raw TOML", 'title = "Legacy Capture"'),
+        ),
         (
             "capture.csv",
             "name,status\nRooster,active\nAtlas,parked\n",
@@ -211,8 +227,20 @@ def test_migration_engine_stages_ndjson_inputs_as_markdown_evidence(tmp_path: Pa
     transcript.write_text(
         "\n".join(
             [
-                json.dumps({"timestamp": "2026-04-12T10:00:00Z", "type": "user_message", "message": "remember this pricing plan"}),
-                json.dumps({"timestamp": "2026-04-12T10:00:03Z", "role": "assistant", "content": "Clawsy stays on the small Hetzner VPS."}),
+                json.dumps(
+                    {
+                        "timestamp": "2026-04-12T10:00:00Z",
+                        "type": "user_message",
+                        "message": "remember this pricing plan",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "timestamp": "2026-04-12T10:00:03Z",
+                        "role": "assistant",
+                        "content": "Clawsy stays on the small Hetzner VPS.",
+                    }
+                ),
             ]
         )
         + "\n",
@@ -544,9 +572,15 @@ def test_migration_normalizes_evidence_frontmatter_and_strips_frontmatter_from_s
 
     MigrationEngine(output_root).migrate(fixture_root)
 
-    daily_digest = load_markdown_document((output_root / "digests" / "daily" / "2026-03-25-digest.md").read_text(encoding="utf-8"))
-    session_log = load_markdown_document((output_root / "logs" / "sessions" / "2026-03-20-revenue-plan.md").read_text(encoding="utf-8"))
-    person_source = load_markdown_document((output_root / "sources" / "imported" / "people" / "casey.md").read_text(encoding="utf-8"))
+    daily_digest = load_markdown_document(
+        (output_root / "digests" / "daily" / "2026-03-25-digest.md").read_text(encoding="utf-8")
+    )
+    session_log = load_markdown_document(
+        (output_root / "logs" / "sessions" / "2026-03-20-revenue-plan.md").read_text(encoding="utf-8")
+    )
+    person_source = load_markdown_document(
+        (output_root / "sources" / "imported" / "people" / "casey.md").read_text(encoding="utf-8")
+    )
 
     assert daily_digest.frontmatter["type"] == "digest-daily"
     assert session_log.frontmatter["type"] == "session"
@@ -1432,9 +1466,7 @@ def test_migration_document_artifact_records_llm_fallback_reason(tmp_path: Path)
 
     assert payload["used_llm_for_classification"] is True
     assert payload["used_llm_for_extraction"] is False
-    assert payload["fallback_reasons"] == [
-        "document_extraction_failed: RuntimeError: document extraction exploded"
-    ]
+    assert payload["fallback_reasons"] == ["document_extraction_failed: RuntimeError: document extraction exploded"]
 
 
 def test_migration_engine_salvages_valid_llm_atoms_when_some_are_invalid(tmp_path: Path) -> None:
@@ -1693,11 +1725,7 @@ def test_migration_engine_preserves_date_from_structured_frontmatter_in_core_tim
     legacy_root.mkdir()
     note = legacy_root / "ACTIVE.md"
     note.write_text(
-        "---\n"
-        "date: 2026-04-13\n"
-        "---\n"
-        "\n"
-        "Finish corpus migration hardening.\n",
+        "---\ndate: 2026-04-13\n---\n\nFinish corpus migration hardening.\n",
         encoding="utf-8",
     )
 
@@ -1832,22 +1860,17 @@ def test_migration_engine_keeps_fallback_migration_evidence_only(tmp_path: Path)
 
     user = legacy_root / "USER.md"
     user.write_text(
-        "# USER.md — About Alex\n\n"
-        "- Name: Alex\n"
-        "- Works async-first\n"
-        "- Focused on systems that ship\n",
+        "# USER.md — About Alex\n\n- Name: Alex\n- Works async-first\n- Focused on systems that ship\n",
         encoding="utf-8",
     )
     project = legacy_root / "memory" / "projects" / "atlas-spec.md"
     project.write_text(
-        "# Atlas\n\n"
-        "Atlas is the active project focus this week.\n",
+        "# Atlas\n\nAtlas is the active project focus this week.\n",
         encoding="utf-8",
     )
     concept = legacy_root / "memory" / "tools" / "nimbus.md"
     concept.write_text(
-        "# Nimbus\n\n"
-        "Nimbus is a reusable orchestration concept.\n",
+        "# Nimbus\n\nNimbus is a reusable orchestration concept.\n",
         encoding="utf-8",
     )
 
@@ -1855,8 +1878,12 @@ def test_migration_engine_keeps_fallback_migration_evidence_only(tmp_path: Path)
     MigrationEngine(output_root).migrate(legacy_root)
 
     alex = load_markdown_document((output_root / "sources" / "imported" / "user.md").read_text(encoding="utf-8"))
-    atlas = load_markdown_document((output_root / "sources" / "imported" / "projects" / "atlas-spec.md").read_text(encoding="utf-8"))
-    nimbus = load_markdown_document((output_root / "sources" / "imported" / "tools" / "nimbus.md").read_text(encoding="utf-8"))
+    atlas = load_markdown_document(
+        (output_root / "sources" / "imported" / "projects" / "atlas-spec.md").read_text(encoding="utf-8")
+    )
+    nimbus = load_markdown_document(
+        (output_root / "sources" / "imported" / "tools" / "nimbus.md").read_text(encoding="utf-8")
+    )
 
     assert alex.frontmatter["type"] == "source"
     assert "Works async-first" in alex.body
@@ -1988,12 +2015,16 @@ def test_migration_engine_preserves_legacy_time_refs_in_canonical_timeline(tmp_p
     output_root = tmp_path / "corpus"
     MigrationEngine(output_root, llm=MigrationLLM(client=_FakeClient())).migrate(legacy_root)
 
-    project_state = load_markdown_document((output_root / "projects" / "rooster" / "state.md").read_text(encoding="utf-8"))
+    project_state = load_markdown_document(
+        (output_root / "projects" / "rooster" / "state.md").read_text(encoding="utf-8")
+    )
 
     assert "2026-04-01: Rooster was parked." in project_state.body
 
 
-def test_migration_engine_replaces_project_state_claims_instead_of_keeping_multiple_active_claims(tmp_path: Path) -> None:
+def test_migration_engine_replaces_project_state_claims_instead_of_keeping_multiple_active_claims(
+    tmp_path: Path,
+) -> None:
     legacy_root = tmp_path / "legacy"
     (legacy_root / "memory" / "archive" / "projects").mkdir(parents=True)
     (legacy_root / "memory" / "daily").mkdir(parents=True)
@@ -2075,7 +2106,9 @@ def test_migration_engine_replaces_project_state_claims_instead_of_keeping_multi
     store = ClaimStore(output_root / ".dory" / "claim-store.db")
     current = store.current_claims("project:rooster")
     history = store.claim_history("project:rooster")
-    project_state = load_markdown_document((output_root / "projects" / "rooster" / "state.md").read_text(encoding="utf-8"))
+    project_state = load_markdown_document(
+        (output_root / "projects" / "rooster" / "state.md").read_text(encoding="utf-8")
+    )
 
     assert len(current) == 1
     assert current[0].statement == "Rooster is the active focus."

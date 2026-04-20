@@ -68,9 +68,7 @@ def test_research_engine_from_req_uses_request_fields() -> None:
         )
     )
 
-    resp = engine.research_from_req(
-        ResearchReq(question="Who is Anna?", kind="briefing", corpus="durable", limit=3)
-    )
+    resp = engine.research_from_req(ResearchReq(question="Who is Anna?", kind="briefing", corpus="durable", limit=3))
 
     assert resp.artifact.kind == "briefing"
     assert resp.sources == ["people/anna.md"]

@@ -13,6 +13,7 @@ import yaml
 try:
     from agent.memory_provider import MemoryProvider
 except ImportError:
+
     class MemoryProvider:
         pass
 
@@ -599,9 +600,7 @@ class DoryMemoryProvider(MemoryProvider):
                 "budget_tokens": budget_tokens if budget_tokens is not None else self.wake_budget_tokens,
                 "profile": profile if profile is not None else self.wake_profile,
                 "include_recent_sessions": (
-                    include_recent_sessions
-                    if include_recent_sessions is not None
-                    else self.wake_recent_sessions
+                    include_recent_sessions if include_recent_sessions is not None else self.wake_recent_sessions
                 ),
                 "include_pinned_decisions": (
                     include_pinned_decisions
@@ -1099,7 +1098,17 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     "k": {"type": "integer"},
                     "mode": {
                         "type": "string",
-                        "enum": ["hybrid", "recall", "bm25", "text", "keyword", "lexical", "vector", "semantic", "exact"],
+                        "enum": [
+                            "hybrid",
+                            "recall",
+                            "bm25",
+                            "text",
+                            "keyword",
+                            "lexical",
+                            "vector",
+                            "semantic",
+                            "exact",
+                        ],
                     },
                     "corpus": {"type": "string", "enum": ["durable", "sessions", "all"]},
                     "scope": {

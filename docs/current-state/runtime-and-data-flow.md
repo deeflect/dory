@@ -162,23 +162,24 @@ Durable memory isn't the only retrieval source, but session recall now has an op
 Stages:
 
 1. Explicit active-memory call enters the staged retrieval flow.
-2. Generated wiki shell read (`wiki/hot.md`, then `wiki/index.md`) when available.
+2. Generated wiki shell read (`wiki/hot.md`, then `wiki/index.md`) when available; this is helper context, not rendered evidence.
 3. Bounded wake build.
-4. Optional retrieval planner turns prompt plus wiki helper context into durable/session query sets.
+4. Optional retrieval planner turns prompt plus compact helper context into durable/session query sets.
 5. Durable hybrid search with rerank enabled by default for this pass.
 6. Session-plane recall search.
-7. Optional composer turns helper context plus retrieved evidence into a compact active-memory synthesis.
-8. Final block renders synthesis plus helper, durable, and session evidence sections.
+7. Optional composer turns a tiny, sanitized evidence packet into a compact active-memory synthesis.
+8. Final block renders synthesis plus bounded durable/session evidence sections under the request token budget.
 
 Behavior notes:
 
 - Explicit `active-memory` endpoint/CLI/tool calls always run the staged retrieval flow.
 - Not a full autonomous sub-agent; it's a bounded retrieval helper.
-- The first routing layer is the generated wiki shell, not broad search.
-- Active-memory emits a compact `## Active memory` synthesis across current focus, helper hints, and multiple durable/session hits before the raw evidence sections.
-- When the maintenance-model client is configured, planning and composition are strict-schema LLM passes from `src/dory_core/retrieval_planner.py`.
-- Active-memory requests compact snippets (`include_content=False`) rather than full chunk bodies.
-- Sources include wiki helper pages plus wake sources and retrieved durable/session evidence paths.
+- The first routing layer is the generated wiki shell plus canonical search priors, not broad unweighted search.
+- Wiki pages are hidden helper context. Durable active-memory evidence excludes `wiki/` so generated cache pages do not outrank canonical files.
+- Active-memory emits a compact `## Active memory` synthesis across current focus, helper hints, and selected durable/session hits before bounded evidence sections.
+- When an active-memory LLM provider is configured, planning and composition are strict-schema LLM passes from `src/dory_core/retrieval_planner.py`. `DORY_ACTIVE_MEMORY_LLM_PROVIDER=openrouter` uses the maintenance OpenRouter model; `local` uses an OpenAI-compatible local/LAN endpoint from `DORY_LOCAL_LLM_*`; `auto` prefers local and falls back to OpenRouter. `DORY_ACTIVE_MEMORY_LLM_STAGES=compose` keeps deterministic retrieval but uses the LLM to compress selected evidence; `plan` uses the LLM only for query expansion; `both` does both when the request deadline has enough time.
+- Active-memory is read-only. The LLM receives sanitized snippets and strict schemas only; it has no write path and cannot mutate the corpus or index.
+- Sources include wiki helper pages plus wake sources and retrieved durable/session evidence paths, but the rendered evidence block is budget-clamped.
 
 ## Get flow
 

@@ -17,13 +17,12 @@ from dory_core.canonical_pages import (
     build_timeline_entry,
     canonical_title_from_subject,
     infer_aliases_from_subject,
-    patch_canonical_markdown,
     patch_core_markdown,
     render_canonical_from_claims,
 )
 from dory_core.claim_store import ClaimStore
 from dory_core.claim_store import ClaimRecord
-from dory_core.entity_registry import EntityRecord, EntityRegistry
+from dory_core.entity_registry import EntityRegistry
 from dory_core.fs import atomic_write_text
 from dory_core.frontmatter import dump_markdown_document, load_markdown_document
 from dory_core.migration_events import MigrationEventKind, MigrationRunEvent
@@ -33,8 +32,6 @@ from dory_core.migration_normalize import (
     concept_kind_for_legacy_path,
     normalize_classification_target,
     normalize_migration_slug,
-    render_canonical_template,
-    render_core_template,
 )
 from dory_core.migration_resolve import build_contradiction_record, choose_winning_atom, route_by_confidence
 from dory_core.migration_types import (
@@ -352,7 +349,9 @@ class MigrationEngine:
                 if prepared.resolution_mode == "quarantine":
                     route = "quarantine"
                 if route == "quarantine":
-                    quarantine_target = self._write_quarantine(rel, text, prepared.quarantine_reason or classified.reason)
+                    quarantine_target = self._write_quarantine(
+                        rel, text, prepared.quarantine_reason or classified.reason
+                    )
                     written_paths.add(quarantine_target)
                     quarantined += 1
                     self._emit_event(
@@ -469,9 +468,7 @@ class MigrationEngine:
                 subject_aliases=subject_aliases,
                 fallback_warnings=fallback_warnings,
             )
-            grouped_atoms = self._group_atoms(
-                atom for document in resolved_documents for atom in document.atoms
-            )
+            grouped_atoms = self._group_atoms(atom for document in resolved_documents for atom in document.atoms)
             atoms = [atom for document in resolved_documents for atom in document.atoms]
             total_subjects = len({entity_id for document in resolved_documents for entity_id in document.entity_ids})
             self._emit_progress(
@@ -856,7 +853,9 @@ class MigrationEngine:
                     return tuple(self._resolve_atom_alias(atom, alias_map) for atom in llm_atoms), True
             except Exception:
                 pass
-        return tuple(self._resolve_atom_alias(atom, alias_map) for atom in self._extract_atoms_deterministic(classified, text)), False
+        return tuple(
+            self._resolve_atom_alias(atom, alias_map) for atom in self._extract_atoms_deterministic(classified, text)
+        ), False
 
     def _should_stage_path(self, rel_path: Path) -> bool:
         return not any(part in _IGNORED_STAGE_PARTS for part in rel_path.parts)
@@ -1146,7 +1145,6 @@ class MigrationEngine:
         target_rel = Path(classified.target_path)
         if classified.canonicality != "canonical":
             return target_rel
-        rel_text = rel_path.as_posix()
         if classified.doc_class.startswith("core_"):
             if rel_path.parts and len(rel_path.parts) == 1:
                 return Path("sources/imported/root") / self._markdown_target_name(rel_path.name)
@@ -1177,7 +1175,9 @@ class MigrationEngine:
             title=title,
             aliases=(),
             section_updates={section_name: summary_text},
-            timeline_entries=(build_timeline_entry(time_ref=time_ref, summary=summary_text, evidence_path=evidence_path.as_posix()),),
+            timeline_entries=(
+                build_timeline_entry(time_ref=time_ref, summary=summary_text, evidence_path=evidence_path.as_posix()),
+            ),
             evidence_paths=(evidence_path.as_posix(),),
         )
         target = self.output_root / target_rel
@@ -1193,7 +1193,9 @@ class MigrationEngine:
             document = load_markdown_document(text)
         except ValueError:
             wrapped = dump_markdown_document(
-                self._evidence_frontmatter(target_rel=target_rel, classified=classified, normalized_type=normalized_type),
+                self._evidence_frontmatter(
+                    target_rel=target_rel, classified=classified, normalized_type=normalized_type
+                ),
                 text,
             )
             atomic_write_text(target, wrapped, encoding="utf-8")
@@ -1251,8 +1253,9 @@ class MigrationEngine:
             return None
 
         family = self._family_from_subject(subject_ref)
-        slug = target_rel.parent.name if target_rel.name == "state.md" else target_rel.stem
-        title = self._title_from_atoms(atoms, fallback=canonical_title_from_subject(subject_ref), subject_ref=subject_ref)
+        title = self._title_from_atoms(
+            atoms, fallback=canonical_title_from_subject(subject_ref), subject_ref=subject_ref
+        )
 
         winner = atoms[0]
         for candidate in atoms[1:]:
@@ -1271,7 +1274,9 @@ class MigrationEngine:
         aliases = tuple(sorted(subject_aliases.get(subject_ref, set())))
         claim_history = tuple(self._claim_record_from_atom(subject_ref, atom) for atom in atoms)
         active_claims = tuple(
-            claim for claim in claim_history if claim.claim_id == self._claim_record_from_atom(subject_ref, winner).claim_id
+            claim
+            for claim in claim_history
+            if claim.claim_id == self._claim_record_from_atom(subject_ref, winner).claim_id
         )
         update = render_canonical_from_claims(
             family=family,
@@ -1381,8 +1386,14 @@ class MigrationEngine:
                 if isinstance(value, (int, float, bool)):
                     lines.append(f"- {key}: {json.dumps(value)}")
                     continue
-                if isinstance(value, list) and value and all(isinstance(item, (str, int, float, bool)) for item in value):
-                    rendered_items = ", ".join(json.dumps(item) if isinstance(item, bool) else str(item) for item in value)
+                if (
+                    isinstance(value, list)
+                    and value
+                    and all(isinstance(item, (str, int, float, bool)) for item in value)
+                ):
+                    rendered_items = ", ".join(
+                        json.dumps(item) if isinstance(item, bool) else str(item) for item in value
+                    )
                     lines.append(f"- {key}: {rendered_items}")
                     continue
                 if isinstance(value, list):
@@ -1528,7 +1539,9 @@ class MigrationEngine:
             header = rows[0]
             data_rows = rows[1:] if len(rows) > 1 else []
             if header:
-                lines.extend(("", "## Extracted Rows", "", f"- columns: {', '.join(header)}", f"- row_count: {len(data_rows)}"))
+                lines.extend(
+                    ("", "## Extracted Rows", "", f"- columns: {', '.join(header)}", f"- row_count: {len(data_rows)}")
+                )
         lines.extend(("", "## Raw CSV", "", "```csv", raw_text.strip(), "```", ""))
         return "\n".join(lines)
 
@@ -1624,9 +1637,7 @@ class MigrationEngine:
     def _json_lines_summary(self, records: list[dict[str, object]]) -> tuple[str, ...]:
         roles = tuple(
             self._dedupe_preserve_order(
-                role
-                for record in records
-                if isinstance((role := self._record_role(record)), str) and role
+                role for record in records if isinstance((role := self._record_role(record)), str) and role
             )
         )
         types = tuple(
@@ -1637,9 +1648,7 @@ class MigrationEngine:
             )
         )
         timestamps = tuple(
-            value.strip()
-            for record in records
-            if isinstance((value := record.get("timestamp")), str) and value.strip()
+            value.strip() for record in records if isinstance((value := record.get("timestamp")), str) and value.strip()
         )
         summary = [f"- record_count: {len(records)}"]
         if roles:
@@ -2046,7 +2055,11 @@ class MigrationEngine:
             alias_map[normalized_ref] = resolved_id
             if resolved_id not in resolved_entity_ids:
                 resolved_entity_ids.append(resolved_id)
-            resolved_title = clustered_titles.get(resolved_id) or candidate.display_name.strip() or canonical_title_from_subject(resolved_id)
+            resolved_title = (
+                clustered_titles.get(resolved_id)
+                or candidate.display_name.strip()
+                or canonical_title_from_subject(resolved_id)
+            )
             aliases = set(infer_aliases_from_subject(resolved_id, requested_subject=resolved_title))
             aliases.update(alias.strip() for alias in candidate.aliases if alias.strip())
             aliases.update(clustered_aliases.get(resolved_id, set()))
@@ -2070,22 +2083,28 @@ class MigrationEngine:
             )
             if same_family_resolved is not None:
                 alias_map[classification_subject] = same_family_resolved
-                subject_aliases.setdefault(same_family_resolved, set()).update(infer_aliases_from_subject(classification_subject))
+                subject_aliases.setdefault(same_family_resolved, set()).update(
+                    infer_aliases_from_subject(classification_subject)
+                )
                 registry.upsert(
                     entity_id=same_family_resolved,
                     family=self._family_from_subject(same_family_resolved),
-                    title=clustered_titles.get(same_family_resolved) or canonical_title_from_subject(same_family_resolved),
+                    title=clustered_titles.get(same_family_resolved)
+                    or canonical_title_from_subject(same_family_resolved),
                     target_path=canonical_target_for_subject(same_family_resolved),
                     aliases=tuple(sorted(subject_aliases.get(same_family_resolved, set()))),
                 )
                 return subject_map, tuple(resolved_entity_ids)
             resolved_entity_ids.append(classification_subject)
             alias_map[classification_subject] = classification_subject
-            subject_aliases.setdefault(classification_subject, set()).update(infer_aliases_from_subject(classification_subject))
+            subject_aliases.setdefault(classification_subject, set()).update(
+                infer_aliases_from_subject(classification_subject)
+            )
             registry.upsert(
                 entity_id=classification_subject,
                 family=self._family_from_subject(classification_subject),
-                title=clustered_titles.get(classification_subject) or canonical_title_from_subject(classification_subject),
+                title=clustered_titles.get(classification_subject)
+                or canonical_title_from_subject(classification_subject),
                 target_path=canonical_target_for_subject(classification_subject),
                 aliases=tuple(sorted(subject_aliases.get(classification_subject, set()))),
             )
@@ -2099,9 +2118,13 @@ class MigrationEngine:
                 or resolved_ref in resolved_entity_ids
             ):
                 continue
-            title = self._title_from_atoms((atom,), fallback=canonical_title_from_subject(normalized_ref), subject_ref=normalized_ref)
+            title = self._title_from_atoms(
+                (atom,), fallback=canonical_title_from_subject(normalized_ref), subject_ref=normalized_ref
+            )
             alias_map[normalized_ref] = normalized_ref
-            subject_aliases.setdefault(normalized_ref, set()).update(infer_aliases_from_subject(normalized_ref, requested_subject=title))
+            subject_aliases.setdefault(normalized_ref, set()).update(
+                infer_aliases_from_subject(normalized_ref, requested_subject=title)
+            )
             registry.upsert(
                 entity_id=normalized_ref,
                 family=self._family_from_subject(normalized_ref),
@@ -2128,7 +2151,9 @@ class MigrationEngine:
                 family = self._family_for_candidate(candidate, classification_subject=classification_subject)
                 if family is None:
                     continue
-                normalized_ref = self._normalized_candidate_ref(candidate, classification_subject=classification_subject)
+                normalized_ref = self._normalized_candidate_ref(
+                    candidate, classification_subject=classification_subject
+                )
                 mentions_by_family.setdefault(family, []).append(
                     MigrationEntityMention(
                         key=self._entity_mention_key(document.rel_path, candidate_index, candidate),
@@ -2178,7 +2203,9 @@ class MigrationEngine:
                     family=family,
                     display_name=cluster.display_name,
                 )
-                clustered_titles[canonical_ref] = cluster.display_name.strip() or canonical_title_from_subject(canonical_ref)
+                clustered_titles[canonical_ref] = cluster.display_name.strip() or canonical_title_from_subject(
+                    canonical_ref
+                )
                 aliases = clustered_aliases.setdefault(canonical_ref, set())
                 aliases.add(clustered_titles[canonical_ref])
                 aliases.update(alias.strip() for alias in cluster.aliases if alias.strip())
@@ -2339,7 +2366,10 @@ class MigrationEngine:
             entity_id = self._normalize_subject_ref(atom.subject_ref)
             claim_kind, write_mode = self._claim_write_policy(atom)
             current_claims = claim_store.current_claims(entity_id, kind=claim_kind)
-            if any(self._normalize_semantic_text(claim.statement) == self._normalize_semantic_text(statement) for claim in current_claims):
+            if any(
+                self._normalize_semantic_text(claim.statement) == self._normalize_semantic_text(statement)
+                for claim in current_claims
+            ):
                 continue
             if write_mode == "replace" and current_claims:
                 claim_store.replace_current_claim(
@@ -2531,9 +2561,24 @@ class MigrationEngine:
             return "digest-weekly"
         if doc_class in {"reference_report", "reference_briefing", "reference_slide", "reference_note"}:
             return doc_class.removeprefix("reference_")
-        if doc_class in {"source_web", "source_research", "source_imported", "source_legacy", "project_spec", "concept_note"}:
+        if doc_class in {
+            "source_web",
+            "source_research",
+            "source_imported",
+            "source_legacy",
+            "project_spec",
+            "concept_note",
+        }:
             return "source"
-        if doc_class in {"idea_note", "draft_note", "inbox_capture", "quarantine_case", "misc_operational", "migration_note", "index_note"}:
+        if doc_class in {
+            "idea_note",
+            "draft_note",
+            "inbox_capture",
+            "quarantine_case",
+            "misc_operational",
+            "migration_note",
+            "index_note",
+        }:
             return "note"
         return "source"
 
@@ -2728,7 +2773,9 @@ class MigrationEngine:
     def _summary_from_atom(self, subject_ref: str, atom: MemoryAtom) -> str:
         summary = atom.payload.get("summary")
         _family, raw_slug = subject_ref.split(":", 1)
-        display = self._title_from_atoms((atom,), fallback=canonical_title_from_subject(subject_ref), subject_ref=subject_ref)
+        display = self._title_from_atoms(
+            (atom,), fallback=canonical_title_from_subject(subject_ref), subject_ref=subject_ref
+        )
         if isinstance(summary, str) and summary.strip():
             text = summary.strip()
             if display.lower() not in text.lower():
@@ -2742,7 +2789,11 @@ class MigrationEngine:
             title = atom.payload.get("title")
             if isinstance(title, str) and title.strip():
                 normalized_title = normalize_migration_slug(title)
-                if normalized_title == subject_slug or subject_slug in normalized_title or normalized_title in subject_slug:
+                if (
+                    normalized_title == subject_slug
+                    or subject_slug in normalized_title
+                    or normalized_title in subject_slug
+                ):
                     return title.strip()
         return fallback
 

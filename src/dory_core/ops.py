@@ -10,7 +10,7 @@ from typing import Iterable
 
 from watchdog.observers import Observer
 
-from dory_cli.eval import EvalRun, run_eval
+from dory_cli.eval import run_eval
 from dory_core.claim_store import ClaimRecord, ClaimStore
 from dory_core.claims import Claim, EvidenceRef
 from dory_core.dreaming.events import SessionClosedEvent
@@ -234,11 +234,7 @@ def run_compiled_wiki_refresh(corpus_root: Path) -> list[str]:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(page_text, encoding="utf-8")
         written.append(target_rel.as_posix())
-    written.extend(
-        path
-        for path in _prune_stale_compiled_wiki_pages(root, expected_targets)
-        if path not in written
-    )
+    written.extend(path for path in _prune_stale_compiled_wiki_pages(root, expected_targets) if path not in written)
     written.extend(path for path in WikiIndexBuilder(root).refresh() if path not in written)
     return written
 
@@ -344,7 +340,9 @@ class OpsWatchRunner:
 
 
 def serialize_result(payload: object) -> str:
-    return json.dumps(asdict(payload) if hasattr(payload, "__dataclass_fields__") else payload, indent=2, sort_keys=True)
+    return json.dumps(
+        asdict(payload) if hasattr(payload, "__dataclass_fields__") else payload, indent=2, sort_keys=True
+    )
 
 
 def _infer_agent_from_session_path(session_path: str) -> str:

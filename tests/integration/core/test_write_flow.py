@@ -44,12 +44,7 @@ def test_write_append_merges_frontmatter_tags(tmp_path: Path) -> None:
     target = corpus_root / "inbox/note.md"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
-        "---\n"
-        "title: Inbox note\n"
-        "type: capture\n"
-        "tags: [alpha]\n"
-        "---\n\n"
-        "Existing body.\n",
+        "---\ntitle: Inbox note\ntype: capture\ntags: [alpha]\n---\n\nExisting body.\n",
         encoding="utf-8",
     )
 
@@ -120,7 +115,9 @@ Current state.
     written = target.read_text(encoding="utf-8")
     assert "has_timeline: true" in written
     assert "<!-- TIMELINE: append-only below this line -->" in written
-    assert written.index("- 2026-04-10: Added stale warnings.") > written.index("<!-- TIMELINE: append-only below this line -->")
+    assert written.index("- 2026-04-10: Added stale warnings.") > written.index(
+        "<!-- TIMELINE: append-only below this line -->"
+    )
 
 
 def test_write_append_updates_compiled_truth_above_timeline(tmp_path: Path) -> None:
@@ -156,7 +153,9 @@ Current state.
     )
 
     written = target.read_text(encoding="utf-8")
-    assert written.index("Current state now includes OpenRouter dreaming.") < written.index("<!-- TIMELINE: append-only below this line -->")
+    assert written.index("Current state now includes OpenRouter dreaming.") < written.index(
+        "<!-- TIMELINE: append-only below this line -->"
+    )
     assert "updated:" in written
 
 

@@ -112,7 +112,7 @@ def test_codex_sessions_collector_collects_session_file(tmp_path: Path) -> None:
                         "payload": {
                             "type": "function_call",
                             "name": "exec_command",
-                            "arguments": "{\"cmd\":\"pwd\"}",
+                            "arguments": '{"cmd":"pwd"}',
                         },
                     }
                 ),
@@ -195,7 +195,14 @@ def test_opencode_collector_reads_session_text_parts(tmp_path: Path) -> None:
         INSERT INTO part(id, message_id, session_id, time_created, time_updated, data)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        ("prt_1", "msg_1", "ses_1", 1774408000000, 1774408000000, json.dumps({"type": "text", "text": "review this page"})),
+        (
+            "prt_1",
+            "msg_1",
+            "ses_1",
+            1774408000000,
+            1774408000000,
+            json.dumps({"type": "text", "text": "review this page"}),
+        ),
     )
     connection.execute(
         """
@@ -210,8 +217,22 @@ def test_opencode_collector_reads_session_text_parts(tmp_path: Path) -> None:
         VALUES (?, ?, ?, ?, ?, ?)
         """,
         [
-            ("prt_2", "msg_2", "ses_1", 1774408100000, 1774408100000, json.dumps({"type": "reasoning", "text": "ignore"})),
-            ("prt_3", "msg_2", "ses_1", 1774408200000, 1774408200000, json.dumps({"type": "text", "text": "The style is good but the CTA is weak."})),
+            (
+                "prt_2",
+                "msg_2",
+                "ses_1",
+                1774408100000,
+                1774408100000,
+                json.dumps({"type": "reasoning", "text": "ignore"}),
+            ),
+            (
+                "prt_3",
+                "msg_2",
+                "ses_1",
+                1774408200000,
+                1774408200000,
+                json.dumps({"type": "text", "text": "The style is good but the CTA is weak."}),
+            ),
         ],
     )
     connection.commit()
@@ -242,7 +263,10 @@ def test_openclaw_sessions_collector_reads_agent_session_jsonl(tmp_path: Path) -
                         "cwd": "/repo",
                         "gitBranch": "main",
                         "type": "user_message",
-                        "message": {"role": "user", "content": [{"type": "text", "text": "remember this pricing plan"}]},
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "text", "text": "remember this pricing plan"}],
+                        },
                     }
                 ),
                 json.dumps(

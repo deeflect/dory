@@ -88,10 +88,7 @@ class WikiIndexBuilder:
 
     def _write_family_index(self, family_root: Path, root_rel: str, family: str) -> str:
         entries = self._sort_recent_pages(self._family_entries(family_root, family))
-        links = tuple(
-            f"- [[{root_rel}/{family}/{entry.path.stem}|{entry.title}]]"
-            for entry in entries
-        )
+        links = tuple(f"- [[{root_rel}/{family}/{entry.path.stem}|{entry.title}]]" for entry in entries)
         index_path = family_root / "index.md"
         atomic_write_text(
             index_path,
@@ -142,7 +139,9 @@ class WikiIndexBuilder:
         active_path = self.root / "core" / "active.md"
         if not active_path.exists():
             return claim_context.recent_facts[0] if claim_context.recent_facts else "No current focus recorded."
-        return _page_summary(active_path) or (claim_context.recent_facts[0] if claim_context.recent_facts else "No current focus recorded.")
+        return _page_summary(active_path) or (
+            claim_context.recent_facts[0] if claim_context.recent_facts else "No current focus recorded."
+        )
 
     def _recent_session_lines(self, limit: int) -> tuple[str, ...]:
         sessions_root = self.root / "logs" / "sessions"
@@ -344,10 +343,12 @@ def _render_hot_page(
         lines.extend(f"- {change}" for change in claim_context.recent_changes)
     else:
         lines.append("- None")
-    lines.extend([
-        "",
-        "## Recent Pages",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Recent Pages",
+        ]
+    )
     if recent_pages:
         for entry in recent_pages:
             lines.append(f"- {entry.updated or 'unknown'}: {entry.title} [{entry.family}]")
@@ -386,10 +387,12 @@ def _render_log_page(
         lines.extend(f"- {change}" for change in claim_context.recent_changes)
     else:
         lines.append("- None")
-    lines.extend([
-        "",
-        "## Recent Wiki Changes",
-    ])
+    lines.extend(
+        [
+            "",
+            "## Recent Wiki Changes",
+        ]
+    )
     if recent_pages:
         for entry in recent_pages:
             lines.append(f"- {entry.updated or 'unknown'}: {entry.title} [{entry.family}]")

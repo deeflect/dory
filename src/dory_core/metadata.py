@@ -293,7 +293,21 @@ def plan_migration_path(current_path: Path, frontmatter: dict[str, Any]) -> Migr
 
     doc_type = _resolve_doc_type(frontmatter, target=current_path)
     first_part = parts[0]
-    if first_part in {"core", "people", "projects", "concepts", "decisions", "knowledge", "inbox", "references", "logs", "digests", "sources", "wiki", "ideas"}:
+    if first_part in {
+        "core",
+        "people",
+        "projects",
+        "concepts",
+        "decisions",
+        "knowledge",
+        "inbox",
+        "references",
+        "logs",
+        "digests",
+        "sources",
+        "wiki",
+        "ideas",
+    }:
         return MigrationResult(path=current_path)
     if first_part in LEGACY_BUCKET_REDIRECTS:
         return MigrationResult(path=LEGACY_BUCKET_REDIRECTS[first_part] / Path(*parts[1:]))
@@ -404,9 +418,7 @@ def _resolve_doc_type(frontmatter: dict[str, Any], *, target: Path | None) -> st
 def _validate_target_matches_type(target: Path, doc_type: str) -> None:
     bucket = TYPE_BUCKETS[doc_type]
     if target.parts[: len(bucket.parts)] != bucket.parts:
-        raise DoryValidationError(
-            f"type={doc_type} must write under {bucket.as_posix()}/, got {target.as_posix()}"
-        )
+        raise DoryValidationError(f"type={doc_type} must write under {bucket.as_posix()}/, got {target.as_posix()}")
 
 
 def _default_status_for_type(doc_type: str) -> str:
@@ -420,7 +432,22 @@ def _default_status_for_type(doc_type: str) -> str:
 
 
 def _default_canonical_for_type(doc_type: str, *, target: Path | None) -> bool:
-    if doc_type in {"reference", "report", "briefing", "slide", "note", "daily", "digest-daily", "session", "weekly", "digest-weekly", "capture", "source", "wiki", "idea"}:
+    if doc_type in {
+        "reference",
+        "report",
+        "briefing",
+        "slide",
+        "note",
+        "daily",
+        "digest-daily",
+        "session",
+        "weekly",
+        "digest-weekly",
+        "capture",
+        "source",
+        "wiki",
+        "idea",
+    }:
         return False
     if doc_type == "project" and target is not None:
         return target.name == "state.md"

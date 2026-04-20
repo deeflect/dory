@@ -40,9 +40,7 @@ class SharedCore:
         }
 
     def search(self, req: dict[str, object]):
-        return SearchEngine(self.index_root, self.fake_embedder).search(
-            SearchReq.model_validate(req)
-        )
+        return SearchEngine(self.index_root, self.fake_embedder).search(SearchReq.model_validate(req))
 
     def wake(self, req: dict[str, object]):
         return WakeBuilder(self.corpus_root).build(WakeReq.model_validate(req))
@@ -69,10 +67,51 @@ def test_write_from_agent_a_appears_in_agent_b_next_wake(
     stdin = StringIO(
         "\n".join(
             [
-                json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "dory_write", "arguments": {"kind": "append", "target": "core/active.md", "content": "Palette sync from Claude Code should be visible to Codex next session."}}}),
-                json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "dory_get", "arguments": {"path": "core/active.md", "from": 1, "lines": 200}}}),
-                json.dumps({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "dory_search", "arguments": {"query": "Palette sync from Claude Code", "k": 5}}}),
-                json.dumps({"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "dory_wake", "arguments": {"agent": "codex", "budget_tokens": 600}}}),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "dory_write",
+                            "arguments": {
+                                "kind": "append",
+                                "target": "core/active.md",
+                                "content": "Palette sync from Claude Code should be visible to Codex next session.",
+                            },
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "dory_get",
+                            "arguments": {"path": "core/active.md", "from": 1, "lines": 200},
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "dory_search",
+                            "arguments": {"query": "Palette sync from Claude Code", "k": 5},
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 4,
+                        "method": "tools/call",
+                        "params": {"name": "dory_wake", "arguments": {"agent": "codex", "budget_tokens": 600}},
+                    }
+                ),
             ]
         )
         + "\n"

@@ -21,7 +21,7 @@ def test_wiki_route_renders_generated_markdown(tmp_path: Path) -> None:
     assert index.status_code == 200
     assert "text/html" in index.headers["content-type"]
     assert "Dory Wiki" in index.text
-    assert "href=\"/wiki/projects/dory\"" in index.text
+    assert 'href="/wiki/projects/dory"' in index.text
     assert page.status_code == 200
     assert "Dory Project" in page.text
     assert "durable project state" in page.text
@@ -86,7 +86,7 @@ def test_wiki_login_sets_signed_session_cookie(tmp_path: Path, monkeypatch) -> N
     assert redirect.status_code == 303
     assert redirect.headers["location"] == "/wiki/login?next=%2Fwiki%2Fprojects%2Fdory"
     assert login_form.status_code == 200
-    assert "type=\"password\"" in login_form.text
+    assert 'type="password"' in login_form.text
     assert bad_login.status_code == 401
     assert "Invalid password" in bad_login.text
     assert good_login.status_code == 303
@@ -101,12 +101,7 @@ def _write_wiki_fixture(corpus_root: Path) -> None:
     projects_root = wiki_root / "projects"
     projects_root.mkdir(parents=True)
     (wiki_root / "index.md").write_text(
-        "---\n"
-        "title: Wiki Home\n"
-        "type: wiki\n"
-        "---\n\n"
-        "# Wiki Home\n\n"
-        "- [[wiki/projects/dory|Dory Project]]\n",
+        "---\ntitle: Wiki Home\ntype: wiki\n---\n\n# Wiki Home\n\n- [[wiki/projects/dory|Dory Project]]\n",
         encoding="utf-8",
     )
     (projects_root / "dory.md").write_text(

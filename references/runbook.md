@@ -256,3 +256,4 @@ Dream proposal/apply is semantic-first:
 - Logs: `docker compose logs -f doryd`
 - Embedding auth: `DORY_GEMINI_API_KEY` or `GOOGLE_API_KEY`
 - OpenRouter auth for dreaming / maintenance: `DORY_OPENROUTER_API_KEY` or `OPENROUTER_API_KEY`
+- Optional active-memory LLM: `DORY_ACTIVE_MEMORY_LLM_PROVIDER` (`off` / `local` / `openrouter` / `auto`). For `local`, point `DORY_LOCAL_LLM_BASE_URL` at an OpenAI-compatible endpoint (e.g. `http://127.0.0.1:11434/v1`) and set `DORY_LOCAL_LLM_MODEL`. `DORY_ACTIVE_MEMORY_LLM_STAGES` picks `plan`, `compose`, or `both`; `compose` is the safest default for small local models. Dory skips the LLM path when the request deadline is too tight, and active-memory stays read-only with budget-clamped evidence either way.

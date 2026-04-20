@@ -3,9 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-_SECRET_ENV_PATTERN = re.compile(
-    r"\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PWD|AUTH))=([^\s\"'`]+)"
-)
+_SECRET_ENV_PATTERN = re.compile(r"\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PWD|AUTH))=([^\s\"'`]+)")
 _BEARER_PATTERN = re.compile(r"\bBearer\s+[A-Za-z0-9._-]+\b")
 _GENERIC_SECRET_PATTERN = re.compile(r"\b(sk-[A-Za-z0-9_-]+)\b")
 

@@ -15,7 +15,7 @@ class FakeTransport:
 
     def post_json(self, url: str, payload: dict[str, object], *, timeout_seconds: float) -> SessionTransportResponse:
         self.calls.append((url, payload))
-        return SessionTransportResponse(status_code=self.status_code, body="{\"ok\": true}", payload={"ok": True})
+        return SessionTransportResponse(status_code=self.status_code, body='{"ok": true}', payload={"ok": True})
 
 
 def test_spool_persists_jobs_and_flush_deletes_on_success(tmp_path: Path) -> None:
@@ -143,7 +143,7 @@ def test_flush_pending_marks_invalid_spool_job_as_failed(tmp_path: Path) -> None
         transport=transport,
     )
     bad_job = spool.root / "bad.json"
-    bad_job.write_text("{\"content\": \"missing path\"}\n", encoding="utf-8")
+    bad_job.write_text('{"content": "missing path"}\n', encoding="utf-8")
 
     result = shipper.flush_pending()
 
@@ -155,7 +155,7 @@ def test_flush_pending_marks_invalid_spool_job_as_failed(tmp_path: Path) -> None
 def test_pending_paths_ignores_checkpoint_file(tmp_path: Path) -> None:
     spool = SessionSpool(tmp_path / "spool")
     checkpoint = spool.root / "checkpoints.json"
-    checkpoint.write_text("{\"versions\": {}}\n", encoding="utf-8")
+    checkpoint.write_text('{"versions": {}}\n', encoding="utf-8")
     job_path = spool.enqueue(
         SessionShipJob(
             path="logs/sessions/openclaw/macbook/2026-04-12-s1.md",

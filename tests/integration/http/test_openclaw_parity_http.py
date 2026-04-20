@@ -14,26 +14,15 @@ def _seed_public_artifacts(root: Path) -> None:
     (root / "wiki" / "projects").mkdir(parents=True)
 
     (root / "core" / "user.md").write_text(
-        "---\n"
-        "title: User\n"
-        "agent_ids: [openclaw]\n"
-        "---\n"
-        "# User\n",
+        "---\ntitle: User\nagent_ids: [openclaw]\n---\n# User\n",
         encoding="utf-8",
     )
     (root / "references" / "reports" / "migrations" / "2026-04-13-rooster.md").write_text(
-        "---\n"
-        "title: Rooster Migration\n"
-        "agent: openclaw\n"
-        "---\n"
-        "# Rooster Migration\n",
+        "---\ntitle: Rooster Migration\nagent: openclaw\n---\n# Rooster Migration\n",
         encoding="utf-8",
     )
     (root / "wiki" / "projects" / "rooster.md").write_text(
-        "---\n"
-        "title: Rooster\n"
-        "---\n"
-        "# Rooster\n",
+        "---\ntitle: Rooster\n---\n# Rooster\n",
         encoding="utf-8",
     )
 

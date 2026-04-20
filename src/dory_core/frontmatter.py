@@ -110,9 +110,7 @@ def _parse_scalar(value: str) -> object:
         if not inner:
             return []
         return [_parse_scalar(part.strip()) for part in inner.split(",")]
-    if (value.startswith('"') and value.endswith('"')) or (
-        value.startswith("'") and value.endswith("'")
-    ):
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
         return value[1:-1]
     if value.lower() in {"true", "false"}:
         return value.lower() == "true"
