@@ -13,6 +13,7 @@ ArtifactKind = Literal["report", "briefing", "wiki-note", "proposal"]
 MemoryWriteAction = Literal["write", "replace", "forget"]
 MemoryWriteKind = Literal["fact", "preference", "state", "decision", "note"]
 WakeProfile = Literal["default", "casual", "coding", "writing", "privacy"]
+ActiveMemoryProfile = Literal["auto", "general", "coding", "writing", "privacy", "personal"]
 
 
 class WakeReq(BaseModel):
@@ -70,6 +71,8 @@ class SearchResult(BaseModel):
     lines: str
     score: float
     score_normalized: float | None = None
+    rank_score: float | None = None
+    evidence_class: Literal["canonical", "generated", "inbox", "session", "raw", "archive", "other"] = "other"
     snippet: str
     frontmatter: dict[str, object] = Field(default_factory=dict)
     stale_warning: str | None = None
@@ -88,6 +91,7 @@ class ActiveMemoryReq(BaseModel):
     prompt: str
     agent: str
     cwd: str | None = None
+    profile: ActiveMemoryProfile = "auto"
     timeout_ms: int = Field(default=1200, ge=100, le=5000)
     budget_tokens: int = Field(default=400, ge=100, le=1200)
     include_wake: bool = True
@@ -98,6 +102,7 @@ class ActiveMemoryResp(BaseModel):
     kind: Literal["none", "memory"]
     block: str
     summary: str
+    profile: Literal["general", "coding", "writing", "privacy", "personal"] = "general"
     confidence: Literal["low", "medium", "high"] | None = None
     sources: list[str] = Field(default_factory=list)
 
@@ -216,7 +221,7 @@ class RecallEventResp(BaseModel):
 class LinkReq(BaseModel):
     op: Literal["neighbors", "backlinks", "lint"]
     path: str | None = None
-    direction: Literal["out", "in"] = "out"
+    direction: Literal["out", "in", "both"] = "out"
     depth: int = Field(default=1, ge=1)
 
 

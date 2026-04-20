@@ -38,6 +38,8 @@ def test_wake_builder_coding_profile_prioritizes_operational_context(sample_corp
     assert resp.profile == "coding"
     assert "Active Work" in resp.block
     assert "Environment" in resp.block
+    assert "User" not in resp.block
+    assert "Soul" not in resp.block
     assert resp.sources[:2] == [
         "core/active.md",
         "core/env.md",
@@ -102,3 +104,63 @@ def test_wake_builder_sorts_recent_sessions_by_mtime_and_skips_heading_lines(tmp
     assert "## Recent sessions" in resp.block
     assert "logs/sessions/claude/2026-04-01.md: Newest focus note." in resp.block
     assert "logs/sessions/claude/2026-04-10.md" not in resp.block
+
+
+def test_wake_builder_writing_profile_uses_voice_file_without_full_identity(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "knowledge" / "personal").mkdir(parents=True)
+    (tmp_path / "core" / "soul.md").write_text("# Soul\n\nUse direct short sentences.\n", encoding="utf-8")
+    (tmp_path / "core" / "user.md").write_text("# User\n\nEmail placeholder@example.invalid.\n", encoding="utf-8")
+    (tmp_path / "core" / "identity.md").write_text("# Identity\n\nBirthday 1900-01-01.\n", encoding="utf-8")
+    (tmp_path / "knowledge" / "personal" / "dee-writing-voice.md").write_text(
+        "# Writing Voice\n\nLowercase by default. No AI buzzwords.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="writing", budget_tokens=400, include_recent_sessions=0)
+    )
+
+    assert "Use direct short sentences." in resp.block
+    assert "No AI buzzwords." in resp.block
+    assert "placeholder@example.invalid" not in resp.block
+    assert "Birthday" not in resp.block
+    assert "core/user.md" not in resp.sources
+    assert "core/identity.md" not in resp.sources
+
+
+def test_wake_builder_privacy_profile_extracts_boundaries_not_identifiers(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "user.md").write_text(
+        """---
+title: User
+---
+
+# User
+
+Email placeholder@example.invalid.
+Birthday 1900-01-01.
+
+## Privacy Boundaries
+- Sensitive category alpha is private.
+- Sensitive category beta is private.
+- Do not share placeholder identifiers.
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "core" / "identity.md").write_text(
+        "# Identity\n\nEmail identity-placeholder@example.invalid.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="privacy", budget_tokens=400, include_recent_sessions=0)
+    )
+
+    assert "Privacy Boundaries" in resp.block
+    assert "Sensitive category alpha is private." in resp.block
+    assert "Sensitive category beta is private." in resp.block
+    assert "placeholder@example.invalid" not in resp.block
+    assert "Birthday" not in resp.block
+    assert "identity-placeholder@example.invalid" not in resp.block
+    assert "core/identity.md" not in resp.sources

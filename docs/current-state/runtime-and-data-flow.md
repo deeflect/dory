@@ -128,6 +128,8 @@ Input aliases:
   - gets vector candidates
   - fuses rankings via RRF
   - applies priors for canonical/current/source-backed docs
+  - returns a client-facing `rank_score` and `evidence_class`; raw `score` remains mode-specific diagnostic data
+  - demotes raw inbox, generated, and session-like material unless a scope/exact query asks for it
   - adds lexical and temporal boosts
   - optionally expands queries through OpenRouter (`query_expansion.py`) when `DORY_QUERY_EXPANSION_ENABLED=true`
   - when OpenRouter retrieval planning is configured with `DORY_QUERY_PLANNER_ENABLED=true`, `retrieval_planner.py` can replace heuristic expansion/session decisions with a strict search plan of durable queries plus optional session queries
@@ -162,24 +164,29 @@ Durable memory isn't the only retrieval source, but session recall now has an op
 Stages:
 
 1. Explicit active-memory call enters the staged retrieval flow.
-2. Generated wiki shell read (`wiki/hot.md`, then `wiki/index.md`) when available; this is helper context, not rendered evidence.
-3. Bounded wake build.
-4. Optional retrieval planner turns prompt plus compact helper context into durable/session query sets.
+2. Request `profile` resolves to `general`, `coding`, `writing`, `privacy`, or `personal`; `auto` uses prompt classification as a compatibility fallback.
+3. The source policy for that profile decides wake profile, whether session evidence is allowed, whether generated wiki helper context is allowed, and which path families are blocked.
+4. Generated wiki shell is helper context only when the source policy allows it; helper files are not returned as citeable sources unless rendered as evidence.
+5. Bounded wake build uses the profile's wake policy and is only rendered when no stronger durable/session evidence was found.
+6. Optional retrieval planner turns prompt plus compact helper context into durable/session query sets.
 5. Durable hybrid search with rerank enabled by default for this pass.
-6. Session-plane recall search.
+6. Session-plane recall search only when the source policy allows session context and the prompt asks for recency/session evidence.
 7. Optional composer turns a tiny, sanitized evidence packet into a compact active-memory synthesis.
-8. Final block renders synthesis plus bounded durable/session evidence sections under the request token budget.
+8. Final block renders synthesis plus bounded durable/session evidence sections under the request token budget and returns the resolved profile.
 
 Behavior notes:
 
-- Explicit `active-memory` endpoint/CLI/tool calls always run the staged retrieval flow.
+- Explicit `active-memory` endpoint/CLI/tool calls always run the staged retrieval flow; callers should set `profile` when they know the task class.
 - Not a full autonomous sub-agent; it's a bounded retrieval helper.
-- The first routing layer is the generated wiki shell plus canonical search priors, not broad unweighted search.
-- Wiki pages are hidden helper context. Durable active-memory evidence excludes `wiki/` so generated cache pages do not outrank canonical files.
+- The first routing layer is the profile source policy plus canonical search priors, not broad unweighted search.
+- `coding` excludes personal/voice paths by policy.
+- `privacy` is boundary-only and disables session evidence, generated wiki helper context, raw inbox, people pages, and personal knowledge pages.
+- `writing` loads voice context without full identity/profile context.
+- Wiki pages are hidden helper context when allowed. Durable active-memory evidence excludes `wiki/` so generated cache pages do not outrank canonical files.
 - Active-memory emits a compact `## Active memory` synthesis across current focus, helper hints, and selected durable/session hits before bounded evidence sections.
 - When an active-memory LLM provider is configured, planning and composition are strict-schema LLM passes from `src/dory_core/retrieval_planner.py`. `DORY_ACTIVE_MEMORY_LLM_PROVIDER=openrouter` uses the maintenance OpenRouter model; `local` uses an OpenAI-compatible local/LAN endpoint from `DORY_LOCAL_LLM_*`; `auto` prefers local and falls back to OpenRouter. `DORY_ACTIVE_MEMORY_LLM_STAGES=compose` keeps deterministic retrieval but uses the LLM to compress selected evidence; `plan` uses the LLM only for query expansion; `both` does both when the request deadline has enough time.
 - Active-memory is read-only. The LLM receives sanitized snippets and strict schemas only; it has no write path and cannot mutate the corpus or index.
-- Sources include wiki helper pages plus wake sources and retrieved durable/session evidence paths, but the rendered evidence block is budget-clamped.
+- Sources are citeable rendered wake or retrieved evidence paths; hidden helper files are not returned as sources.
 
 ## Get flow
 
@@ -332,13 +339,14 @@ Note: the code block regex in `link.py` (`re.compile(r"```.*?```", re.DOTALL)`) 
 
 `ActiveMemoryEngine` in `src/dory_core/active_memory.py` is an optional staged pre-reply helper.
 
-- Triggers only for prompts with specific memory-ish tokens.
-- Builds a reduced wake block.
-- Runs durable hybrid search plus session recall.
-- Prefers compact snippets over full chunk bodies.
-- Emits a synthesized block with separate durable and session evidence sections.
+- Resolves an explicit profile (`coding`, `writing`, `privacy`, `personal`, `general`) or classifies `auto`.
+- Applies profile source policy before rendering evidence; `coding` blocks personal/voice profile pages, and `privacy` is boundary-only.
+- Builds a reduced wake block only when requested and only through the profile's wake policy.
+- Runs durable hybrid search plus optional session recall when the prompt asks for recent/session context.
+- Uses optional strict-schema LLM planning/composition when configured, but falls back to deterministic retrieval.
+- Emits a synthesized block with compact durable/session evidence sections and citeable source paths.
 
-Not a full planner. Bounded context supplement.
+Read-only bounded context supplement. The active-memory LLM path never writes memory.
 
 ## Research flow
 

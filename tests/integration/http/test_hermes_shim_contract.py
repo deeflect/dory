@@ -67,7 +67,12 @@ def test_hermes_provider_covers_http_verbs(
         scope={"path_glob": "core/*"},
         include_content=False,
     )
-    active_memory = provider.active_memory("what are we working on today", agent="hermes", include_wake=False)
+    active_memory = provider.active_memory(
+        "what are we working on today",
+        agent="hermes",
+        profile="general",
+        include_wake=False,
+    )
     read = provider.get("core/user.md", lines=8)
     semantic_preview = provider.memory_write(
         action="write",
@@ -201,7 +206,7 @@ def test_hermes_provider_supports_hermes_plugin_surface(
     active_tool_result = json.loads(
         provider.handle_tool_call(
             "dory_active_memory",
-            {"prompt": "what are we working on today", "include_wake": False},
+            {"prompt": "what are we working on today", "profile": "general", "include_wake": False},
         )
     )
     research_tool_result = json.loads(

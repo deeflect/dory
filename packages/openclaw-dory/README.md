@@ -27,6 +27,7 @@ Still not included:
 
 - plugin config `baseUrl`
 - optional plugin config `token`
+- optional plugin config `tokenEnv` for reading the bearer token from a named environment variable
 
 ## Activation shape
 
@@ -68,7 +69,69 @@ npm install
 npm run build
 ```
 
-External OpenClaw installs should point at the package root. OpenClaw discovers the runtime entry from `package.json` `openclaw.extensions`, not from `openclaw.plugin.json`.
+External OpenClaw installs should point at the package parent directory, not directly at `dist/index.js`. For this repo that means adding the absolute `packages` directory to OpenClaw's plugin load path; OpenClaw then discovers `packages/openclaw-dory/package.json` and loads `openclaw.extensions`.
+
+## Setup With OpenClaw Gateway
+
+Build the plugin:
+
+```bash
+cd packages/openclaw-dory
+npm install
+npm run build
+```
+
+Add the plugin package parent to OpenClaw's load path:
+
+```bash
+openclaw config set plugins.load.paths '["/absolute/path/to/packages"]' --strict-json
+```
+
+Enable Dory memory and assign the memory slot:
+
+```bash
+openclaw config set plugins.entries.dory-memory.enabled true --strict-json
+openclaw config set plugins.entries.dory-memory.config.baseUrl '"https://dory.example.com"' --strict-json
+openclaw config set plugins.entries.dory-memory.config.token '"YOUR_DORY_TOKEN"' --strict-json
+
+openclaw config set plugins.entries.memory-core.enabled false --strict-json
+openclaw config set plugins.slots.memory '"dory-memory"' --strict-json
+```
+
+If your OpenClaw environment can provide secret refs or service environment variables, prefer that over plaintext token storage. This plugin also accepts `tokenEnv`:
+
+```bash
+openclaw config set plugins.entries.dory-memory.config.tokenEnv '"DORY_CLIENT_AUTH_TOKEN"' --strict-json
+```
+
+The managed gateway process must actually receive that environment variable. If it does not, plugin load will fail with a clear `tokenEnv ... empty or unset` error.
+
+Validate and restart the managed gateway:
+
+```bash
+openclaw config validate
+openclaw gateway restart
+```
+
+Do not run plain `openclaw gateway` when a launchd/system service is already installed and listening; use `openclaw gateway restart` to avoid a second foreground process colliding with the existing listener.
+
+Verify through gateway-scoped checks:
+
+```bash
+openclaw gateway status
+openclaw plugins inspect dory-memory
+openclaw gateway call doctor.memory.status
+openclaw gateway health
+```
+
+For OpenClaw versions where top-level `openclaw health` reports websocket abnormal-close errors while gateway checks pass, prefer `openclaw gateway health` and `openclaw gateway call doctor.memory.status` for this plugin.
+
+Troubleshooting:
+
+- If gateway startup reports an address or port conflict, the managed gateway service is probably already running.
+- Only one provider should own `plugins.slots.memory`; disable `memory-core` when `dory-memory` is assigned.
+- `openclaw plugins inspect dory-memory` should show the plugin loading from this package's `dist/index.js`.
+- `openclaw gateway call doctor.memory.status` should report provider `dory-http` and embedding/vector availability from Dory.
 
 ## Boundary
 

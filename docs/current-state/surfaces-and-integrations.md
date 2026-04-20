@@ -31,7 +31,7 @@ Top-level `dory` commands:
 - `get` — `path` (required), `--from` (default 1), `--lines/-n`
 - `status`
 - `reindex` — `--force`
-- `neighbors` — `path` (required), `--direction` (default "out"), `--depth` (default 1)
+- `neighbors` — `path` (required), `--direction` (default "out"; accepts `out`, `in`, `both`), `--depth` (default 1)
 - `backlinks` — `path` (required)
 - `lint`
 
@@ -50,6 +50,7 @@ Nested command groups:
   - `wiki-health` — `--write-report`
 - `ops`
   - `dream-once` — `--session` (repeatable)
+  - `daily-digest-once` — `--date`, `--today`, `--overwrite`, `--dry-run`, `--min-age-minutes`, `--limit`, `--reindex/--no-reindex`
   - `maintain-once` — `--path` (repeatable)
   - `wiki-health` — `--write-report`
   - `wiki-refresh-once`
@@ -120,7 +121,7 @@ Implemented MCP tools (10):
 | Tool | Required | Optional |
 |---|---|---|
 | `dory_wake` | — | `budget_tokens`, `agent`, `profile`, `include_recent_sessions`, `include_pinned_decisions` |
-| `dory_active_memory` | `prompt`, `agent` | `cwd`, `timeout_ms`, `budget_tokens`, `include_wake` |
+| `dory_active_memory` | `prompt`, `agent` | `cwd`, `profile`, `timeout_ms`, `budget_tokens`, `include_wake` |
 | `dory_research` | `question` | `kind`, `corpus`, `limit`, `save` |
 | `dory_search` | `query` | `k`, `mode`, `corpus`, `scope`, `include_content`, `min_score` |
 | `dory_get` | `path` | `from`, `lines` |
@@ -153,7 +154,7 @@ Implemented bridge tools (10):
 | `dory_research` | HTTP-backed research call with bounded artifact options |
 | `dory_active_memory` | HTTP-backed staged active-memory call with defaults and optional `include_wake` |
 | `dory_get` | accepts native `from` and legacy `from_line`; adds defaults |
-| `dory_link` | adds `op` enum (`neighbors\|backlinks\|lint`), `direction` enum (`out\|in`) |
+| `dory_link` | adds `op` enum (`neighbors\|backlinks\|lint`), `direction` enum (`out\|in\|both`) |
 | `dory_memory_write` | adds `kind` enum plus `dry_run`, `force_inbox`, `allow_canonical` |
 | `dory_write` | exact-path write with `dry_run` support |
 | `dory_purge` | hard-delete exact scratch/generated artifacts with dry-run/hash guards |

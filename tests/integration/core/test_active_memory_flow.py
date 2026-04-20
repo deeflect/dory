@@ -65,6 +65,8 @@ def test_active_memory_cli_command_uses_engine(cli_runner, monkeypatch, tmp_path
             "format this file",
             "--agent",
             "claude",
+            "--profile",
+            "coding",
         ],
     )
 
@@ -72,3 +74,4 @@ def test_active_memory_cli_command_uses_engine(cli_runner, monkeypatch, tmp_path
     payload = json.loads(result.stdout)
     assert payload["kind"] == "none"
     assert stub.requests, "expected the command to call the active-memory engine"
+    assert stub.requests[0].profile == "coding"

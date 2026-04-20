@@ -137,6 +137,8 @@ Where the real code for each concern lives.
   - repeated-recall promotion candidate processing
 - `dreaming/events.py`
   - session-closed event used to trigger dream/distillation processing
+- `digest_writer.py`
+  - daily digest generation from shipped session logs into `digests/daily/YYYY-MM-DD.md`
 - `maintenance.py`
   - maintenance suggestion generation and wiki health checks
 - `compiled_wiki.py`, `wiki_indexes.py`

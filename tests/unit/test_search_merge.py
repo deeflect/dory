@@ -309,6 +309,7 @@ def test_search_can_reorder_results_with_result_selector(monkeypatch, tmp_path: 
         "projects/clawsy/state.md",
         "projects/claws-studio/state.md",
     ]
+    assert [result.rank_score for result in response.results] == [1.0, 0.0]
 
 
 def test_search_reports_selection_warning_when_selector_fails(monkeypatch, tmp_path: Path) -> None:

@@ -40,7 +40,7 @@ The `client` flow will:
 2. It strips obvious noise and secrets.
 3. The cleaned session log ships to the Dory host.
 4. The host stores it under `logs/sessions/...`.
-5. Nightly digestion turns useful parts into distilled notes and proposed durable memory.
+5. Nightly digestion summarizes shipped sessions with `dory ops daily-digest-once`, then dreaming/maintenance can turn useful parts into distilled notes and proposed durable memory.
 
 ## Troubleshooting
 

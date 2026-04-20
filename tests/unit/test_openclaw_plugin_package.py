@@ -11,6 +11,7 @@ def test_openclaw_plugin_manifest_declares_memory_slot() -> None:
     assert payload["id"] == "dory-memory"
     assert payload["kind"] == "memory"
     assert payload["configSchema"]["required"] == ["baseUrl"]
+    assert "tokenEnv" in payload["configSchema"]["properties"]
     assert "entry" not in payload
     assert (manifest_path.parent / "dist" / "index.js").exists()
 
@@ -37,6 +38,7 @@ def test_openclaw_plugin_source_exports_sdk_registration_contract() -> None:
     assert "/v1/recall-event" in source
     assert "/v1/active-memory" in source
     assert "/v1/public-artifacts" in source
+    assert "tokenEnv" in source
     assert "subject" in source
     assert "confidence" in source
     assert "source" in source

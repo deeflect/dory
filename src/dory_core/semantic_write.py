@@ -439,10 +439,32 @@ class SemanticWriteEngine:
                     confidence=req.confidence or plan.confidence,
                     indexed=False,
                     quarantined=False,
-                    message=f"dry_run: {response.action}; semantic evidence would be {semantic_evidence.path}",
+                    message=_semantic_write_preview_message(
+                        plan,
+                        action=response.action,
+                        evidence_path=semantic_evidence.path,
+                    ),
                 )
             response = self.writer.write(low_level_req)
         except DoryValidationError as err:
+            if req.dry_run and str(err) == "content exceeds max write size":
+                return MemoryWriteResp(
+                    resolved=True,
+                    action=req.action,
+                    kind=req.kind,
+                    subject_ref=plan.subject_ref,
+                    target_path=plan.target_path,
+                    result="preview",
+                    confidence=req.confidence or plan.confidence,
+                    indexed=False,
+                    quarantined=False,
+                    message=_semantic_write_preview_message(
+                        plan,
+                        action="would_update_large_target",
+                        evidence_path=semantic_evidence.path,
+                    )
+                    + "; rendered target exceeds preview write-size limit",
+                )
             return MemoryWriteResp(
                 resolved=True,
                 action=req.action,
@@ -966,6 +988,16 @@ def _is_canonical_semantic_target(plan: SemanticWritePlan) -> bool:
     if plan.family in {"core", "person", "project", "concept", "decision"}:
         return True
     return plan.target_path.startswith(("core/", "people/", "projects/", "concepts/", "decisions/"))
+
+
+def _semantic_write_preview_message(plan: SemanticWritePlan, *, action: str, evidence_path: str) -> str:
+    prefix = ""
+    if _is_canonical_semantic_target(plan):
+        prefix = (
+            f"CANONICAL TARGET {plan.target_path}; preview only; "
+            "use force_inbox=true for tentative notes or allow_canonical=true after review. "
+        )
+    return f"{prefix}dry_run: {action}; semantic evidence would be {evidence_path}"
 
 
 def _primary_section_for_plan(plan: SemanticWritePlan) -> str:

@@ -36,6 +36,7 @@ def test_active_memory_http_endpoint_returns_memory_block(tmp_path: Path, monkey
         json={
             "prompt": "what are we working on today",
             "agent": "claude",
+            "profile": "general",
             "cwd": str(tmp_path),
         },
     )
@@ -45,6 +46,7 @@ def test_active_memory_http_endpoint_returns_memory_block(tmp_path: Path, monkey
     assert payload["kind"] == "memory"
     assert payload["summary"] == "Rooster is the focus."
     assert stub.requests
+    assert stub.requests[0].profile == "general"
 
 
 def test_active_memory_http_returns_503_for_embedding_provider_errors(tmp_path: Path, monkeypatch) -> None:

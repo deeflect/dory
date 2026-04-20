@@ -44,6 +44,10 @@ def build_tool_schemas() -> list[dict[str, Any]]:
                     "prompt": {"type": "string"},
                     "agent": {"type": "string"},
                     "cwd": {"type": "string"},
+                    "profile": {
+                        "type": "string",
+                        "enum": ["auto", "general", "coding", "writing", "privacy", "personal"],
+                    },
                     "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 5000},
                     "budget_tokens": {"type": "integer", "minimum": 100, "maximum": 1200},
                     "include_wake": {"type": "boolean"},
@@ -187,7 +191,7 @@ def build_tool_schemas() -> list[dict[str, Any]]:
                 "properties": {
                     "op": {"type": "string"},
                     "path": {"type": "string"},
-                    "direction": {"type": "string"},
+                    "direction": {"type": "string", "enum": ["out", "in", "both"]},
                     "depth": {"type": "integer"},
                 },
                 "required": ["op"],

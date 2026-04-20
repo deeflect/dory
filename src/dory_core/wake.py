@@ -10,9 +10,9 @@ from dory_core.types import WakeProfile, WakeReq, WakeResp
 _WAKE_SECTION_ORDERS: dict[WakeProfile, tuple[str, ...]] = {
     "default": ("user", "soul", "env", "active", "identity", "defaults"),
     "casual": ("user", "soul", "identity", "defaults", "active", "env"),
-    "coding": ("active", "env", "defaults", "user", "soul", "identity"),
-    "writing": ("soul", "user", "identity", "defaults", "active", "env"),
-    "privacy": ("user", "identity", "defaults", "soul", "active", "env"),
+    "coding": ("active", "env", "defaults"),
+    "writing": ("soul", "writing_voice", "defaults", "active"),
+    "privacy": ("privacy_boundaries", "defaults", "soul"),
 }
 _WAKE_PROFILE_SECTION_BUDGETS: dict[WakeProfile, dict[str, int]] = {
     "coding": {
@@ -25,17 +25,17 @@ _WAKE_PROFILE_SECTION_BUDGETS: dict[WakeProfile, dict[str, int]] = {
     },
     "writing": {
         "soul": 520,
-        "user": 260,
-        "identity": 260,
+        "writing_voice": 420,
         "defaults": 180,
+        "active": 180,
     },
     "privacy": {
-        "user": 460,
-        "identity": 320,
+        "privacy_boundaries": 420,
         "defaults": 260,
         "soul": 180,
     },
 }
+_CORE_SECTION_NAMES = {"active", "defaults", "env", "identity", "soul", "user"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,22 +77,63 @@ class WakeBuilder:
         # Profiles keep wake deterministic while letting coding agents spend
         # their small startup budget on operational context first.
         for name in _WAKE_SECTION_ORDERS.get(profile, _WAKE_SECTION_ORDERS["default"]):
-            path = self.root / "core" / f"{name}.md"
+            section = self._load_named_section(name=name, profile=profile, agent=agent)
+            if section is None:
+                continue
+            sections.append(section)
+        return sections
+
+    def _load_named_section(self, *, name: str, profile: WakeProfile, agent: str) -> HotBlockSection | None:
+        if name == "writing_voice":
+            path = self.root / "knowledge" / "personal" / "dee-writing-voice.md"
+            return self._load_file_section(path, name=name, profile=profile, agent=agent)
+        if name == "privacy_boundaries":
+            return self._load_privacy_boundaries_section(agent=agent)
+        if name not in _CORE_SECTION_NAMES:
+            return None
+        path = self.root / "core" / f"{name}.md"
+        return self._load_file_section(path, name=name, profile=profile, agent=agent)
+
+    def _load_file_section(
+        self,
+        path: Path,
+        *,
+        name: str,
+        profile: WakeProfile,
+        agent: str,
+    ) -> HotBlockSection | None:
+        if not path.exists():
+            return None
+        content = path.read_text(encoding="utf-8").strip()
+        return HotBlockSection(
+            path=path.relative_to(self.root),
+            content=self._compact_profile_section(
+                name=name,
+                content=content,
+                profile=profile,
+                agent=agent,
+            ),
+        )
+
+    def _load_privacy_boundaries_section(self, *, agent: str) -> HotBlockSection | None:
+        candidates = (self.root / "core" / "user.md", self.root / "core" / "identity.md")
+        boundary_lines: list[str] = []
+        for path in candidates:
             if not path.exists():
                 continue
-            content = path.read_text(encoding="utf-8").strip()
-            sections.append(
-                HotBlockSection(
-                    path=path.relative_to(self.root),
-                    content=self._compact_profile_section(
-                        name=name,
-                        content=content,
-                        profile=profile,
-                        agent=agent,
-                    ),
-                )
-            )
-        return sections
+            boundary_lines.extend(_extract_privacy_boundary_lines(path.read_text(encoding="utf-8")))
+        if not boundary_lines:
+            return None
+        content = "# Privacy Boundaries\n\n" + "\n".join(_dedupe_preserve_order(boundary_lines))
+        return HotBlockSection(
+            path=Path("core/user.md"),
+            content=self._compact_profile_section(
+                name="privacy_boundaries",
+                content=content,
+                profile="privacy",
+                agent=agent,
+            ),
+        )
 
     def _compact_profile_section(
         self,
@@ -256,3 +297,95 @@ def _summarize_session(section: HotBlockSection) -> str:
         body = line
         break
     return f"- {section.path.as_posix()}: {body[:120]}"
+
+
+def _extract_privacy_boundary_lines(content: str) -> list[str]:
+    lines: list[str] = []
+    in_frontmatter = False
+    in_boundary_section = False
+    for index, raw_line in enumerate(content.splitlines()):
+        line = raw_line.strip()
+        lowered = line.casefold()
+        if index == 0 and line == "---":
+            in_frontmatter = True
+            continue
+        if in_frontmatter:
+            if line == "---":
+                in_frontmatter = False
+            continue
+        if not line:
+            continue
+        if line.startswith("#"):
+            in_boundary_section = any(
+                marker in lowered
+                for marker in (
+                    "boundar",
+                    "private",
+                    "privacy",
+                    "sensitive",
+                    "public",
+                    "redact",
+                    "do not",
+                    "don't",
+                    "avoid",
+                )
+            )
+            if in_boundary_section:
+                lines.append(line)
+            continue
+        if not (in_boundary_section or _line_mentions_privacy_boundary(lowered)):
+            continue
+        if _line_looks_like_personal_identifier(lowered):
+            continue
+        lines.append(raw_line.rstrip())
+    return lines
+
+
+def _line_mentions_privacy_boundary(lowered_line: str) -> bool:
+    return any(
+        marker in lowered_line
+        for marker in (
+            "boundary",
+            "boundaries",
+            "private",
+            "privacy",
+            "sensitive",
+            "redact",
+            "do not mention",
+            "don't mention",
+            "do not share",
+            "avoid sharing",
+            "public-safe",
+            "public safe",
+        )
+    )
+
+
+def _line_looks_like_personal_identifier(lowered_line: str) -> bool:
+    return any(
+        marker in lowered_line
+        for marker in (
+            "telegram",
+            "email",
+            "phone",
+            "dob",
+            "birth",
+            "birthday",
+            "passport",
+            "ssn",
+            "address",
+            "orcid",
+        )
+    )
+
+
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in items:
+        key = item.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped

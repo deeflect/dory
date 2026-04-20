@@ -101,6 +101,27 @@ Backend selection:
 - `openrouter` by default
 - `ollama` when sovereign mode is enabled
 
+## Daily Digests
+
+Main code:
+
+- `src/dory_core/digest_writer.py`
+- `src/dory_core/digest_mining.py`
+
+Batch surface:
+
+- `dory ops daily-digest-once` — `--date`, `--today`, `--overwrite`, `--dry-run`, `--min-age-minutes`, `--limit`, `--reindex/--no-reindex`
+- `dory mine-digests` — extracts durable claims out of existing daily/weekly digest files into the claim store
+
+Runtime behavior:
+
+- `daily-digest-once` consumes shipped session Markdown under `logs/sessions/**`.
+- The default scheduled behavior writes yesterday's `digests/daily/YYYY-MM-DD.md`.
+- It skips sessions modified more recently than the configured age guard so active sessions are not summarized mid-write.
+- It refuses to overwrite an existing digest unless `--overwrite` is passed.
+- It uses OpenRouter for digest generation and reindexes the written digest path by default.
+- `mine-digests` is the follow-up claim extraction pass; it does not create the digest file.
+
 ## Maintenance
 
 Main code:

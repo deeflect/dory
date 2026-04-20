@@ -192,6 +192,14 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     assert "include_content" in schemas["dory_search"]["parameters"]["properties"]
     assert "profile" in schemas["dory_wake"]["parameters"]["properties"]
     assert "include_wake" in schemas["dory_active_memory"]["parameters"]["properties"]
+    assert schemas["dory_active_memory"]["parameters"]["properties"]["profile"]["enum"] == [
+        "auto",
+        "general",
+        "coding",
+        "writing",
+        "privacy",
+        "personal",
+    ]
     assert "dry_run" in schemas["dory_memory_write"]["parameters"]["properties"]
     assert "force_inbox" in schemas["dory_memory_write"]["parameters"]["properties"]
     assert "allow_canonical" in schemas["dory_memory_write"]["parameters"]["properties"]

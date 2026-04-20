@@ -14,6 +14,10 @@ const CONFIG_SCHEMA = {
             type: "string",
             description: "Optional bearer token for Dory HTTP.",
         },
+        tokenEnv: {
+            type: "string",
+            description: "Optional environment variable name containing the Dory bearer token.",
+        },
     },
     required: ["baseUrl"],
 };
@@ -563,6 +567,7 @@ export class DoryMemorySearchManager {
             agent: opts?.agent ?? this.agentId,
             budget_tokens: opts?.budgetTokens,
             cwd: opts?.cwd,
+            profile: opts?.profile,
             timeout_ms: opts?.timeoutMs,
         });
     }
@@ -779,10 +784,27 @@ function resolveClientOptions(pluginConfig) {
     if (!baseUrl) {
         throw new Error("dory-memory plugin requires plugins.entries.dory-memory.config.baseUrl");
     }
-    const token = typeof pluginConfig?.token === "string" && pluginConfig.token.trim()
+    const token = resolveDoryToken(pluginConfig);
+    return { baseUrl, token };
+}
+function resolveDoryToken(pluginConfig) {
+    const configuredToken = typeof pluginConfig?.token === "string" && pluginConfig.token.trim()
         ? pluginConfig.token.trim()
         : undefined;
-    return { baseUrl, token };
+    if (configuredToken) {
+        return configuredToken;
+    }
+    const tokenEnv = typeof pluginConfig?.tokenEnv === "string" && pluginConfig.tokenEnv.trim()
+        ? pluginConfig.tokenEnv.trim()
+        : undefined;
+    if (!tokenEnv) {
+        return undefined;
+    }
+    const envToken = process?.env?.[tokenEnv]?.trim();
+    if (!envToken) {
+        throw new Error(`dory-memory tokenEnv ${tokenEnv} is configured but the environment variable is empty or unset`);
+    }
+    return envToken;
 }
 function mapSearchResult(item) {
     const [startLine, endLine] = parseLineSpan(item.lines);
@@ -791,7 +813,7 @@ function mapSearchResult(item) {
         path,
         startLine,
         endLine,
-        score: Number(item.score ?? 0),
+        score: Number(item.rank_score ?? item.score ?? 0),
         snippet: String(item.snippet ?? ""),
         source: path.startsWith("logs/sessions/") ? "sessions" : "memory",
         citation: path ? `${path}:${startLine}` : undefined,
