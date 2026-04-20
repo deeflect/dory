@@ -1,0 +1,53 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Sync dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Build package
+        run: uv build --wheel --sdist
+
+      - name: Build Docker image
+        run: docker build -t dory:ci .
+
+      - name: Validate public eval suite
+        run: uv run python eval/validate.py
+
+      - name: Public safety scan
+        run: |
+          python3 scripts/release/check-public-safety.py \
+            --path README.md \
+            --path eval/README.md \
+            --path eval/INDEX.md \
+            --path eval/categories.md \
+            --path eval/public \
+            --path examples/corpus \
+            --path docs/agent-integration.md \
+            --path docs/evals/README.md \
+            --path docs/current-state/README.md \
+            --path docs/current-state/operations-and-validation.md \
+            --path references/runbook.md \
+            --path references/client-runbook.md \
+            --path LICENSE \
+            --path pyproject.toml
+
+      - name: Built artifact safety scan
+        run: python3 scripts/release/check-public-safety.py --path dist

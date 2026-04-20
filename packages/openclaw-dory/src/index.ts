@@ -1,0 +1,1221 @@
+import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
+import {
+  jsonResult,
+  listMemoryCorpusSupplements,
+  readNumberParam,
+  readStringParam,
+  resolveMemorySearchConfig,
+  resolveSessionAgentId,
+  type AnyAgentTool,
+  type OpenClawConfig,
+} from "openclaw/plugin-sdk/memory-core-host-runtime-core";
+
+type JsonRecord = Record<string, unknown>;
+
+export type DoryClientOptions = {
+  baseUrl: string;
+  token?: string;
+};
+
+export type DorySearchMode = "hybrid" | "lexical" | "semantic" | "recall";
+
+export type MemorySearchResult = {
+  path: string;
+  startLine: number;
+  endLine: number;
+  score: number;
+  snippet: string;
+  source: "memory" | "sessions";
+  citation?: string;
+};
+
+export type MemoryProviderStatus = {
+  backend: "builtin" | "qmd";
+  provider: string;
+  model?: string;
+  files?: number;
+  chunks?: number;
+  vector?: {
+    enabled: boolean;
+    available?: boolean;
+  };
+  custom?: Record<string, unknown>;
+};
+
+export type MemoryEmbeddingProbeResult = {
+  ok: boolean;
+  error?: string;
+};
+
+export interface MemorySearchManager {
+  search(
+    query: string,
+    opts?: {
+      maxResults?: number;
+      minScore?: number;
+      sessionKey?: string;
+      qmdSearchModeOverride?: "query" | "search" | "vsearch";
+      onDebug?: (debug: JsonRecord) => void;
+    },
+  ): Promise<MemorySearchResult[]>;
+  activeMemory(
+    prompt: string,
+    opts?: {
+      agent?: string;
+      budgetTokens?: number;
+      cwd?: string;
+      timeoutMs?: number;
+    },
+  ): Promise<JsonRecord>;
+  readFile(params: {
+    relPath: string;
+    from?: number;
+    lines?: number;
+  }): Promise<{ text: string; path: string }>;
+  status(): MemoryProviderStatus;
+  sync?(params?: {
+    reason?: string;
+    force?: boolean;
+    sessionFiles?: string[];
+    progress?: (update: JsonRecord) => void;
+  }): Promise<void>;
+  probeEmbeddingAvailability(): Promise<MemoryEmbeddingProbeResult>;
+  probeVectorAvailability(): Promise<boolean>;
+  close?(): Promise<void>;
+}
+
+export type MemoryPromptSectionBuilder = (params: {
+  availableTools: Set<string>;
+  citationsMode?: string;
+}) => string[];
+
+export type MemoryFlushPlan = {
+  softThresholdTokens: number;
+  forceFlushTranscriptBytes: number;
+  reserveTokensFloor: number;
+  prompt: string;
+  systemPrompt: string;
+  relativePath: string;
+};
+
+export type MemoryFlushPlanResolver = (params: {
+  cfg?: JsonRecord;
+  nowMs?: number;
+}) => MemoryFlushPlan | null;
+
+export type MemoryPluginPublicArtifact = {
+  kind: string;
+  workspaceDir: string;
+  relativePath: string;
+  absolutePath: string;
+  agentIds: string[];
+  contentType: "markdown" | "json" | "text";
+};
+
+export type MemoryPluginPublicArtifactsProvider = {
+  listArtifacts(params: { cfg: JsonRecord }): Promise<MemoryPluginPublicArtifact[]>;
+};
+
+export type MemoryPluginRuntime = {
+  getMemorySearchManager(params: {
+    cfg: JsonRecord;
+    agentId: string;
+    purpose?: "default" | "status";
+  }): Promise<{ manager: MemorySearchManager | null; error?: string }>;
+  resolveMemoryBackendConfig(params: {
+    cfg: JsonRecord;
+    agentId: string;
+  }): {
+    backend: "builtin" | "qmd";
+    qmd?: JsonRecord;
+  };
+  closeAllMemorySearchManagers?(): Promise<void>;
+};
+
+export type MemoryPluginCapability = {
+  promptBuilder?: MemoryPromptSectionBuilder;
+  flushPlanResolver?: MemoryFlushPlanResolver;
+  runtime?: MemoryPluginRuntime;
+  publicArtifacts?: MemoryPluginPublicArtifactsProvider;
+};
+
+type OpenClawPluginApi = {
+  pluginConfig?: JsonRecord;
+  registerMemoryCapability: (
+    capabilityOrPluginId: MemoryPluginCapability | string,
+    capability?: MemoryPluginCapability,
+  ) => void;
+  registerTool?: (
+    tool: AnyAgentTool | ((ctx: {
+      config?: OpenClawConfig;
+      agentId?: string;
+      sessionKey?: string;
+    }) => AnyAgentTool | null | undefined),
+    opts?: { name?: string; names?: string[] },
+  ) => void;
+};
+
+type RequestInit = {
+  method: string;
+  body?: JsonRecord;
+};
+
+type DorySearchItem = {
+  path?: string;
+  score?: number;
+  snippet?: string;
+  lines?: number[] | string;
+};
+
+type DoryGetPayload = {
+  path?: string;
+  content?: string;
+};
+
+type DoryStatusPayload = {
+  files_indexed?: number;
+  chunks_indexed?: number;
+  vectors_indexed?: number;
+  openclaw?: {
+    flush_enabled?: boolean;
+    recall_tracking_enabled?: boolean;
+    artifact_listing_enabled?: boolean;
+    recent_recall_count?: number;
+    last_recall_event_at?: string;
+    last_recall_selected_path?: string;
+    last_flush_status?: string | null;
+    recent_backend_error?: string | null;
+  };
+};
+
+type DoryWriteKind = "append" | "create" | "replace" | "forget";
+type DoryMemoryWriteAction = "write" | "replace" | "forget";
+type DoryMemoryWriteKind = "fact" | "preference" | "state" | "decision" | "note";
+
+const managerCache = new Map<string, DoryMemorySearchManager>();
+const PLUGIN_ID = "dory-memory";
+
+const CONFIG_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    baseUrl: {
+      type: "string",
+      description: "Base URL for the Dory HTTP server.",
+    },
+    token: {
+      type: "string",
+      description: "Optional bearer token for Dory HTTP.",
+    },
+  },
+  required: ["baseUrl"],
+} as const;
+
+const MemorySearchSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    query: { type: "string" },
+    maxResults: { type: "number" },
+    minScore: { type: "number" },
+    corpus: { enum: ["memory", "wiki", "all"] },
+  },
+  required: ["query"],
+} as const;
+
+const MemoryGetSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    path: { type: "string" },
+    from: { type: "number" },
+    lines: { type: "number" },
+    corpus: { enum: ["memory", "wiki", "all"] },
+  },
+  required: ["path"],
+} as const;
+
+const MemoryWriteSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    action: { enum: ["write", "replace", "forget"] },
+    kind: { enum: ["fact", "preference", "state", "decision", "note"] },
+    subject: { type: "string" },
+    content: { type: "string" },
+    scope: { enum: ["core", "person", "project", "concept", "decision"] },
+    confidence: { type: "string" },
+    source: { type: "string" },
+    soft: { type: "boolean" },
+    dry_run: { type: "boolean" },
+    force_inbox: { type: "boolean" },
+    allow_canonical: { type: "boolean" },
+    reason: { type: "string" },
+  },
+  required: ["action", "kind", "subject", "content"],
+} as const;
+
+async function request<T>(
+  options: DoryClientOptions,
+  path: string,
+  init: RequestInit,
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (options.token) {
+    headers.Authorization = `Bearer ${options.token}`;
+  }
+
+  const response = await fetch(new URL(path, options.baseUrl), {
+    method: init.method,
+    headers,
+    body: init.body ? JSON.stringify(init.body) : undefined,
+  });
+
+  if (!response.ok) {
+    const detail = (await response.text()).trim();
+    throw new Error(
+      `dory request failed: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`,
+    );
+  }
+
+  return (await response.json()) as T;
+}
+
+export function wake(
+  options: DoryClientOptions,
+  body: JsonRecord,
+): Promise<JsonRecord> {
+  return request(options, "/v1/wake", { method: "POST", body });
+}
+
+export function search(
+  options: DoryClientOptions,
+  body: JsonRecord,
+): Promise<JsonRecord> {
+  return request(options, "/v1/search", { method: "POST", body });
+}
+
+export function activeMemory(
+  options: DoryClientOptions,
+  body: JsonRecord,
+): Promise<JsonRecord> {
+  return request(options, "/v1/active-memory", { method: "POST", body });
+}
+
+export function get(
+  options: DoryClientOptions,
+  path: string,
+  fromLine = 1,
+  lines?: number,
+): Promise<DoryGetPayload> {
+  const params = new URLSearchParams({
+    path,
+    from: String(fromLine),
+  });
+  if (lines !== undefined) {
+    params.set("lines", String(lines));
+  }
+  return request(options, `/v1/get?${params.toString()}`, { method: "GET" });
+}
+
+export function write(
+  options: DoryClientOptions,
+  body: JsonRecord,
+): Promise<JsonRecord> {
+  return request(options, "/v1/write", { method: "POST", body });
+}
+
+export function memoryWrite(
+  options: DoryClientOptions,
+  body: JsonRecord,
+): Promise<JsonRecord> {
+  return request(options, "/v1/memory-write", { method: "POST", body });
+}
+
+export function status(options: DoryClientOptions): Promise<DoryStatusPayload> {
+  return request(options, "/v1/status", { method: "GET" });
+}
+
+export function recordRecallEvent(
+  options: DoryClientOptions,
+  body: JsonRecord,
+): Promise<JsonRecord> {
+  return request(options, "/v1/recall-event", { method: "POST", body });
+}
+
+export function getPublicArtifacts(
+  options: DoryClientOptions,
+): Promise<{ count?: number; artifacts?: MemoryPluginPublicArtifact[] }> {
+  return request(options, "/v1/public-artifacts", { method: "GET" });
+}
+
+function resolveAgentId(ctx: { config?: OpenClawConfig; agentId?: string; sessionKey?: string }) {
+  const explicit = typeof ctx.agentId === "string" ? ctx.agentId.trim() : "";
+  if (explicit) {
+    return explicit;
+  }
+  return ctx.config ? resolveSessionAgentId({ sessionKey: ctx.sessionKey, config: ctx.config }) : "";
+}
+
+function resolveMemoryToolContext(ctx: {
+  config?: OpenClawConfig;
+  agentId?: string;
+  sessionKey?: string;
+}): {
+  agentId: string;
+  agentSessionKey?: string;
+} | null {
+  if (!ctx.config) {
+    return null;
+  }
+  const agentId = resolveAgentId(ctx);
+  if (!agentId || !resolveMemorySearchConfig(ctx.config, agentId)) {
+    return null;
+  }
+  return {
+    agentId,
+    agentSessionKey: ctx.sessionKey,
+  };
+}
+
+function buildMemorySearchUnavailableResult(error: string | undefined) {
+  const reason = (error ?? "memory search unavailable").trim() || "memory search unavailable";
+  return {
+    results: [],
+    disabled: true,
+    unavailable: true,
+    error: reason,
+    warning: "Memory search is unavailable due to a Dory backend error.",
+    action: "Check the Dory service and retry memory_search.",
+    debug: {
+      warning: "Memory search is unavailable due to a Dory backend error.",
+      action: "Check the Dory service and retry memory_search.",
+      error: reason,
+    },
+  };
+}
+
+function hasOwnRecordKey(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function readBooleanParam(params: Record<string, unknown>, key: string): boolean | undefined {
+  const value = params[key];
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readRecordParam(params: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
+  const value = params[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function slugifyPathSegment(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function titleFromTarget(target: string): string {
+  const fileName = target.split("/").at(-1) ?? "memory-note.md";
+  const stem = fileName.replace(/\.md$/i, "");
+  const words = stem
+    .split(/[-_]+/g)
+    .filter(Boolean)
+    .map((part) => part.replace(/^\d{4}$/, "").replace(/^\d{2}$/, ""))
+    .filter(Boolean);
+  if (words.length === 0) {
+    return "Memory Note";
+  }
+  return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+}
+
+function titleFromContent(content: string): string {
+  const firstLine = content
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) {
+    return "Memory Note";
+  }
+  return firstLine.replace(/^[-*]\s*/, "").slice(0, 80).trim() || "Memory Note";
+}
+
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function inferMemoryWriteTarget(params: {
+  target?: string;
+  title?: string;
+  content: string;
+  type?: string;
+}): string {
+  const explicitTarget = params.target?.trim();
+  if (explicitTarget) {
+    return explicitTarget;
+  }
+  const title = params.title?.trim() || titleFromContent(params.content);
+  const slug = slugifyPathSegment(title) || "memory-note";
+  const today = todayIsoDate();
+  if (params.type === "person") {
+    return `people/${slug}.md`;
+  }
+  if (params.type === "project") {
+    return `projects/${slug}.md`;
+  }
+  if (params.type === "knowledge") {
+    return `knowledge/${slug}.md`;
+  }
+  if (params.type === "reference") {
+    return `references/${slug}.md`;
+  }
+  if (params.type === "decision") {
+    return `decisions/${today}-${slug}.md`;
+  }
+  if (params.type === "weekly") {
+    return `logs/weekly/${today}-${slug}.md`;
+  }
+  if (params.type === "session") {
+    return `logs/sessions/${today}-${slug}.md`;
+  }
+  if (params.type === "core") {
+    return `core/${slug}.md`;
+  }
+  return `logs/daily/${today}-${slug}.md`;
+}
+
+function buildDefaultWriteFrontmatter(params: {
+  target: string;
+  title?: string;
+  content: string;
+  type?: string;
+  status?: string;
+  frontmatter?: Record<string, unknown>;
+}): Record<string, unknown> {
+  const resolvedTitle = params.title?.trim() || titleFromTarget(params.target) || titleFromContent(params.content);
+  const defaultType = params.type?.trim()
+    || (params.target.startsWith("people/") ? "person"
+      : params.target.startsWith("projects/") ? "project"
+      : params.target.startsWith("knowledge/") ? "knowledge"
+      : params.target.startsWith("references/") ? "reference"
+      : params.target.startsWith("decisions/") ? "decision"
+      : params.target.startsWith("logs/weekly/") ? "weekly"
+      : params.target.startsWith("logs/sessions/") ? "session"
+      : params.target.startsWith("core/") ? "core"
+      : "daily");
+  const frontmatter: Record<string, unknown> = {
+    ...(params.frontmatter ?? {}),
+    title: resolvedTitle,
+    type: defaultType,
+  };
+  if (params.status?.trim()) {
+    frontmatter.status = params.status.trim();
+  } else if (defaultType === "daily" && !hasOwnRecordKey(frontmatter, "date")) {
+    frontmatter.date = todayIsoDate();
+  }
+  return frontmatter;
+}
+
+async function searchMemoryCorpusSupplements(params: {
+  query: string;
+  maxResults?: number;
+  agentSessionKey?: string;
+  corpus?: "memory" | "wiki" | "all";
+}): Promise<Array<Record<string, unknown>>> {
+  if (params.corpus === "memory") {
+    return [];
+  }
+  const supplements = listMemoryCorpusSupplements();
+  if (supplements.length === 0) {
+    return [];
+  }
+  const results = (
+    await Promise.all(
+      supplements.map(async (registration) =>
+        await registration.supplement.search({
+          query: params.query,
+          maxResults: params.maxResults,
+          agentSessionKey: params.agentSessionKey,
+        }),
+      ),
+    )
+  ).flat();
+  return [...results]
+    .sort((left: Record<string, unknown>, right: Record<string, unknown>) => {
+      const leftScore = Number(left.score ?? 0);
+      const rightScore = Number(right.score ?? 0);
+      if (leftScore !== rightScore) {
+        return rightScore - leftScore;
+      }
+      return String(left.path ?? "").localeCompare(String(right.path ?? ""));
+    })
+    .slice(0, Math.max(1, params.maxResults ?? 10));
+}
+
+async function getMemoryCorpusSupplementResult(params: {
+  lookup: string;
+  fromLine?: number;
+  lineCount?: number;
+  agentSessionKey?: string;
+  corpus?: "memory" | "wiki" | "all";
+}): Promise<Record<string, unknown> | null> {
+  if (params.corpus === "memory") {
+    return null;
+  }
+  for (const registration of listMemoryCorpusSupplements()) {
+    const result = await registration.supplement.get({
+      lookup: params.lookup,
+      fromLine: params.fromLine,
+      lineCount: params.lineCount,
+      agentSessionKey: params.agentSessionKey,
+    });
+    if (result) {
+      return result;
+    }
+  }
+  return null;
+}
+
+function createMemorySearchTool(
+  options: DoryClientOptions,
+  ctx: { config?: OpenClawConfig; agentId?: string; sessionKey?: string },
+): AnyAgentTool | null {
+  const toolCtx = resolveMemoryToolContext(ctx);
+  if (!toolCtx) {
+    return null;
+  }
+
+  return {
+    label: "Memory Search",
+    name: "memory_search",
+    description:
+      "Mandatory recall step: semantically search durable memory before answering questions about prior work, decisions, dates, people, preferences, or todos.",
+    parameters: MemorySearchSchema,
+    execute: async (_toolCallId, params) => {
+      const query = readStringParam(params, "query", { required: true }) as string;
+      const maxResults = readNumberParam(params, "maxResults");
+      const minScore = readNumberParam(params, "minScore");
+      const requestedCorpus = readStringParam(params, "corpus") as
+        | "memory"
+        | "wiki"
+        | "all"
+        | undefined;
+
+      const shouldQueryMemory = requestedCorpus !== "wiki";
+      const shouldQuerySupplements = requestedCorpus === "wiki" || requestedCorpus === "all";
+
+      let memoryResults: Array<Record<string, unknown>> = [];
+      if (shouldQueryMemory) {
+        try {
+          const manager = getDoryManager(options, toolCtx.agentId);
+          memoryResults = (await manager.search(query, {
+            maxResults,
+            minScore,
+            sessionKey: toolCtx.agentSessionKey,
+          })).map((result) => ({
+            ...result,
+            corpus: "memory",
+          }));
+        } catch (error) {
+          if (!shouldQuerySupplements) {
+            const message = error instanceof Error ? error.message : String(error);
+            return jsonResult(buildMemorySearchUnavailableResult(message));
+          }
+        }
+      }
+
+      const supplementResults = shouldQuerySupplements
+        ? await searchMemoryCorpusSupplements({
+            query,
+            maxResults,
+            agentSessionKey: toolCtx.agentSessionKey,
+            corpus: requestedCorpus,
+          })
+        : [];
+
+      const results = [...memoryResults, ...supplementResults]
+        .sort((left: Record<string, unknown>, right: Record<string, unknown>) => {
+          const leftScore = Number(left.score ?? 0);
+          const rightScore = Number(right.score ?? 0);
+          if (leftScore !== rightScore) {
+            return rightScore - leftScore;
+          }
+          return String(left.path ?? "").localeCompare(String(right.path ?? ""));
+        })
+        .slice(0, Math.max(1, maxResults ?? 10));
+
+      void emitRecallEvent(options, {
+        agent: toolCtx.agentId,
+        session_key: toolCtx.agentSessionKey,
+        query,
+        result_paths: results
+          .map((item) => String(item.path ?? "").trim())
+          .filter((item) => item.length > 0),
+        selected_path: results.length === 1 ? String(results[0]?.path ?? "") : undefined,
+        corpus: requestedCorpus ?? "memory",
+        source: "openclaw-recall",
+      });
+
+      return jsonResult({
+        results,
+        provider: "dory-http",
+        mode: "hybrid",
+      });
+    },
+  };
+}
+
+function createMemoryGetTool(
+  options: DoryClientOptions,
+  ctx: { config?: OpenClawConfig; agentId?: string; sessionKey?: string },
+): AnyAgentTool | null {
+  const toolCtx = resolveMemoryToolContext(ctx);
+  if (!toolCtx) {
+    return null;
+  }
+
+  return {
+    label: "Memory Get",
+    name: "memory_get",
+    description:
+      "Read a small excerpt from durable memory after search, keeping context tight and cited.",
+    parameters: MemoryGetSchema,
+    execute: async (_toolCallId, params) => {
+      const relPath = readStringParam(params, "path", { required: true }) as string;
+      const from = readNumberParam(params, "from", { integer: true });
+      const lines = readNumberParam(params, "lines", { integer: true });
+      const requestedCorpus = readStringParam(params, "corpus") as
+        | "memory"
+        | "wiki"
+        | "all"
+        | undefined;
+
+      if (requestedCorpus === "wiki" || requestedCorpus === "all") {
+        const supplement = await getMemoryCorpusSupplementResult({
+          lookup: relPath,
+          fromLine: from ?? undefined,
+          lineCount: lines ?? undefined,
+          agentSessionKey: toolCtx.agentSessionKey,
+          corpus: requestedCorpus,
+        });
+        if (supplement && requestedCorpus === "wiki") {
+          const { content, ...rest } = supplement;
+          return jsonResult({
+            ...rest,
+            text: typeof content === "string" ? content : "",
+          });
+        }
+      }
+
+      try {
+        const manager = getDoryManager(options, toolCtx.agentId);
+        const payload = await manager.readFile({
+          relPath,
+          from: from ?? undefined,
+          lines: lines ?? undefined,
+        });
+        void emitRecallEvent(options, {
+          agent: toolCtx.agentId,
+          session_key: toolCtx.agentSessionKey,
+          query: relPath,
+          result_paths: [payload.path],
+          selected_path: payload.path,
+          corpus: requestedCorpus ?? "memory",
+          source: "openclaw-recall",
+        });
+        return jsonResult(payload);
+      } catch (error) {
+        if (requestedCorpus === "all") {
+          const supplement = await getMemoryCorpusSupplementResult({
+            lookup: relPath,
+            fromLine: from ?? undefined,
+            lineCount: lines ?? undefined,
+            agentSessionKey: toolCtx.agentSessionKey,
+            corpus: requestedCorpus,
+          });
+          if (supplement) {
+            const { content, ...rest } = supplement;
+            return jsonResult({
+              ...rest,
+              text: typeof content === "string" ? content : "",
+            });
+          }
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        return jsonResult({
+          path: relPath,
+          text: "",
+          disabled: true,
+          error: message,
+        });
+      }
+    },
+  };
+}
+
+function createMemoryWriteTool(
+  options: DoryClientOptions,
+  ctx: { config?: OpenClawConfig; agentId?: string; sessionKey?: string },
+): AnyAgentTool | null {
+  const toolCtx = resolveMemoryToolContext(ctx);
+  if (!toolCtx) {
+    return null;
+  }
+
+  return {
+    label: "Memory Write",
+    name: "memory_write",
+    description:
+      "Persist semantic durable memory to Dory when the user explicitly asks you to remember, save, update, or forget something for later recall.",
+    parameters: MemoryWriteSchema,
+    execute: async (_toolCallId, params) => {
+      const action = (readStringParam(params, "action", { required: true }) as DoryMemoryWriteAction);
+      const kind = (readStringParam(params, "kind", { required: true }) as DoryMemoryWriteKind);
+      const subject = readStringParam(params, "subject", { required: true }) as string;
+      const content = readStringParam(params, "content", { required: true }) as string;
+      const scope = readStringParam(params, "scope");
+      const confidence = readStringParam(params, "confidence");
+      const source = readStringParam(params, "source");
+      const reason = readStringParam(params, "reason");
+      const soft = readBooleanParam(params, "soft") ?? false;
+      const dryRun = readBooleanParam(params, "dry_run");
+      const forceInbox = readBooleanParam(params, "force_inbox");
+      const allowCanonical = readBooleanParam(params, "allow_canonical");
+
+      try {
+        const result = await memoryWrite(options, {
+          action,
+          kind,
+          subject,
+          content,
+          scope,
+          confidence,
+          source,
+          soft,
+          dry_run: dryRun,
+          force_inbox: forceInbox,
+          allow_canonical: allowCanonical,
+          agent: toolCtx.agentId,
+          session_id: toolCtx.agentSessionKey,
+          reason,
+        });
+        return jsonResult({
+          ok: true,
+          provider: "dory-http",
+          subject,
+          ...(result as Record<string, unknown>),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return jsonResult({
+          ok: false,
+          provider: "dory-http",
+          subject,
+          error: message,
+        });
+      }
+    },
+  };
+}
+
+export class DoryMemorySearchManager implements MemorySearchManager {
+  readonly options: DoryClientOptions;
+  readonly agentId: string;
+  private statusSnapshot: MemoryProviderStatus;
+  private statusRefreshedAtMs: number | null;
+
+  constructor(options: DoryClientOptions, agentId: string) {
+    this.options = options;
+    this.agentId = agentId;
+    this.statusRefreshedAtMs = null;
+    this.statusSnapshot = {
+      backend: "qmd",
+      provider: "dory-http",
+      vector: {
+        enabled: true,
+        available: undefined,
+      },
+      custom: {
+        baseUrl: options.baseUrl,
+        statusSource: "cold",
+        statusAgeMs: null,
+        statusStale: true,
+      },
+    };
+  }
+
+  async search(
+    query: string,
+    opts?: {
+      maxResults?: number;
+      minScore?: number;
+      sessionKey?: string;
+      qmdSearchModeOverride?: "query" | "search" | "vsearch";
+      onDebug?: (debug: JsonRecord) => void;
+    },
+  ): Promise<MemorySearchResult[]> {
+    const mode = mapSearchMode(opts?.qmdSearchModeOverride);
+    opts?.onDebug?.({
+      provider: "dory-http",
+      mode,
+      sessionKeyApplied: false,
+      sessionKeySupported: false,
+      warning: opts?.sessionKey ? "sessionKey is not yet supported by Dory HTTP search" : undefined,
+    });
+    const payload = await search(this.options, {
+      query,
+      k: opts?.maxResults ?? 10,
+      mode,
+      min_score: opts?.minScore,
+    });
+    const warnings = Array.isArray(payload.warnings)
+      ? payload.warnings.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      : [];
+    if (warnings.length > 0) {
+      opts?.onDebug?.({
+        provider: "dory-http",
+        warnings,
+      });
+    }
+    const results = Array.isArray(payload.results) ? (payload.results as DorySearchItem[]) : [];
+    const minScore = opts?.minScore ?? Number.NEGATIVE_INFINITY;
+    return results
+      .map((item) => mapSearchResult(item))
+      .filter((item) => item.score >= minScore);
+  }
+
+  async activeMemory(
+    prompt: string,
+    opts?: {
+      agent?: string;
+      budgetTokens?: number;
+      cwd?: string;
+      timeoutMs?: number;
+    },
+  ): Promise<JsonRecord> {
+    return activeMemory(this.options, {
+      prompt,
+      agent: opts?.agent ?? this.agentId,
+      budget_tokens: opts?.budgetTokens,
+      cwd: opts?.cwd,
+      timeout_ms: opts?.timeoutMs,
+    });
+  }
+
+  async readFile(params: {
+    relPath: string;
+    from?: number;
+    lines?: number;
+  }): Promise<{ text: string; path: string }> {
+    const payload = await get(this.options, params.relPath, params.from ?? 1, params.lines);
+    return {
+      text: String(payload.content ?? ""),
+      path: String(payload.path ?? params.relPath),
+    };
+  }
+
+  status(): MemoryProviderStatus {
+    const ageMs = this.statusRefreshedAtMs === null ? null : Math.max(0, Date.now() - this.statusRefreshedAtMs);
+    const stale = ageMs === null || ageMs > 30_000;
+    this.statusSnapshot = {
+      ...this.statusSnapshot,
+      custom: {
+        ...(this.statusSnapshot.custom ?? {}),
+        statusAgeMs: ageMs,
+        statusStale: stale,
+      },
+    };
+    return this.statusSnapshot;
+  }
+
+  async refreshStatus(): Promise<MemoryProviderStatus> {
+    const payload = await status(this.options);
+    const openclaw = payload.openclaw ?? {};
+    const refreshedAtMs = Date.now();
+    this.statusRefreshedAtMs = refreshedAtMs;
+    this.statusSnapshot = {
+      ...this.statusSnapshot,
+      files: Number(payload.files_indexed ?? 0),
+      chunks: Number(payload.chunks_indexed ?? 0),
+      vector: {
+        enabled: true,
+        available: Number(payload.vectors_indexed ?? 0) > 0,
+      },
+      custom: {
+        ...(this.statusSnapshot.custom ?? {}),
+        statusSource: "refreshed",
+        statusCheckedAt: new Date(refreshedAtMs).toISOString(),
+        statusAgeMs: 0,
+        statusStale: false,
+        vectorsIndexed: Number(payload.vectors_indexed ?? 0),
+        flushEnabled: Boolean(openclaw.flush_enabled),
+        recallTrackingEnabled: Boolean(openclaw.recall_tracking_enabled),
+        artifactListingEnabled: Boolean(openclaw.artifact_listing_enabled),
+        recentRecallCount: Number(openclaw.recent_recall_count ?? 0),
+        lastRecallEventAt: typeof openclaw.last_recall_event_at === "string"
+          ? openclaw.last_recall_event_at
+          : undefined,
+        lastRecallSelectedPath: typeof openclaw.last_recall_selected_path === "string"
+          ? openclaw.last_recall_selected_path
+          : undefined,
+        lastFlushStatus: typeof openclaw.last_flush_status === "string"
+          ? openclaw.last_flush_status
+          : undefined,
+        recentBackendError: typeof openclaw.recent_backend_error === "string"
+          ? openclaw.recent_backend_error
+          : undefined,
+      },
+    };
+    return this.statusSnapshot;
+  }
+
+  async sync(): Promise<void> {
+    await this.refreshStatus().catch(() => undefined);
+  }
+
+  async probeEmbeddingAvailability(): Promise<MemoryEmbeddingProbeResult> {
+    const next = await this.refreshStatus().catch(() => null);
+    if (!next) {
+      return {
+        ok: false,
+        error: "unable to refresh Dory status before probing embeddings",
+      };
+    }
+    if (next.vector?.available === true) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error: "Dory has no indexed vectors available for embedding-backed search yet",
+    };
+  }
+
+  async probeVectorAvailability(): Promise<boolean> {
+    const next = await this.refreshStatus().catch(() => null);
+    if (!next) {
+      return false;
+    }
+    return next.vector?.available === true;
+  }
+
+  async close(): Promise<void> {
+    this.statusSnapshot = {
+      ...this.statusSnapshot,
+      custom: {
+        ...(this.statusSnapshot.custom ?? {}),
+        statusSource: "closed",
+        statusStale: false,
+      },
+    };
+    return;
+  }
+}
+
+function mapSearchMode(
+  mode: "query" | "search" | "vsearch" | undefined,
+): "bm25" | "hybrid" | "vector" {
+  if (mode === "query") {
+    return "bm25";
+  }
+  if (mode === "vsearch") {
+    return "vector";
+  }
+  return "hybrid";
+}
+
+function getDoryManager(options: DoryClientOptions, agentId: string): DoryMemorySearchManager {
+  const key = `default:${agentId}`;
+  let manager = managerCache.get(key);
+  if (!manager) {
+    manager = new DoryMemorySearchManager(options, agentId);
+    managerCache.set(key, manager);
+  }
+  return manager;
+}
+
+export function buildDoryMemoryCapability(
+  options: DoryClientOptions,
+): MemoryPluginCapability {
+  return {
+    promptBuilder: ({ availableTools, citationsMode }) => {
+      const hasMemorySearch = availableTools.has("memory_search");
+      const hasMemoryGet = availableTools.has("memory_get");
+      const hasMemoryWrite = availableTools.has("memory_write");
+
+      if (!hasMemorySearch && !hasMemoryGet && !hasMemoryWrite) {
+        return [];
+      }
+
+      let toolGuidance: string;
+      if (hasMemorySearch && hasMemoryGet) {
+        toolGuidance =
+          "Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search against Dory-backed memory first, then use memory_get to pull only the needed lines.";
+      } else if (hasMemorySearch) {
+        toolGuidance =
+          "Before answering anything about prior work, decisions, dates, people, preferences, or todos: run memory_search against Dory-backed memory first and answer from the matching results.";
+      } else {
+        toolGuidance =
+          "Before answering anything about prior work, decisions, dates, people, preferences, or todos that already point to a specific memory note: run memory_get to pull only the needed lines.";
+      }
+
+      const lines = ["## Memory Recall", toolGuidance];
+      if (hasMemoryWrite) {
+        lines.push(
+          "When the user explicitly asks you to remember, save, or log durable information for later recall, use memory_write to store a concise note in Dory-backed memory.",
+        );
+      }
+      if (citationsMode === "off") {
+        lines.push(
+          "Citations are disabled: do not mention file paths or line numbers in replies unless the user explicitly asks.",
+        );
+      } else {
+        lines.push(
+          "Citations: include Source: <path#line> when it helps the user verify memory snippets.",
+        );
+      }
+      lines.push("");
+      return lines;
+    },
+    runtime: {
+      getMemorySearchManager: async ({ agentId, purpose }) => {
+        const key = `${purpose ?? "default"}:${agentId}`;
+        let manager = managerCache.get(key);
+        if (!manager) {
+          manager = new DoryMemorySearchManager(options, agentId);
+          managerCache.set(key, manager);
+        }
+        if (purpose === "status") {
+          await manager.refreshStatus().catch(() => {});
+        }
+        return { manager };
+      },
+      resolveMemoryBackendConfig: ({ agentId }) => ({
+        backend: "qmd",
+        qmd: {
+          provider: "dory-http",
+          pluginId: PLUGIN_ID,
+          agentId,
+          baseUrl: options.baseUrl,
+          tokenConfigured: Boolean(options.token),
+        },
+      }),
+      closeAllMemorySearchManagers: async () => {
+        for (const manager of managerCache.values()) {
+          await manager.close?.();
+        }
+        managerCache.clear();
+      },
+    },
+    flushPlanResolver: () => ({
+      softThresholdTokens: 4000,
+      forceFlushTranscriptBytes: 24000,
+      reserveTokensFloor: 1200,
+      prompt:
+        "Summarize durable memory worth saving before compaction. Use semantic memory_write actions only for facts, preferences, project state, decisions, or notes the user would want recalled later.",
+      systemPrompt:
+        "You are preparing durable memory for Dory. Do not choose markdown paths. Use memory_write with semantic subjects and concise content only.",
+      relativePath: "openclaw/compaction-flush.md",
+    }),
+    publicArtifacts: {
+      listArtifacts: async () => {
+        const payload = await getPublicArtifacts(options);
+        return Array.isArray(payload.artifacts) ? payload.artifacts : [];
+      },
+    },
+  };
+}
+
+async function emitRecallEvent(options: DoryClientOptions, body: JsonRecord): Promise<void> {
+  await recordRecallEvent(options, body).catch(() => undefined);
+}
+
+function registerMemoryCapabilityCompat(
+  registerMemoryCapability: OpenClawPluginApi["registerMemoryCapability"],
+  capability: MemoryPluginCapability,
+  pluginId = PLUGIN_ID,
+): MemoryPluginCapability {
+  if (registerMemoryCapability.length >= 2) {
+    registerMemoryCapability(pluginId, capability);
+    return capability;
+  }
+  registerMemoryCapability(capability);
+  return capability;
+}
+
+function resolveClientOptions(pluginConfig: JsonRecord | undefined): DoryClientOptions {
+  const baseUrl = String(pluginConfig?.baseUrl ?? pluginConfig?.base_url ?? "").trim();
+  if (!baseUrl) {
+    throw new Error("dory-memory plugin requires plugins.entries.dory-memory.config.baseUrl");
+  }
+  const token = typeof pluginConfig?.token === "string" && pluginConfig.token.trim()
+    ? pluginConfig.token.trim()
+    : undefined;
+  return { baseUrl, token };
+}
+
+function mapSearchResult(item: DorySearchItem): MemorySearchResult {
+  const [startLine, endLine] = parseLineSpan(item.lines);
+  const path = String(item.path ?? "");
+  return {
+    path,
+    startLine,
+    endLine,
+    score: Number(item.score ?? 0),
+    snippet: String(item.snippet ?? ""),
+    source: path.startsWith("logs/sessions/") ? "sessions" : "memory",
+    citation: path ? `${path}:${startLine}` : undefined,
+  };
+}
+
+function parseLineSpan(lines: DorySearchItem["lines"]): [number, number] {
+  if (Array.isArray(lines)) {
+    const startLine = Number(lines[0] ?? 1);
+    const endLine = Number(lines.length > 1 ? lines[1] : startLine);
+    return [startLine, endLine];
+  }
+  if (typeof lines === "string") {
+    const trimmed = lines.trim();
+    if (!trimmed) {
+      return [1, 1];
+    }
+    const [rawStart, rawEnd] = trimmed.split("-", 2);
+    const startLine = Number(rawStart || 1);
+    const endLine = Number(rawEnd || rawStart || 1);
+    return [
+      Number.isFinite(startLine) && startLine > 0 ? startLine : 1,
+      Number.isFinite(endLine) && endLine > 0 ? endLine : (Number.isFinite(startLine) && startLine > 0 ? startLine : 1),
+    ];
+  }
+  return [1, 1];
+}
+
+const pluginEntry = definePluginEntry({
+  id: PLUGIN_ID,
+  name: "Dory Memory",
+  description: "Dory-backed OpenClaw memory slot plugin.",
+  kind: "memory",
+  configSchema: CONFIG_SCHEMA,
+  register(api: OpenClawPluginApi) {
+    const options = resolveClientOptions(api.pluginConfig);
+    const capability = buildDoryMemoryCapability(options);
+    registerMemoryCapabilityCompat(api.registerMemoryCapability, capability, PLUGIN_ID);
+    api.registerTool?.((ctx) => createMemorySearchTool(options, ctx), {
+      names: ["memory_search"],
+    });
+    api.registerTool?.((ctx) => createMemoryGetTool(options, ctx), {
+      names: ["memory_get"],
+    });
+    api.registerTool?.((ctx) => createMemoryWriteTool(options, ctx), {
+      names: ["memory_write"],
+    });
+  },
+});
+
+export default pluginEntry;

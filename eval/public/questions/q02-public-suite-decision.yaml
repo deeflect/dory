@@ -1,0 +1,14 @@
+id: q02
+question: "Why did we keep the public eval suite synthetic?"
+expected_sources:
+  - decisions/2026-04-public-eval-suite.md
+expected_keywords:
+  - "synthetic"
+  - "private corpus"
+  - "examples/corpus"
+type: decision-recall
+freshness_sensitive: false
+task_grounded: false
+difficulty: easy
+notes: >
+  Confirms the public docs and validator can explain the split without depending on the private set.

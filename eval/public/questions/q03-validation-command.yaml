@@ -1,0 +1,14 @@
+id: q03
+question: "What command should I run to validate the private eval suite?"
+expected_sources:
+  - references/public-validation.md
+expected_keywords:
+  - "python3 eval/validate.py"
+  - "--questions-root /path/to/private/questions"
+  - "--corpus-root /path/to/private/corpus"
+type: task-grounded
+freshness_sensitive: false
+task_grounded: true
+difficulty: easy
+notes: >
+  Verifies the public corpus can document the private validation command exactly.

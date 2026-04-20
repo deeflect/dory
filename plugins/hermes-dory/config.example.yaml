@@ -1,0 +1,13 @@
+base_url: http://127.0.0.1:8766
+token: ""
+default_agent: hermes
+memory_mode: hybrid
+wake_budget_tokens: 600
+wake_profile: coding
+wake_recent_sessions: 5
+wake_include_pinned_decisions: true
+active_memory_include_wake: false
+search_k: 8
+search_mode: hybrid
+# Preferred API-native values: hybrid, recall, bm25, text, keyword, vector, exact
+# Compatibility aliases: text/keyword/lexical -> bm25, semantic -> vector

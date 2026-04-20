@@ -1,0 +1,24 @@
+{
+  "id": "dory-memory",
+  "name": "Dory Memory",
+  "version": "0.1.0",
+  "kind": "memory",
+  "description": "Dory-backed OpenClaw memory slot plugin.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "description": "Base URL for the Dory HTTP server."
+      },
+      "token": {
+        "type": "string",
+        "description": "Optional bearer token for Dory HTTP."
+      }
+    },
+    "required": [
+      "baseUrl"
+    ]
+  }
+}
