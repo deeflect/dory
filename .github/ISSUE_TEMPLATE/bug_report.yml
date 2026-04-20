@@ -1,0 +1,79 @@
+name: Bug report
+description: Report a reproducible Dory bug with synthetic data.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include real tokens, private corpus snippets, personal memories, private hostnames, or local absolute paths. Use synthetic data.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - CLI
+        - HTTP daemon
+        - MCP server
+        - Browser wiki
+        - Search/indexing
+        - Wake/active-memory
+        - Semantic writes
+        - Docker/deployment
+        - Hermes provider
+        - OpenClaw plugin
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Minimal steps using synthetic data.
+      placeholder: |
+        1. Run ...
+        2. Write synthetic memory ...
+        3. Search ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, Dory commit/version, deployment shape. Redact secrets.
+      placeholder: |
+        OS:
+        Python:
+        Dory commit:
+        Deployment: repo-local / same-host daemon / Docker / private remote
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or output
+      description: Paste only redacted output with synthetic data.
+      render: shell
+    validations:
+      required: false
