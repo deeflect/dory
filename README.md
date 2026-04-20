@@ -193,6 +193,7 @@ Example MCP config: [`scripts/claude-code/mcp.example.json`](scripts/claude-code
 
 ```bash
 uv run dory ops dream-once        # batch dream pass (+ recall-promotion distillation)
+uv run dory ops daily-digest-once # summarize shipped sessions into digests/daily/
 uv run dory ops maintain-once     # maintenance pass
 uv run dory ops wiki-refresh-once # rebuild compiled wiki
 uv run dory ops eval-once         # eval batch

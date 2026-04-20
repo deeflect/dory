@@ -24,6 +24,29 @@ _MAX_BLOCK_CHARS = 3200
 _MIN_BLOCK_CHARS = 700
 _PLANNER_MIN_REMAINING_MS = 1800
 _COMPOSER_MIN_REMAINING_MS = 2200
+_PromptContext = Literal["coding", "writing", "privacy", "personal", "general"]
+_ActiveMemoryProfile = Literal["general", "coding", "writing", "privacy", "personal"]
+
+
+@dataclass(frozen=True, slots=True)
+class SourcePolicy:
+    profile: _ActiveMemoryProfile
+    wake_profile: Literal["default", "coding", "writing", "privacy"]
+    include_pinned_decisions: bool
+    include_durable_context: bool
+    include_session_context: bool
+    use_helper_context: bool
+    blocked_exact_paths: frozenset[str] = frozenset()
+    blocked_path_prefixes: tuple[str, ...] = ()
+
+    def allows_result_path(self, path: str, *, corpus: str) -> bool:
+        if corpus == "sessions":
+            return self.include_session_context
+        if not self.include_durable_context:
+            return False
+        if path in self.blocked_exact_paths:
+            return False
+        return not path.startswith(self.blocked_path_prefixes)
 
 
 class _WakeBuilder(Protocol):
@@ -44,7 +67,8 @@ class ActiveMemoryEngine:
 
     def build(self, req: ActiveMemoryReq) -> ActiveMemoryResp:
         deadline = _Deadline.from_timeout_ms(req.timeout_ms)
-        helper = _load_wiki_helper_context(self.root)
+        source_policy = _source_policy_for_request(req)
+        helper = _load_wiki_helper_context(self.root) if source_policy.use_helper_context else _empty_wiki_helper_context()
         wake_block = ""
         wake_sources: list[str] = []
         if req.include_wake:
@@ -52,8 +76,9 @@ class ActiveMemoryEngine:
                 WakeReq(
                     budget_tokens=min(req.budget_tokens, 600),
                     agent=req.agent,
-                    include_recent_sessions=3,
-                    include_pinned_decisions=True,
+                    profile=source_policy.wake_profile,
+                    include_recent_sessions=3 if source_policy.include_session_context else 0,
+                    include_pinned_decisions=source_policy.include_pinned_decisions,
                 )
             )
             wake_block = wake.block
@@ -75,7 +100,11 @@ class ActiveMemoryEngine:
             rerank="true" if req.rerank == "auto" else req.rerank,
             deadline=deadline,
         )
-        durable_results = _filter_active_memory_results(durable_results, corpus="durable")
+        durable_results = _filter_active_memory_results(
+            durable_results,
+            corpus="durable",
+            source_policy=source_policy,
+        )
         session_results = (
             _search_candidates(
                 self.search_engine,
@@ -87,14 +116,18 @@ class ActiveMemoryEngine:
                 rerank="false",
                 deadline=deadline,
             )
-            if plan.include_sessions and plan.session_limit > 0
+            if source_policy.include_session_context and plan.include_sessions and plan.session_limit > 0
             else []
         )
-        session_results = _filter_active_memory_results(session_results, corpus="sessions")
+        session_results = _filter_active_memory_results(
+            session_results,
+            corpus="sessions",
+            source_policy=source_policy,
+        )
+        rendered_wake_block = _wake_block_for_rendering(wake_block, durable_results, session_results)
         sources = _dedupe_strings(
             [
-                *helper.sources,
-                *wake_sources,
+                *(wake_sources if rendered_wake_block else []),
                 *[_result_path(item) for item in durable_results[:4]],
                 *[_result_path(item) for item in session_results[:3]],
             ]
@@ -115,7 +148,7 @@ class ActiveMemoryEngine:
         )
         block = _build_block(
             helper,
-            wake_block.strip(),
+            rendered_wake_block,
             durable_results,
             session_results,
             memory_bullets=memory_bullets,
@@ -127,6 +160,7 @@ class ActiveMemoryEngine:
             kind="memory" if block else "none",
             block=block,
             summary=summary,
+            profile=source_policy.profile,
             confidence=confidence,
             sources=sources,
         )
@@ -155,6 +189,8 @@ class ActiveMemoryEngine:
         *,
         deadline: "_Deadline",
     ):
+        if not durable_results and not session_results:
+            return None
         if self.composer is None or deadline.remaining_ms < _COMPOSER_MIN_REMAINING_MS:
             return None
         try:
@@ -404,8 +440,18 @@ def _composition_conflicts_with_evidence(composition: object | None, durable_res
     )
 
 
-def _filter_active_memory_results(results: list[object], *, corpus: str) -> list[object]:
-    return [result for result in results if _is_active_memory_candidate(result, corpus=corpus)]
+def _filter_active_memory_results(
+    results: list[object],
+    *,
+    corpus: str,
+    source_policy: SourcePolicy,
+) -> list[object]:
+    return [
+        result
+        for result in results
+        if _is_active_memory_candidate(result, corpus=corpus)
+        and source_policy.allows_result_path(_result_path(result), corpus=corpus)
+    ]
 
 
 def _is_active_memory_candidate(result: object, *, corpus: str) -> bool:
@@ -431,6 +477,162 @@ def _is_active_memory_candidate(result: object, *, corpus: str) -> bool:
     if corpus == "durable" and stale_warning:
         return False
     return True
+
+
+def _source_policy_for_request(req: ActiveMemoryReq) -> SourcePolicy:
+    profile = _resolve_active_memory_profile(req)
+    include_session_context = _prompt_needs_session_context(req.prompt)
+    if profile == "privacy":
+        return SourcePolicy(
+            profile="privacy",
+            wake_profile="privacy",
+            include_pinned_decisions=False,
+            include_durable_context=False,
+            include_session_context=False,
+            use_helper_context=False,
+        )
+    if profile == "coding":
+        return SourcePolicy(
+            profile="coding",
+            wake_profile="coding",
+            include_pinned_decisions=False,
+            include_durable_context=True,
+            include_session_context=include_session_context,
+            use_helper_context=True,
+            blocked_exact_paths=frozenset({"core/user.md", "core/soul.md", "core/identity.md"}),
+            blocked_path_prefixes=("people/", "knowledge/personal/"),
+        )
+    if profile == "writing":
+        return SourcePolicy(
+            profile="writing",
+            wake_profile="writing",
+            include_pinned_decisions=True,
+            include_durable_context=True,
+            include_session_context=include_session_context,
+            use_helper_context=True,
+            blocked_exact_paths=frozenset({"core/user.md", "core/identity.md"}),
+            blocked_path_prefixes=("people/",),
+        )
+    if profile == "personal":
+        return SourcePolicy(
+            profile="personal",
+            wake_profile="default",
+            include_pinned_decisions=True,
+            include_durable_context=True,
+            include_session_context=include_session_context,
+            use_helper_context=False,
+        )
+    return SourcePolicy(
+        profile="general",
+        wake_profile="default",
+        include_pinned_decisions=True,
+        include_durable_context=True,
+        include_session_context=include_session_context,
+        use_helper_context=True,
+    )
+
+
+def _resolve_active_memory_profile(req: ActiveMemoryReq) -> _ActiveMemoryProfile:
+    if req.profile != "auto":
+        return req.profile
+    return _prompt_context(req.prompt)
+
+
+def _prompt_context(prompt: str) -> _PromptContext:
+    lowered = prompt.casefold()
+    if _contains_any(
+        lowered,
+        (
+            "privacy",
+            "private",
+            "sensitive",
+            "boundary",
+            "boundaries",
+            "redact",
+            "public-safe",
+            "do not share",
+        ),
+    ):
+        return "privacy"
+    if _contains_any(
+        lowered,
+        (
+            "who am i",
+            "about me",
+            "my profile",
+            "personal",
+            "preference",
+            "preferences",
+            "how should you talk to me",
+        ),
+    ):
+        return "personal"
+    if _contains_any(
+        lowered,
+        (
+            "writing",
+            "voice",
+            "draft",
+            "copy",
+            "post",
+            "essay",
+            "tone",
+            "style",
+            "blog",
+        ),
+    ):
+        return "writing"
+    if _contains_any(
+        lowered,
+        (
+            "code",
+            "coding",
+            "repo",
+            "implementation",
+            "bug",
+            "test",
+            "tests",
+            "api",
+            "integration",
+            "integrations",
+            "schema",
+            "mcp",
+            "module",
+        ),
+    ):
+        return "coding"
+    return "general"
+
+
+def _prompt_needs_session_context(prompt: str) -> bool:
+    lowered = prompt.casefold()
+    return _contains_any(
+        lowered,
+        (
+            "last worked",
+            "worked on last",
+            "what did i work",
+            "recent session",
+            "latest session",
+            "previous session",
+            "session context",
+            "conversation",
+            "yesterday",
+            "today",
+            "this morning",
+            "last night",
+        ),
+    )
+
+
+def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
+    return any(needle in text for needle in needles)
+
+
+def _wake_block_for_rendering(wake_block: str, durable_results: list[object], session_results: list[object]) -> str:
+    if durable_results or session_results:
+        return ""
+    return wake_block.strip()
 
 
 def _active_memory_path_weight(path: str) -> float:
@@ -462,14 +664,7 @@ def _result_frontmatter(result: object) -> dict[str, object]:
 
 def _load_wiki_helper_context(root: Path | None) -> WikiHelperContext:
     if root is None:
-        return WikiHelperContext(
-            block="",
-            sources=[],
-            current_focus="",
-            recent_pages=(),
-            active_threads=(),
-            index_hints=(),
-        )
+        return _empty_wiki_helper_context()
     sections: list[str] = []
     sources: list[str] = []
     current_focus = ""
@@ -504,6 +699,17 @@ def _load_wiki_helper_context(root: Path | None) -> WikiHelperContext:
         recent_pages=recent_pages,
         active_threads=active_threads,
         index_hints=index_hints,
+    )
+
+
+def _empty_wiki_helper_context() -> WikiHelperContext:
+    return WikiHelperContext(
+        block="",
+        sources=[],
+        current_focus="",
+        recent_pages=(),
+        active_threads=(),
+        index_hints=(),
     )
 
 

@@ -78,12 +78,22 @@ _ENV_QUERY_TOKENS = {
 _PRIVACY_QUERY_TOKENS = {
     "boundaries",
     "boundary",
-    "crypto",
-    "immigration",
     "private",
     "privacy",
     "public",
     "sensitive",
+}
+_TEMPORAL_QUERY_TOKENS = {
+    "date",
+    "did",
+    "happen",
+    "history",
+    "historical",
+    "last",
+    "previous",
+    "timeline",
+    "when",
+    "yesterday",
 }
 
 
@@ -92,6 +102,7 @@ class QueryProfile:
     tokens: tuple[str, ...]
     phrases: tuple[str, ...]
     has_identifier_hint: bool
+    has_temporal_hint: bool
 
 
 def _build_fts_query(query: str) -> str:
@@ -153,10 +164,12 @@ def _build_query_profile(query: str) -> QueryProfile:
     )
     phrases = _dedupe_preserve_order(_extract_match_phrases(query))
     has_identifier_hint = bool(_FTS_SEGMENT_RE.search(query)) or any(char in query for char in "@/._-")
+    has_temporal_hint = bool(set(raw_tokens) & _TEMPORAL_QUERY_TOKENS)
     return QueryProfile(
         tokens=normalized_tokens,
         phrases=phrases,
         has_identifier_hint=has_identifier_hint,
+        has_temporal_hint=has_temporal_hint,
     )
 
 
@@ -350,12 +363,15 @@ class SearchEngine:
         )
         results = []
         for position, (row, frontmatter) in enumerate(filtered_rows, start=1):
+            rank_score = normalized_scores.get(row.chunk_id)
             results.append(
                 SearchResult(
                     path=row.path,
                     lines=f"{row.start_line}-{row.end_line}",
                     score=row.score,
-                    score_normalized=normalized_scores.get(row.chunk_id),
+                    score_normalized=rank_score,
+                    rank_score=rank_score,
+                    evidence_class=_evidence_class_for_document(row.path, frontmatter),
                     snippet=self._make_snippet(row.content, req.include_content),
                     frontmatter=frontmatter,
                     stale_warning=_build_stale_warning(row.content, frontmatter),
@@ -557,6 +573,8 @@ class SearchEngine:
                 "path": result.path,
                 "snippet": result.snippet,
                 "score": result.score,
+                "rank_score": result.rank_score,
+                "evidence_class": result.evidence_class,
                 "frontmatter": result.frontmatter,
                 "stale_warning": result.stale_warning,
             }
@@ -577,7 +595,7 @@ class SearchEngine:
                 took_ms=response.took_ms,
                 warnings=_dedupe_preserve_order([*response.warnings, *self._warnings]),
             )
-        selected = _reorder_results(response.results, selection.selected_paths)
+        selected = _with_rank_scores(_reorder_results(response.results, selection.selected_paths))
         return SearchResp(
             query=response.query,
             count=len(selected),
@@ -702,6 +720,8 @@ class SearchEngine:
                 lines="1-1",
                 score=result.score,
                 score_normalized=1.0 if result_index == 1 else max(0.0, 1.0 - ((result_index - 1) * 0.2)),
+                rank_score=1.0 if result_index == 1 else max(0.0, 1.0 - ((result_index - 1) * 0.2)),
+                evidence_class="session",
                 snippet=result.snippet,
                 frontmatter={
                     "type": "session",
@@ -737,7 +757,7 @@ class SearchEngine:
                 if existing is None or score > existing[0]:
                     scored_results[result.path] = (score, result)
         ordered = sorted(scored_results.values(), key=lambda item: (-item[0], item[1].path))
-        merged = [result for _score, result in ordered[:limit]]
+        merged = _with_rank_scores([result for _score, result in ordered[:limit]])
         took_ms = max(1, int((time.perf_counter() - started) * 1000))
         return SearchResp(query=normalized_queries[0], count=len(merged), results=merged, took_ms=took_ms)
 
@@ -797,7 +817,7 @@ class SearchEngine:
         return SearchResp(
             query=query,
             count=len(merged),
-            results=merged,
+            results=_with_rank_scores(merged),
             took_ms=took_ms,
             warnings=_dedupe_preserve_order([*durable.warnings, *session.warnings]),
         )
@@ -935,9 +955,9 @@ def _score_document_prior(
     score = 0.0
 
     if frontmatter.get("canonical") is True:
-        score += 0.006
+        score += 0.018
     if str(frontmatter.get("source_kind", "")).strip().lower() == "canonical":
-        score += 0.006
+        score += 0.014
     if str(frontmatter.get("status", "")).strip().lower() == "active":
         score += 0.003
 
@@ -959,6 +979,19 @@ def _score_document_prior(
         elif path.startswith("knowledge/personal/"):
             score -= 0.02
 
+    source_kind = str(frontmatter.get("source_kind", "")).strip().lower()
+    status = str(frontmatter.get("status", "")).strip().lower()
+    temporal_query = query_profile.has_temporal_hint
+    if temporal_query and (path.startswith("logs/daily/") or _extract_document_date(frontmatter) is not None):
+        score += 0.09 if path.startswith("logs/daily/") else 0.045
+    if path.startswith("inbox/"):
+        score -= 0.04
+    if path.startswith("logs/") and not temporal_query:
+        score -= 0.03
+    if status == "raw":
+        score -= 0.03
+    if source_kind == "generated":
+        score -= 0.018
     if _is_low_trust_search_document(path, frontmatter):
         score -= 0.05
 
@@ -1105,6 +1138,24 @@ def _merge_result_score(
     rank_score = 1.0 / (20 + position)
     source_bonus = 0.0
     return rank_score + (coverage * 0.08) + source_bonus
+
+
+def _evidence_class_for_document(path: str, frontmatter: dict[str, object]) -> str:
+    if path.startswith("logs/sessions/"):
+        return "session"
+    if path.startswith("inbox/"):
+        return "inbox"
+    if path.startswith("archive/"):
+        return "archive"
+    status = str(frontmatter.get("status", "")).strip().lower()
+    if status == "raw":
+        return "raw"
+    source_kind = str(frontmatter.get("source_kind", "")).strip().lower()
+    if source_kind == "generated":
+        return "generated"
+    if frontmatter.get("canonical") is True or source_kind == "canonical":
+        return "canonical"
+    return "other"
 
 
 def _search_row_limit(req: SearchReq) -> int:
@@ -1286,3 +1337,11 @@ def _reorder_results(
             continue
         ordered.append(result)
     return ordered
+
+
+def _with_rank_scores(results: Sequence[SearchResult]) -> list[SearchResult]:
+    total = len(results)
+    return [
+        result.model_copy(update={"rank_score": _rank_normalized_score(position, total=total)})
+        for position, result in enumerate(results, start=1)
+    ]

@@ -23,6 +23,7 @@ HttpSearchMode = Literal["hybrid", "recall", "bm25", "vector", "exact"]
 SearchCorpus = Literal["durable", "sessions", "all"]
 MemoryMode = Literal["hybrid", "context", "tools"]
 WakeProfile = Literal["default", "casual", "coding", "writing", "privacy"]
+ActiveMemoryProfile = Literal["auto", "general", "coding", "writing", "privacy", "personal"]
 ResearchKind = Literal["report", "briefing", "wiki-note", "proposal"]
 ResearchCorpus = Literal["durable", "sessions", "all"]
 SessionStatus = Literal["active", "interrupted", "done"]
@@ -368,6 +369,7 @@ class DoryMemoryProvider(MemoryProvider):
                         budget_tokens=_as_optional_int(args.get("budget_tokens")),
                         cwd=_as_optional_string(args.get("cwd")),
                         timeout_ms=_as_optional_int(args.get("timeout_ms")),
+                        profile=_as_optional_active_memory_profile(args.get("profile")),
                         include_wake=_as_optional_bool(args.get("include_wake")),
                     ),
                     sort_keys=True,
@@ -768,6 +770,7 @@ class DoryMemoryProvider(MemoryProvider):
         budget_tokens: int | None = None,
         cwd: str | None = None,
         timeout_ms: int | None = None,
+        profile: ActiveMemoryProfile | None = None,
         include_wake: bool | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -776,6 +779,8 @@ class DoryMemoryProvider(MemoryProvider):
             "budget_tokens": budget_tokens if budget_tokens is not None else self.wake_budget_tokens,
             "include_wake": include_wake if include_wake is not None else self.active_memory_include_wake,
         }
+        if profile is not None:
+            payload["profile"] = profile
         if cwd is not None:
             payload["cwd"] = cwd
         if timeout_ms is not None:
@@ -1066,6 +1071,10 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     "prompt": {"type": "string"},
                     "agent": {"type": "string"},
                     "cwd": {"type": "string"},
+                    "profile": {
+                        "type": "string",
+                        "enum": ["auto", "general", "coding", "writing", "privacy", "personal"],
+                    },
                     "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 5000},
                     "budget_tokens": {"type": "integer", "minimum": 100, "maximum": 1200},
                     "include_wake": {"type": "boolean"},
@@ -1207,7 +1216,7 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                 "properties": {
                     "op": {"type": "string", "enum": ["neighbors", "backlinks", "lint"]},
                     "path": {"type": "string"},
-                    "direction": {"type": "string", "enum": ["out", "in"]},
+                    "direction": {"type": "string", "enum": ["out", "in", "both"]},
                     "depth": {"type": "integer"},
                 },
                 "required": ["op"],
@@ -1414,6 +1423,15 @@ def _as_optional_wake_profile(value: Any) -> WakeProfile | None:
     if string_value is None:
         return None
     if string_value in {"default", "casual", "coding", "writing", "privacy"}:
+        return string_value
+    return None
+
+
+def _as_optional_active_memory_profile(value: Any) -> ActiveMemoryProfile | None:
+    string_value = _as_optional_string(value)
+    if string_value is None:
+        return None
+    if string_value in {"auto", "general", "coding", "writing", "privacy", "personal"}:
         return string_value
     return None
 

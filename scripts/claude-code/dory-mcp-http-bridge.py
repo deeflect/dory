@@ -112,6 +112,11 @@ TOOLS = [
                 "prompt": {"type": "string"},
                 "agent": {"type": "string", "default": "claude-code"},
                 "cwd": {"type": "string"},
+                "profile": {
+                    "type": "string",
+                    "default": "auto",
+                    "enum": ["auto", "general", "coding", "writing", "privacy", "personal"],
+                },
                 "timeout_ms": {"type": "integer", "default": 1200, "minimum": 100, "maximum": 5000},
                 "budget_tokens": {"type": "integer", "default": 400, "minimum": 100, "maximum": 1200},
                 "include_wake": {"type": "boolean", "default": True},
@@ -141,7 +146,7 @@ TOOLS = [
             "properties": {
                 "op": {"type": "string", "enum": ["neighbors", "backlinks", "lint"]},
                 "path": {"type": "string"},
-                "direction": {"type": "string", "default": "out", "enum": ["out", "in"]},
+                "direction": {"type": "string", "default": "out", "enum": ["out", "in", "both"]},
                 "depth": {"type": "integer", "default": 1},
             },
             "required": ["op"],
@@ -347,6 +352,8 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> str:
             payload["timeout_ms"] = args["timeout_ms"]
         if "budget_tokens" in args:
             payload["budget_tokens"] = args["budget_tokens"]
+        if "profile" in args:
+            payload["profile"] = args["profile"]
         if "include_wake" in args:
             payload["include_wake"] = args["include_wake"]
         result = http_post("/v1/active-memory", payload)

@@ -79,6 +79,7 @@ def test_bridge_routes_active_memory(monkeypatch) -> None:
             "prompt": "what are we working on today",
             "agent": "claude-code",
             "budget_tokens": 300,
+            "profile": "coding",
             "include_wake": False,
         },
     )
@@ -88,6 +89,7 @@ def test_bridge_routes_active_memory(monkeypatch) -> None:
         "prompt": "what are we working on today",
         "agent": "claude-code",
         "budget_tokens": 300,
+        "profile": "coding",
         "include_wake": False,
     }
     assert "summary" in result

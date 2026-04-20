@@ -203,6 +203,14 @@ bash scripts/ops/install-dory.sh solo
 
 The shipper scans known harness stores, scrubs obvious noise and secrets, spools locally when offline, and sends session evidence to the host. Durable memory promotion happens later through dream/maintenance flows.
 
+To turn shipped session evidence into a daily digest:
+
+```bash
+uv run dory --corpus-root data/corpus --index-root .dory/index ops daily-digest-once
+```
+
+By default this writes yesterday's `digests/daily/YYYY-MM-DD.md`, skips sessions modified in the last 30 minutes, refuses to overwrite an existing digest, and reindexes only the written digest path. Use `--today`, `--date YYYY-MM-DD`, `--dry-run`, or `--overwrite` for manual runs.
+
 ## Browser wiki and Obsidian
 
 Generate the compiled wiki:
@@ -231,6 +239,7 @@ uv run dory search "what are we working on"
 uv run dory get core/active.md
 uv run dory memory-write "Ship the public eval suite." --subject dory --kind decision --dry-run --force-inbox
 uv run dory ops dream-once
+uv run dory ops daily-digest-once
 uv run dory ops maintain-once
 uv run dory ops eval-once
 ```

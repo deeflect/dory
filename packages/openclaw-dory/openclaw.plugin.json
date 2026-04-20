@@ -15,6 +15,10 @@
       "token": {
         "type": "string",
         "description": "Optional bearer token for Dory HTTP."
+      },
+      "tokenEnv": {
+        "type": "string",
+        "description": "Optional environment variable name containing the Dory bearer token."
       }
     },
     "required": [

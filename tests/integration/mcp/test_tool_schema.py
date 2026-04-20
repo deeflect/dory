@@ -42,6 +42,7 @@ def test_dory_active_memory_schema_exposes_include_wake_and_limits() -> None:
     props = active_tool["inputSchema"]["properties"]
 
     assert "include_wake" in props
+    assert props["profile"]["enum"] == ["auto", "general", "coding", "writing", "privacy", "personal"]
     assert props["budget_tokens"]["maximum"] == 1200
     assert props["timeout_ms"]["maximum"] == 5000
 
@@ -81,3 +82,10 @@ def test_dory_purge_schema_exposes_destructive_guards() -> None:
     assert props["dry_run"]["default"] is True
     assert "allow_canonical" in props
     assert "include_related_tombstone" in props
+
+
+def test_dory_link_schema_constrains_direction_values() -> None:
+    tools = build_tool_schemas()
+    link_tool = next(tool for tool in tools if tool["name"] == "dory_link")
+
+    assert link_tool["inputSchema"]["properties"]["direction"]["enum"] == ["out", "in", "both"]

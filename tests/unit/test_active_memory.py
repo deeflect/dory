@@ -245,6 +245,117 @@ def test_active_memory_filters_low_trust_durable_evidence(tmp_path: Path) -> Non
     assert "Stale project note." not in result.block
 
 
+def test_active_memory_coding_prompt_excludes_personal_wake_and_search_hits(tmp_path: Path) -> None:
+    class PersonalHeavySearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="core/user.md",
+                        snippet="Email placeholder@example.invalid and sensitive placeholder context.",
+                        score=0.99,
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="projects/dory/state.md",
+                        snippet="Dory agent integrations need active-memory hardening.",
+                        score=0.7,
+                        confidence="high",
+                    ),
+                ]
+            )
+
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("Dory is active.\n", encoding="utf-8")
+    (tmp_path / "core" / "env.md").write_text("Dory runs on the shared service.\n", encoding="utf-8")
+    (tmp_path / "core" / "defaults.md").write_text("Use Python and pytest.\n", encoding="utf-8")
+    (tmp_path / "core" / "user.md").write_text("Email placeholder@example.invalid.\n", encoding="utf-8")
+    (tmp_path / "core" / "soul.md").write_text("Voice details.\n", encoding="utf-8")
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=PersonalHeavySearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="Before answering a coding question about Dory agent integrations, retrieve only the memory that matters.",
+            agent="codex",
+            include_wake=True,
+        )
+    )
+
+    assert "projects/dory/state.md" in result.sources
+    assert "core/user.md" not in result.sources
+    assert "placeholder@example.invalid" not in result.block
+    assert "sensitive placeholder context" not in result.block
+    assert "Dory agent integrations need active-memory hardening." in result.block
+
+
+def test_active_memory_explicit_privacy_profile_overrides_prompt_heuristics(tmp_path: Path) -> None:
+    class MixedSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response(
+                    [
+                        _make_result(
+                            path="logs/sessions/codex/2026-04-20.md",
+                            snippet="Session detail that should not enter privacy profile memory.",
+                            score=0.9,
+                        )
+                    ]
+                )
+            return _make_response(
+                [
+                    _make_result(
+                        path="core/identity.md",
+                        snippet="Placeholder identifier context.",
+                        score=0.9,
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="core/defaults.md",
+                        snippet="Privacy requests should use boundary-only context.",
+                        score=0.7,
+                        confidence="high",
+                    ),
+                ]
+            )
+
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "user.md").write_text(
+        "## Privacy Boundaries\n- Keep placeholder identifiers private.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "core" / "identity.md").write_text("Email placeholder@example.invalid.\n", encoding="utf-8")
+    (tmp_path / "core" / "defaults.md").write_text("Use boundary-only context.\n", encoding="utf-8")
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=MixedSearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="coding integration question from a recent session",
+            agent="codex",
+            profile="privacy",
+            include_wake=True,
+        )
+    )
+
+    assert result.profile == "privacy"
+    assert "core/user.md" in result.sources
+    assert "core/identity.md" not in result.sources
+    assert "logs/sessions/codex/2026-04-20.md" not in result.sources
+    assert "## Durable evidence" not in result.block
+    assert result.summary.startswith("# Privacy Boundaries")
+    assert "placeholder@example.invalid" not in result.block
+    assert "Session detail" not in result.block
+
+
 def test_active_memory_uses_wiki_as_helper_not_durable_evidence(tmp_path: Path) -> None:
     class WikiHeavySearchEngine:
         def search(self, req: SearchReq):  # pragma: no cover - test stub
@@ -284,7 +395,7 @@ def test_active_memory_uses_wiki_as_helper_not_durable_evidence(tmp_path: Path) 
         )
     )
 
-    assert "wiki/hot.md" in result.sources
+    assert "wiki/hot.md" not in result.sources
     assert "projects/dory/state.md" in result.sources
     assert "Generated wiki cache should not be rendered" not in result.block
     assert "projects/dory/state.md" in result.block
@@ -374,8 +485,8 @@ def test_active_memory_reads_wiki_hot_and_index_first(tmp_path: Path) -> None:
         )
     )
 
-    assert "wiki/hot.md" in result.sources
-    assert "wiki/index.md" in result.sources
+    assert "wiki/hot.md" not in result.sources
+    assert "wiki/index.md" not in result.sources
     assert "## Active memory" in result.block
     assert "## Hot Cache" not in result.block
     assert "## Wiki Index" not in result.block

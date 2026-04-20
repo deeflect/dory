@@ -229,20 +229,20 @@ canonical: true
 source_kind: canonical
 ---
 
-Private boundaries: immigration details are private. Crypto specifics stay private.
+Private boundaries: sensitive category alpha is private. Sensitive category beta stays private.
 """,
         encoding="utf-8",
     )
-    (corpus_root / "knowledge" / "personal" / "immigration.md").write_text(
+    (corpus_root / "knowledge" / "personal" / "raw-sensitive-note.md").write_text(
         """---
-title: Immigration raw notes
+title: Raw sensitive notes
 type: knowledge
 status: active
 canonical: false
 source_kind: imported
 ---
 
-Raw immigration and crypto details. Use privacy boundaries before repeating.
+Raw sensitive category alpha and beta details. Use privacy boundaries before repeating.
 """,
         encoding="utf-8",
     )
@@ -250,10 +250,56 @@ Raw immigration and crypto details. Use privacy boundaries before repeating.
     reindex_corpus(corpus_root, index_root, fake_embedder)
     engine = SearchEngine(index_root, fake_embedder)
 
-    response = engine.search(SearchReq(query="private boundaries crypto immigration", mode="hybrid", k=5))
+    response = engine.search(SearchReq(query="private boundaries sensitive categories", mode="hybrid", k=5))
 
     assert response.results
     assert response.results[0].path == "core/user.md"
+    assert response.results[0].evidence_class == "canonical"
+
+
+def test_search_hybrid_prefers_canonical_over_raw_inbox_capture(tmp_path: Path, fake_embedder) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    (corpus_root / "core").mkdir(parents=True)
+    (corpus_root / "inbox").mkdir(parents=True)
+
+    (corpus_root / "core" / "env.md").write_text(
+        """---
+title: Environment
+type: core
+status: active
+canonical: true
+source_kind: canonical
+---
+
+Dory neutral deployment details are in the canonical environment page.
+""",
+        encoding="utf-8",
+    )
+    (corpus_root / "inbox" / "neutral-deployment.md").write_text(
+        """---
+title: Raw deployment capture
+type: capture
+status: raw
+canonical: false
+source_kind: imported
+---
+
+Dory neutral deployment details from a raw inbox capture.
+""",
+        encoding="utf-8",
+    )
+
+    reindex_corpus(corpus_root, index_root, fake_embedder)
+    engine = SearchEngine(index_root, fake_embedder)
+
+    response = engine.search(SearchReq(query="Dory neutral deployment details", mode="hybrid", k=5))
+
+    assert response.results
+    assert response.results[0].path == "core/env.md"
+    assert response.results[0].rank_score == 1.0
+    inbox_result = next(result for result in response.results if result.path == "inbox/neutral-deployment.md")
+    assert inbox_result.evidence_class == "inbox"
 
 
 def test_exact_search_returns_only_literal_matches_for_cleanup_markers(tmp_path: Path, fake_embedder) -> None:
@@ -337,6 +383,8 @@ def test_search_results_include_normalized_scores(tmp_path: Path) -> None:
     response = engine.search(SearchReq(query="Dory HomeServer", mode="vector", k=2))
 
     assert response.results[0].score_normalized == 1.0
+    assert response.results[0].rank_score == 1.0
+    assert response.results[0].evidence_class == "canonical"
     assert response.results[1].score_normalized == 0.0
 
 

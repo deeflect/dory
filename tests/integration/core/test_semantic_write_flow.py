@@ -159,9 +159,42 @@ def test_semantic_write_dry_run_reports_canonical_target_without_persisting(tmp_
     assert response.quarantined is False
     assert response.target_path == "projects/dory/state.md"
     assert response.message is not None
+    assert response.message.startswith("CANONICAL TARGET projects/dory/state.md")
     assert "semantic evidence would be sources/semantic/" in response.message
     assert project_path.read_text(encoding="utf-8") == before
     assert not (root / "sources").exists()
+
+
+def test_semantic_write_dry_run_large_canonical_target_still_reports_route(tmp_path: Path) -> None:
+    root = tmp_path / "corpus"
+    (root / "projects" / "dory").mkdir(parents=True)
+    project_path = root / "projects" / "dory" / "state.md"
+    project_path.write_text(
+        "---\ntitle: Dory\naliases:\n  - dory\n---\n# Dory\n\n## Current State\n\n"
+        + ("Existing canonical context.\n" * 700),
+        encoding="utf-8",
+    )
+    before = project_path.read_text(encoding="utf-8")
+
+    engine = SemanticWriteEngine(root)
+    response = engine.write(
+        MemoryWriteReq(
+            action="write",
+            kind="note",
+            subject="dory",
+            content="Tiny scratch note should preview the route.",
+            confidence="high",
+            dry_run=True,
+        )
+    )
+
+    assert response.resolved is True
+    assert response.result == "preview"
+    assert response.target_path == "projects/dory/state.md"
+    assert response.message is not None
+    assert response.message.startswith("CANONICAL TARGET projects/dory/state.md")
+    assert "rendered target exceeds preview write-size limit" in response.message
+    assert project_path.read_text(encoding="utf-8") == before
 
 
 def test_semantic_write_rejects_live_canonical_write_without_explicit_allow(tmp_path: Path) -> None:

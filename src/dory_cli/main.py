@@ -19,7 +19,7 @@ from dory_core.dreaming.extract import DistillationWriter, OpenRouterSessionDist
 from dory_core.dreaming.proposals import ProposalGenerator, list_proposals, load_proposal
 from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.embedding import EmbeddingConfigurationError, EmbeddingProviderError, build_runtime_embedder
-from dory_core.index.reindex import reindex_corpus
+from dory_core.index.reindex import reindex_corpus, reindex_paths
 from dory_core.link import LinkService
 from dory_core.llm.active_memory import build_active_memory_components
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
@@ -35,6 +35,7 @@ from dory_core.digest_mining import (
     mine_digest_file,
     mine_digest_tree,
 )
+from dory_core.digest_writer import DailyDigestWriter, OpenRouterDailyDigestGenerator, previous_day
 from dory_core.migration_batching import build_batches, format_batching_summary
 from dory_core.migration_core_seed import format_seed_summary, seed_core_from_root
 from dory_core.migration_entity_discovery import (
@@ -170,6 +171,7 @@ def active_memory(
     prompt: str = typer.Argument(...),
     agent: str = typer.Option("codex", "--agent"),
     cwd: str | None = typer.Option(None, "--cwd"),
+    profile: str = typer.Option("auto", "--profile"),
     include_wake: bool = typer.Option(True, "--include-wake/--no-include-wake"),
 ) -> None:
     config = _get_config(ctx)
@@ -178,6 +180,7 @@ def active_memory(
             prompt=prompt,
             agent=agent,
             cwd=cwd,
+            profile=profile,
             include_wake=include_wake,
         )
     )
@@ -997,6 +1000,56 @@ def ops_dream_once(
         min_session_age_seconds=min_age_minutes * 60,
     )
     typer.echo(serialize_result(result))
+
+
+@ops_app.command("daily-digest-once")
+def ops_daily_digest_once(
+    ctx: typer.Context,
+    digest_date: str | None = typer.Option(
+        None,
+        "--date",
+        help="Digest date as YYYY-MM-DD. Defaults to yesterday; pass --today for today's sessions.",
+    ),
+    today: bool = typer.Option(False, "--today", help="Digest today's sessions instead of yesterday."),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Replace an existing daily digest for the date."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Generate and print without writing."),
+    reindex: bool = typer.Option(True, "--reindex/--no-reindex", help="Reindex the written digest path."),
+    min_age_minutes: float = typer.Option(
+        30,
+        "--min-age-minutes",
+        min=0,
+        help="Skip session files modified more recently than this many minutes.",
+    ),
+    limit: int | None = typer.Option(None, "--limit", min=1, help="Process at most N sessions for the day."),
+) -> None:
+    config = _get_config(ctx)
+    settings = DorySettings()
+    client = _require_openrouter_client(settings, purpose="dream")
+    target_date = date.today().isoformat() if today else digest_date or previous_day()
+    result = DailyDigestWriter(
+        config.corpus_root,
+        OpenRouterDailyDigestGenerator(client=client),
+    ).write(
+        target_date=target_date,
+        overwrite=overwrite,
+        dry_run=dry_run,
+        min_session_age_seconds=min_age_minutes * 60,
+        limit=limit,
+    )
+    payload = asdict(result)
+    if result.written and reindex:
+        try:
+            reindex_result = reindex_paths(
+                config.corpus_root,
+                config.index_root,
+                build_runtime_embedder(),
+                [result.digest_path],
+            )
+        except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
+            _fail_with_runtime_error(str(err))
+        payload["reindex"] = asdict(reindex_result)
+        payload["reindexed"] = True
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
 
 
 @ops_app.command("maintain-once")
