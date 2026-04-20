@@ -150,6 +150,8 @@ The goal is practical: one memory layer for all agents, with enough structure to
 |---|---|
 | [Getting started](docs/getting-started.md) | Install, init, first wake |
 | [Agent integration](docs/agent-integration.md) | Wire up Claude, Codex, opencode, OpenClaw, Hermes |
+| [Contributing](CONTRIBUTING.md) | Development setup, validation, commit rules, PR rules |
+| [Agent guide](AGENTS.md) | Shared instructions for coding agents working in this repo |
 | [Codebase map](docs/current-state/README.md) | Where everything lives |
 | [Runtime & data flow](docs/current-state/runtime-and-data-flow.md) | How requests move through the system |
 | [Surfaces & integrations](docs/current-state/surfaces-and-integrations.md) | CLI, HTTP, MCP, providers |
@@ -157,6 +159,12 @@ The goal is practical: one memory layer for all agents, with enough structure to
 | [Ops runbook](references/runbook.md) | Day-to-day operation |
 | [Client runbook](references/client-runbook.md) | For agent integrators |
 | [Evals](eval/README.md) | Benchmarks and coverage |
+
+## Contributing
+
+Contributions are welcome, but the public repo has a hard privacy boundary. Use synthetic data in docs, tests, evals, examples, and fixtures. Do not commit private corpora, raw session logs, real personal memories, direct contact details, local absolute paths, private hostnames, tokens, or `.env` files.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR. The short version: use Conventional Commits, keep changes scoped, run the relevant `uv` checks, and run `scripts/release/check-public-safety.py` for public docs or artifacts.
 
 ## Useful entrypoints
 

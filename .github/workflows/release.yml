@@ -35,6 +35,13 @@ jobs:
         run: |
           python3 scripts/release/check-public-safety.py \
             --path README.md \
+            --path AGENTS.md \
+            --path CLAUDE.md \
+            --path CONTRIBUTING.md \
+            --path CODE_OF_CONDUCT.md \
+            --path SECURITY.md \
+            --path .github/pull_request_template.md \
+            --path .github/ISSUE_TEMPLATE \
             --path eval/README.md \
             --path eval/INDEX.md \
             --path eval/categories.md \
