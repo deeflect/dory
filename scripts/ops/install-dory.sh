@@ -48,43 +48,80 @@ write_env_line() {
 role=""
 repo_root="${DORY_REPO_ROOT:-}"
 
-install_client_service_if_available() {
-  local repo_root="$1"
-  local mode="${DORY_INSTALL_SERVICE:-auto}"
+account_home_for_current_user() {
+  local user
+
+  user="$(id -un 2>/dev/null || true)"
+  if [[ -z "$user" ]]; then
+    return 0
+  fi
+
+  eval "printf '%s\n' ~$user" 2>/dev/null || true
+}
+
+should_skip_service_for_mismatched_home() {
+  local mode="$1"
+  local helper="$2"
   local account_home
 
+  if [[ "$mode" != "auto" ]]; then
+    return 1
+  fi
+
+  account_home="$(account_home_for_current_user)"
+  if [[ -n "$account_home" && "$HOME" != "$account_home" ]]; then
+    printf 'Service install skipped: HOME does not match the account home for this user.\n'
+    printf 'Run %s manually from the target user account session.\n' "$helper"
+    return 0
+  fi
+
+  return 1
+}
+
+validate_service_mode() {
+  local mode="$1"
+
   case "$mode" in
-    false|False|0|no|No)
-      printf 'Service install skipped because DORY_INSTALL_SERVICE=%s\n' "$mode"
-      return 0
-      ;;
-    true|True|1|yes|Yes|auto)
+    false|False|0|no|No|true|True|1|yes|Yes|auto)
       ;;
     *)
       echo "Unsupported DORY_INSTALL_SERVICE value: $mode" >&2
       return 1
       ;;
   esac
+}
+
+service_install_disabled() {
+  local mode="$1"
+
+  case "$mode" in
+    false|False|0|no|No)
+      printf 'Service install skipped because DORY_INSTALL_SERVICE=%s\n' "$mode"
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+install_client_service_if_available() {
+  local repo_root="$1"
+  local mode="${DORY_INSTALL_SERVICE:-auto}"
+
+  validate_service_mode "$mode"
+  service_install_disabled "$mode" && return 0
 
   if command -v launchctl >/dev/null 2>&1; then
+    should_skip_service_for_mismatched_home "$mode" \
+      "$repo_root/scripts/ops/install-client-launchd.sh" && return 0
     bash "$repo_root/scripts/ops/install-client-launchd.sh" "$repo_root"
     return 0
   fi
 
   if command -v systemctl >/dev/null 2>&1; then
-    account_home="$(python3 - <<'PY'
-import os
-import pwd
-
-print(pwd.getpwuid(os.getuid()).pw_dir)
-PY
-)"
-    if [[ "$mode" == "auto" && -n "$account_home" && "$HOME" != "$account_home" ]]; then
-      printf 'Service install skipped: HOME does not match the account home for this user.\n'
-      printf 'Run %s manually from the target user account session.\n' \
-        "$repo_root/scripts/ops/install-client-systemd.sh"
-      return 0
-    fi
+    should_skip_service_for_mismatched_home "$mode" \
+      "$repo_root/scripts/ops/install-client-systemd.sh" && return 0
 
     if [[ -n "${XDG_RUNTIME_DIR:-}" ]] && systemctl --user show-environment >/dev/null 2>&1; then
       bash "$repo_root/scripts/ops/install-client-systemd.sh" "$repo_root"
@@ -99,6 +136,20 @@ PY
     printf 'Service install skipped: systemd user manager is not available in this shell.\n'
     printf 'Run %s manually after logging into a systemd user session.\n' \
       "$repo_root/scripts/ops/install-client-systemd.sh"
+  fi
+}
+
+install_ops_service_if_available() {
+  local repo_root="$1"
+  local mode="${DORY_INSTALL_SERVICE:-auto}"
+
+  validate_service_mode "$mode"
+  service_install_disabled "$mode" && return 0
+
+  if command -v launchctl >/dev/null 2>&1; then
+    should_skip_service_for_mismatched_home "$mode" \
+      "$repo_root/scripts/ops/install-ops-launchd.sh" && return 0
+    bash "$repo_root/scripts/ops/install-ops-launchd.sh" "$repo_root"
   fi
 }
 
@@ -122,9 +173,7 @@ install_host() {
     write_env_line DORY_AUTH_TOKENS_PATH "$auth_tokens_path"
   } > "$env_file"
 
-  if command -v launchctl >/dev/null 2>&1; then
-    bash "$repo_root/scripts/ops/install-ops-launchd.sh" "$repo_root"
-  fi
+  install_ops_service_if_available "$repo_root"
 
   printf 'Host configuration written to %s\n' "$env_file"
   printf 'Host server command:\n'
@@ -233,9 +282,7 @@ install_solo() {
     write_env_line DORY_CLIENT_HARNESSES "$harnesses"
   } > "$client_env"
 
-  if command -v launchctl >/dev/null 2>&1; then
-    bash "$repo_root/scripts/ops/install-ops-launchd.sh" "$repo_root"
-  fi
+  install_ops_service_if_available "$repo_root"
   install_client_service_if_available "$repo_root"
 
   if [[ " $harnesses " == *" claude "* ]] && command -v claude >/dev/null 2>&1; then
