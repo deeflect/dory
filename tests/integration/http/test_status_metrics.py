@@ -28,7 +28,13 @@ def test_status_and_metrics_routes(
     metrics = client.get("/metrics")
 
     assert status.status_code == 200
-    assert status.json()["files_indexed"] == 7
+    payload = status.json()
+    assert payload["files_indexed"] == 7
+    assert payload["embedding_provider"] in {"gemini", "local"}
+    assert payload["embedding_model"]
+    assert payload["embedding_dimensions"] > 0
+    assert "query_reranker_enabled" in payload
+    assert "query_reranker_model" in payload
     assert health.status_code == 200
     assert health.json() == {"ok": True}
     assert metrics.status_code == 200

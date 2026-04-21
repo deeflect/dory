@@ -5,6 +5,7 @@ from dory_core.session_shipper import (
     SessionShipper,
     SessionSpool,
     SessionTransportResponse,
+    build_default_shipper,
 )
 
 
@@ -173,3 +174,13 @@ def test_pending_paths_ignores_checkpoint_file(tmp_path: Path) -> None:
 
     assert checkpoint not in pending
     assert pending == (job_path,)
+
+
+def test_default_shipper_accepts_custom_timeout(tmp_path: Path) -> None:
+    shipper = build_default_shipper(
+        base_url="http://dory.local",
+        spool_root=tmp_path / "spool",
+        timeout_seconds=2.5,
+    )
+
+    assert shipper.timeout_seconds == 2.5

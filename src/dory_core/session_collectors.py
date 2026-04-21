@@ -5,9 +5,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 import json
-import os
 import sqlite3
 
+from dory_core.config import DorySettings
 from dory_core.session_capture import SessionCapture
 
 
@@ -325,7 +325,9 @@ def build_collectors(
     openclaw_agents_root: Path | None = None,
     hermes_sessions_root: Path | None = None,
     hermes_state_db_path: Path | None = None,
+    settings: DorySettings | None = None,
 ) -> tuple[SessionCollector, ...]:
+    resolved_settings = settings or DorySettings()
     collectors: list[SessionCollector] = []
     for harness in harnesses:
         match harness:
@@ -333,22 +335,28 @@ def build_collectors(
                 collectors.append(
                     ClaudeProjectsCollector(
                         root=claude_projects_root
-                        or _env_path("DORY_CLAUDE_PROJECTS_ROOT", Path.home() / ".claude" / "projects")
+                        or _settings_path(
+                            resolved_settings.claude_projects_root,
+                            Path.home() / ".claude" / "projects",
+                        )
                     )
                 )
             case "codex":
                 collectors.append(
                     CodexSessionsCollector(
                         root=codex_sessions_root
-                        or _env_path("DORY_CODEX_SESSIONS_ROOT", Path.home() / ".codex" / "sessions")
+                        or _settings_path(
+                            resolved_settings.codex_sessions_root,
+                            Path.home() / ".codex" / "sessions",
+                        )
                     )
                 )
             case "opencode":
                 collectors.append(
                     OpenCodeCollector(
                         db_path=opencode_db_path
-                        or _env_path(
-                            "DORY_OPENCODE_DB_PATH",
+                        or _settings_path(
+                            resolved_settings.opencode_db_path,
                             Path.home() / ".local" / "share" / "opencode" / "opencode.db",
                         )
                     )
@@ -357,10 +365,9 @@ def build_collectors(
                 collectors.append(
                     OpenClawSessionsCollector(
                         root=openclaw_agents_root
-                        or Path(
-                            os.environ.get("DORY_OPENCLAW_AGENTS_ROOT")
-                            or os.environ.get("DORY_OPENCLAW_SESSIONS_ROOT")
-                            or (Path.home() / ".openclaw" / "agents")
+                        or _settings_path(
+                            resolved_settings.openclaw_agents_root,
+                            Path.home() / ".openclaw" / "agents",
                         )
                     )
                 )
@@ -368,9 +375,15 @@ def build_collectors(
                 collectors.append(
                     HermesSessionsCollector(
                         root=hermes_sessions_root
-                        or _env_path("DORY_HERMES_SESSIONS_ROOT", Path.home() / ".hermes" / "sessions"),
+                        or _settings_path(
+                            resolved_settings.hermes_sessions_root,
+                            Path.home() / ".hermes" / "sessions",
+                        ),
                         state_db_path=hermes_state_db_path
-                        or _env_path("DORY_HERMES_STATE_DB_PATH", Path.home() / ".hermes" / "state.db"),
+                        or _settings_path(
+                            resolved_settings.hermes_state_db_path,
+                            Path.home() / ".hermes" / "state.db",
+                        ),
                     )
                 )
             case _:
@@ -378,8 +391,7 @@ def build_collectors(
     return tuple(collectors)
 
 
-def _env_path(name: str, default: Path) -> Path:
-    value = os.environ.get(name)
+def _settings_path(value: str | None, default: Path) -> Path:
     return Path(value) if value else default
 
 

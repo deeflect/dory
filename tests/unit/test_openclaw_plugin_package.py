@@ -47,3 +47,11 @@ def test_openclaw_plugin_source_exports_sdk_registration_contract() -> None:
     assert "allow_canonical" in source
     assert "flushPlanResolver:" in source
     assert 'relativePath: "openclaw/compaction-flush.md"' in source
+
+
+def test_openclaw_plugin_does_not_request_search_debug_by_default() -> None:
+    source = Path("packages/openclaw-dory/src/index.ts").read_text(encoding="utf-8")
+
+    assert "debug: opts?.debug ?? false" in source
+    assert "debug: opts?.debug ?? true" not in source
+    assert "delete cleaned._doryOrder" in source

@@ -13,7 +13,16 @@ from dory_core.retrieval_planner import (
     ActiveMemoryRetrievalPlan,
     fallback_active_memory_plan,
 )
-from dory_core.types import ActiveMemoryReq, ActiveMemoryResp, SearchCorpus, SearchMode, SearchReq, WakeReq, WakeResp
+from dory_core.types import (
+    ActiveMemoryReq,
+    ActiveMemoryResp,
+    SearchCorpus,
+    SearchMode,
+    SearchReq,
+    SearchResp,
+    WakeReq,
+    WakeResp,
+)
 
 _COMPOSER_SNIPPET_CHARS = 360
 _SESSION_COMPOSER_SNIPPET_CHARS = 180
@@ -100,7 +109,7 @@ class _WakeBuilder(Protocol):
 
 
 class _SearchEngine(Protocol):
-    def search(self, req: SearchReq): ...
+    def search(self, req: SearchReq) -> SearchResp: ...
 
 
 @dataclass(slots=True)
@@ -112,6 +121,7 @@ class ActiveMemoryEngine:
     composer: ActiveMemoryComposer | None = None
 
     def build(self, req: ActiveMemoryReq) -> ActiveMemoryResp:
+        started = monotonic()
         deadline = _Deadline.from_timeout_ms(req.timeout_ms)
         source_policy = _source_policy_for_request(req)
         helper = _load_wiki_helper_context(self.root) if source_policy.use_helper_context else _empty_wiki_helper_context()
@@ -207,6 +217,7 @@ class ActiveMemoryEngine:
             kind="memory" if block else "none",
             block=block,
             summary=summary,
+            took_ms=max(1, int((monotonic() - started) * 1000)),
             profile=source_policy.profile,
             confidence=confidence,
             sources=sources,
@@ -931,11 +942,14 @@ def _truncate_text(text: str, limit: int) -> str:
 
 def _result_evidence_text(result: object, *, root: Path | None) -> str:
     path = _result_path(result)
+    snippet = _safe_evidence_text(_result_snippet(result))
     if root is not None and path:
         excerpt = _canonical_file_excerpt(root, path)
         if excerpt:
+            if snippet and snippet.casefold() not in excerpt.casefold():
+                return _truncate_text(f"{snippet} {excerpt}", _COMPOSER_SNIPPET_CHARS)
             return excerpt
-    return _safe_evidence_text(_result_snippet(result))
+    return snippet
 
 
 def _canonical_file_excerpt(root: Path, rel_path: str) -> str:

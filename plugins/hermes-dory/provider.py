@@ -21,6 +21,7 @@ except ImportError:
 SearchMode = Literal["hybrid", "lexical", "text", "keyword", "semantic", "recall", "bm25", "vector", "exact"]
 HttpSearchMode = Literal["hybrid", "recall", "bm25", "vector", "exact"]
 SearchCorpus = Literal["durable", "sessions", "all"]
+RerankMode = Literal["auto", "true", "false"]
 MemoryMode = Literal["hybrid", "context", "tools"]
 WakeProfile = Literal["default", "casual", "coding", "writing", "privacy"]
 ActiveMemoryProfile = Literal["auto", "general", "coding", "writing", "privacy", "personal"]
@@ -380,6 +381,7 @@ class DoryMemoryProvider(MemoryProvider):
                         timeout_ms=_as_optional_int(args.get("timeout_ms")),
                         profile=_as_optional_active_memory_profile(args.get("profile")),
                         include_wake=_as_optional_bool(args.get("include_wake")),
+                        rerank=_as_optional_rerank_mode(args.get("rerank")),
                     ),
                     sort_keys=True,
                 )
@@ -420,6 +422,8 @@ class DoryMemoryProvider(MemoryProvider):
                         scope=_as_optional_mapping(args.get("scope")),
                         include_content=_as_optional_bool(args.get("include_content")),
                         min_score=_as_optional_float(args.get("min_score")),
+                        rerank=_as_optional_rerank_mode(args.get("rerank")),
+                        debug=_as_optional_bool(args.get("debug")),
                     ),
                     sort_keys=True,
                 )
@@ -647,6 +651,8 @@ class DoryMemoryProvider(MemoryProvider):
         scope: dict[str, Any] | None = None,
         include_content: bool | None = None,
         min_score: float | None = None,
+        rerank: str | None = None,
+        debug: bool | None = None,
     ) -> dict[str, Any]:
         normalized_mode = _normalize_search_mode(mode or self.search_mode)
         payload: dict[str, Any] = {
@@ -662,6 +668,10 @@ class DoryMemoryProvider(MemoryProvider):
             payload["include_content"] = include_content
         if min_score is not None:
             payload["min_score"] = min_score
+        if rerank is not None:
+            payload["rerank"] = rerank
+        if debug is not None:
+            payload["debug"] = debug
         return self._request("POST", "/v1/search", json=payload)
 
     def get(self, path: str, *, from_line: int = 1, lines: int | None = None) -> dict[str, Any]:
@@ -842,6 +852,7 @@ class DoryMemoryProvider(MemoryProvider):
         timeout_ms: int | None = None,
         profile: ActiveMemoryProfile | None = None,
         include_wake: bool | None = None,
+        rerank: RerankMode | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "prompt": prompt,
@@ -855,6 +866,8 @@ class DoryMemoryProvider(MemoryProvider):
             payload["cwd"] = cwd
         if timeout_ms is not None:
             payload["timeout_ms"] = timeout_ms
+        if rerank is not None:
+            payload["rerank"] = rerank
         return self._request("POST", "/v1/active-memory", json=payload)
 
     def prefetch_bundle(
@@ -1156,6 +1169,7 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 5000},
                     "budget_tokens": {"type": "integer", "minimum": 100, "maximum": 1200},
                     "include_wake": {"type": "boolean"},
+                    "rerank": {"type": "string", "enum": ["auto", "true", "false"]},
                 },
                 "required": ["prompt"],
             },
@@ -1229,6 +1243,8 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     },
                     "include_content": {"type": "boolean"},
                     "min_score": {"type": "number"},
+                    "rerank": {"type": "string", "enum": ["auto", "true", "false"]},
+                    "debug": {"type": "boolean"},
                 },
                 "required": ["query"],
             },
@@ -1576,6 +1592,15 @@ def _as_optional_search_mode(value: Any) -> SearchMode | None:
     if string_value is None:
         return None
     if string_value in {"hybrid", "lexical", "text", "keyword", "semantic", "recall", "bm25", "vector", "exact"}:
+        return string_value
+    return None
+
+
+def _as_optional_rerank_mode(value: Any) -> RerankMode | None:
+    string_value = _as_optional_string(value)
+    if string_value is None:
+        return None
+    if string_value in {"auto", "true", "false"}:
         return string_value
     return None
 

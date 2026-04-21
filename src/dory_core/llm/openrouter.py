@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from dataclasses import dataclass
 from functools import lru_cache
@@ -182,9 +181,10 @@ def resolve_openrouter_model_pricing(
     *,
     purpose: OpenRouterPurpose = "default",
 ) -> OpenRouterModelPricing | None:
-    del settings, purpose
-    input_rate = _env_float("DORY_OPENROUTER_INPUT_PRICE_PER_MILLION")
-    output_rate = _env_float("DORY_OPENROUTER_OUTPUT_PRICE_PER_MILLION")
+    del purpose
+    resolved = settings or DorySettings()
+    input_rate = resolved.openrouter_input_price_per_million
+    output_rate = resolved.openrouter_output_price_per_million
     if input_rate is None or output_rate is None:
         return None
     return OpenRouterModelPricing(
@@ -333,16 +333,6 @@ def _format_error_response(response: httpx.Response) -> str:
 
     detail = detail or "unknown provider error"
     return f"OpenRouter request failed ({response.status_code}): {detail}"
-
-
-def _env_float(name: str) -> float | None:
-    raw = os.getenv(name)
-    if raw is None:
-        return None
-    try:
-        return float(raw)
-    except ValueError:
-        return None
 
 
 def _per_token_price(value: object) -> float | None:

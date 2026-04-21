@@ -167,6 +167,25 @@ def test_hermes_provider_normalizes_legacy_search_modes_before_http_request() ->
     provider.search("unique marker", mode="exact")
     assert captured["json"] == {"query": "unique marker", "k": 8, "mode": "exact"}
 
+    provider.search("benchmark query", rerank="false", debug=True)
+    assert captured["json"] == {
+        "query": "benchmark query",
+        "k": 8,
+        "mode": "vector",
+        "rerank": "false",
+        "debug": True,
+    }
+
+    provider.active_memory("benchmark active memory", include_wake=False, rerank="true")
+    assert captured["path"] == "/v1/active-memory"
+    assert captured["json"] == {
+        "prompt": "benchmark active memory",
+        "agent": "hermes",
+        "budget_tokens": 600,
+        "include_wake": False,
+        "rerank": "true",
+    }
+
 
 def test_hermes_provider_accepts_api_native_search_modes() -> None:
     module = _load_provider_module()
@@ -191,8 +210,15 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     assert schemas["dory_search"]["parameters"]["properties"]["corpus"]["enum"] == ["durable", "sessions", "all"]
     assert "scope" in schemas["dory_search"]["parameters"]["properties"]
     assert "include_content" in schemas["dory_search"]["parameters"]["properties"]
+    assert schemas["dory_search"]["parameters"]["properties"]["rerank"]["enum"] == ["auto", "true", "false"]
+    assert "debug" in schemas["dory_search"]["parameters"]["properties"]
     assert "profile" in schemas["dory_wake"]["parameters"]["properties"]
     assert "include_wake" in schemas["dory_active_memory"]["parameters"]["properties"]
+    assert schemas["dory_active_memory"]["parameters"]["properties"]["rerank"]["enum"] == [
+        "auto",
+        "true",
+        "false",
+    ]
     assert schemas["dory_active_memory"]["parameters"]["properties"]["profile"]["enum"] == [
         "auto",
         "general",

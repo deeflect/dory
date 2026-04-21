@@ -121,7 +121,7 @@ The corpus, index, auth tokens, public URL, and model provider keys are environm
 
 - **Language** — Python (uv + pyproject)
 - **Storage** — Markdown source of truth · SQLite (FTS5, graph edges, embedding cache, chunk vectors, session evidence)
-- **Embeddings** — Gemini Embedding 2 (Matryoshka 768); required for the HTTP/MCP/search/write runtime today
+- **Embeddings** — Gemini by default, or an OpenAI-compatible local/LAN embedding endpoint with `DORY_EMBEDDING_PROVIDER=local`
 - **Dreaming & maintenance LLM** — Gemini 3.1 Flash via OpenRouter
 - **Active-memory LLM** — optional · OpenRouter or any OpenAI-compatible local/LAN endpoint (Ollama, LM Studio, vLLM). The runtime default is OpenRouter when configured; `.env.example` sets it to `off` for deterministic retrieval-only installs
 - **Auth** — bearer tokens via `.dory/auth-tokens.json`; `DORY_ALLOW_NO_AUTH=true` for local dev only
@@ -181,7 +181,7 @@ uv run dory memory-write "..." --subject x --kind decision
 uv run dory research "What are we working on?" --kind report
 ```
 
-Set `DORY_GEMINI_API_KEY` or `GOOGLE_API_KEY` before starting HTTP/MCP or any command that embeds, searches, writes semantic memory, reindexes, or runs evals. LLM query planning, expansion, and reranking are opt-in via `DORY_QUERY_PLANNER_ENABLED`, `DORY_QUERY_EXPANSION_ENABLED`, `DORY_QUERY_RERANKER_ENABLED`.
+Set `DORY_GEMINI_API_KEY` or `GOOGLE_API_KEY` before starting HTTP/MCP or any command that embeds, searches, writes semantic memory, reindexes, or runs evals with the default Gemini provider. To use an OpenAI-compatible local/LAN embedding endpoint instead, set `DORY_EMBEDDING_PROVIDER=local` with `DORY_LOCAL_EMBEDDING_*`. Local query embeddings use `DORY_LOCAL_EMBEDDING_QUERY_INSTRUCTION` for Qwen-style retrieval prompts; set it blank to disable. LLM query planning, expansion, and reranking are opt-in via `DORY_QUERY_PLANNER_ENABLED`, `DORY_QUERY_EXPANSION_ENABLED`, `DORY_QUERY_RERANKER_ENABLED`; local reranking uses `DORY_QUERY_RERANKER_PROVIDER=local` and `DORY_LOCAL_RERANKER_*`. `DORY_QUERY_RERANKER_CANDIDATE_LIMIT` caps how many candidates are sent to the reranker per search.
 
 </details>
 

@@ -147,6 +147,7 @@ def run_eval(
             embedder,
             query_expander=query_expander,
             reranker=build_reranker(settings),
+            rerank_candidate_limit=settings.query_reranker_candidate_limit,
         )
         wake_builder = WakeBuilder(paths.corpus_root)
         wake_result = wake_builder.build(

@@ -81,6 +81,7 @@ def test_bridge_routes_active_memory(monkeypatch) -> None:
             "budget_tokens": 300,
             "profile": "coding",
             "include_wake": False,
+            "rerank": "false",
         },
     )
 
@@ -91,8 +92,73 @@ def test_bridge_routes_active_memory(monkeypatch) -> None:
         "budget_tokens": 300,
         "profile": "coding",
         "include_wake": False,
+        "rerank": "false",
     }
     assert "summary" in result
+
+
+def test_bridge_syncs_local_sessions_before_wake(monkeypatch) -> None:
+    bridge = _load_bridge_module()
+    captured: dict[str, object] = {}
+
+    def fake_http_post(endpoint: str, body=None):
+        captured["endpoint"] = endpoint
+        captured["body"] = body
+        return {
+            "profile": "coding",
+            "sources": ["logs/sessions/codex/mac/2026-04-20-s1.md"],
+        }
+
+    monkeypatch.setattr(bridge, "http_post", fake_http_post)
+    monkeypatch.setattr(
+        bridge,
+        "sync_sessions_before_wake",
+        lambda: {"ok": True, "captures": 1, "queued": 1, "sent": 1, "failed": 0},
+    )
+
+    result = bridge.handle_tool_call(
+        "dory_wake",
+        {
+            "budget_tokens": 900,
+            "agent": "claude-code",
+            "profile": "coding",
+            "include_recent_sessions": 1,
+        },
+    )
+
+    assert captured["endpoint"] == "/v1/wake"
+    assert captured["body"] == {
+        "budget_tokens": 900,
+        "agent": "claude-code",
+        "profile": "coding",
+        "include_recent_sessions": 1,
+        "include_pinned_decisions": True,
+    }
+    assert '"session_sync"' in result
+    assert '"sent": 1' in result
+
+
+def test_bridge_session_sync_can_be_disabled(monkeypatch) -> None:
+    bridge = _load_bridge_module()
+    monkeypatch.setenv("DORY_SYNC_SESSIONS_ON_WAKE", "false")
+
+    assert bridge.sync_sessions_before_wake() is None
+
+
+def test_bridge_loads_shell_escaped_client_env(tmp_path: Path, monkeypatch) -> None:
+    bridge = _load_bridge_module()
+    env_path = tmp_path / "client.env"
+    env_path.write_text(
+        "DORY_CLIENT_SPOOL_ROOT=/tmp/dory\\ spool\n"
+        "DORY_CLIENT_HARNESSES=codex\\ claude\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bridge, "CLIENT_ENV_PATH", env_path)
+
+    env = bridge._session_sync_env()
+
+    assert env["DORY_CLIENT_SPOOL_ROOT"] == "/tmp/dory spool"
+    assert env["DORY_CLIENT_HARNESSES"] == "codex claude"
 
 
 def test_bridge_routes_search_with_corpus(monkeypatch) -> None:
@@ -116,6 +182,8 @@ def test_bridge_routes_search_with_corpus(monkeypatch) -> None:
             "scope": {"type": ["log"], "status": ["active"]},
             "include_content": False,
             "min_score": 0.2,
+            "rerank": "true",
+            "debug": True,
         },
     )
 
@@ -128,6 +196,8 @@ def test_bridge_routes_search_with_corpus(monkeypatch) -> None:
         "scope": {"type": ["log"], "status": ["active"]},
         "include_content": False,
         "min_score": 0.2,
+        "rerank": "true",
+        "debug": True,
     }
     assert "results" in result
 

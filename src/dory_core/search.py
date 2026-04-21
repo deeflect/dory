@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import time
@@ -9,6 +10,7 @@ from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from difflib import SequenceMatcher
 from fnmatch import fnmatch
+from heapq import nsmallest
 from pathlib import Path
 from typing import Sequence
 
@@ -23,6 +25,7 @@ from dory_core.schema import TIMELINE_MARKER
 from dory_core.session_plane import SessionEvidencePlane, SessionSearchQuery
 from dory_core.types import SearchMode, SearchReq, SearchResp, SearchResult, SearchScope
 
+_logger = logging.getLogger(__name__)
 _FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 _FTS_SEGMENT_RE = re.compile(r"[A-Za-z0-9]+(?:[./@_-][A-Za-z0-9]+)+")
 _FTS_QUOTED_SEGMENT_RE = re.compile(r"`([^`]+)`")
@@ -217,6 +220,7 @@ class SearchEngine:
         retrieval_planner: SearchQueryPlanner | None = None,
         result_selector: SearchResultSelector | None = None,
         reranker: LLMReranker | None = None,
+        rerank_candidate_limit: int = 40,
     ) -> None:
         self.index_root = Path(index_root)
         self.embedder = embedder
@@ -225,6 +229,7 @@ class SearchEngine:
         self.retrieval_planner = retrieval_planner
         self.result_selector = result_selector
         self.reranker = reranker
+        self.rerank_candidate_limit = max(2, rerank_candidate_limit)
         self.db_path = self.index_root / "dory.db"
         self.vector_store = SqliteVectorStore(
             self.index_root / "dory.db",
@@ -325,6 +330,7 @@ class SearchEngine:
         try:
             result = self.reranker.rerank(query=query, candidates=candidates)
         except Exception:
+            _logger.exception("rerank call failed; falling back to base hybrid ranking")
             self._warnings.append("Rerank failed; kept the base hybrid ranking.")
             return rows
         if result is None:
@@ -339,6 +345,17 @@ class SearchEngine:
                 continue
             reranked.append(replace(row, score=result.scores.get(chunk_id, row.score)))
         return reranked
+
+    def _rerank_limited(self, rows: list[_ChunkRow], query: str) -> list[_ChunkRow]:
+        if len(rows) <= self.rerank_candidate_limit:
+            return self._rerank(rows, query)
+        self._warnings.append(
+            f"Rerank considered the top {self.rerank_candidate_limit} candidates and kept the remaining base order."
+        )
+        return [
+            *self._rerank(rows[: self.rerank_candidate_limit], query),
+            *rows[self.rerank_candidate_limit :],
+        ]
 
     def _search_durable(
         self,
@@ -362,7 +379,11 @@ class SearchEngine:
             raise ValueError(f"unsupported search mode: {mode}")
 
         if rerank_enabled:
-            rows = self._rerank(rows, req.query)
+            if self.reranker is None:
+                if req.rerank == "true":
+                    self._warnings.append("Rerank requested but no reranker backend is configured.")
+            else:
+                rows = self._rerank_limited(rows, req.query)
 
         scope_has_filters = _scope_has_filters(req.scope)
         filtered_rows = []
@@ -397,7 +418,7 @@ class SearchEngine:
                     score_normalized=rank_score,
                     rank_score=rank_score,
                     evidence_class=_evidence_class_for_document(row.path, frontmatter),
-                    snippet=self._make_snippet(row.content, req.include_content),
+                    snippet=self._make_snippet(row.content, req.include_content, req.query),
                     frontmatter=frontmatter,
                     stale_warning=_build_stale_warning(row.content, frontmatter),
                     confidence=_confidence_for_row(
@@ -512,17 +533,18 @@ class SearchEngine:
             query_vector = self.embedder.embed_query(query)
         else:
             query_vector = self.embedder.embed([query])[0]
-        vector_rows = self.vector_store.all()
-        ranking = sorted(
-            vector_rows,
-            key=lambda record: (
-                -_cosine_similarity(query_vector, record.vector),
-                record.chunk_id,
-            ),
+        scored_rows = (
+            (record.chunk_id, _cosine_similarity(query_vector, record.vector))
+            for record in self.vector_store.all()
+        )
+        ranking = nsmallest(
+            limit,
+            scored_rows,
+            key=lambda item: (-item[1], item[0]),
         )
         return self._rows_for_chunk_ids(
-            [record.chunk_id for record in ranking[:limit]],
-            score_map={record.chunk_id: _cosine_similarity(query_vector, record.vector) for record in ranking[:limit]},
+            [chunk_id for chunk_id, _score in ranking],
+            score_map=dict(ranking),
         )
 
     def _hybrid(
@@ -587,6 +609,7 @@ class SearchEngine:
         try:
             return self.retrieval_planner.plan_search(query=req.query, corpus=req.corpus)
         except Exception:
+            _logger.exception("retrieval planner failed; falling back to deterministic query planning")
             self._warnings.append("Retrieval planning failed; search used deterministic query planning.")
             return None
 
@@ -612,6 +635,7 @@ class SearchEngine:
                 candidates=candidates,
             )
         except Exception:
+            _logger.exception("result selector failed; keeping deterministic ranking")
             self._warnings.append("Result selection failed; search kept deterministic ranking.")
             return SearchResp(
                 query=response.query,
@@ -635,7 +659,7 @@ class SearchEngine:
         try:
             expanded = self.query_expander.expand(query)
         except Exception:
-            # Expansion is optional; keep the deterministic search path available.
+            _logger.exception("query expander failed; using base query only")
             self._warnings.append("Query expansion failed; search used the base query only.")
             return [query]
         deduped = [query]
@@ -720,10 +744,13 @@ class SearchEngine:
         return [indexed[chunk_id] for chunk_id in chunk_ids if chunk_id in indexed]
 
     @staticmethod
-    def _make_snippet(content: str, include_content: bool) -> str:
+    def _make_snippet(content: str, include_content: bool, query: str = "") -> str:
         body = _searchable_body(content)
         if not body:
             return ""
+        focused = _focused_snippet(body, query=query, limit=700 if include_content else 240)
+        if focused:
+            return focused
         if include_content:
             return body[:700]
         first_line = next(
@@ -813,6 +840,7 @@ class SearchEngine:
         include_session_tail: bool = False,
     ) -> SearchResp:
         query_profile = _build_query_profile(query)
+        wants_sessions = _query_requests_session_evidence(query_profile)
         scored_results: dict[str, tuple[float, SearchResult]] = {}
 
         for position, result in enumerate(durable.results, start=1):
@@ -822,6 +850,8 @@ class SearchEngine:
                 scored_results[result.path] = (score, result)
 
         for position, result in enumerate(session.results, start=1):
+            if _is_live_session_result(result) and not wants_sessions:
+                continue
             score = _merge_result_score(result, position=position, query_profile=query_profile, source="session")
             existing = scored_results.get(result.path)
             if existing is None or score > existing[0]:
@@ -830,7 +860,6 @@ class SearchEngine:
         ordered = sorted(scored_results.values(), key=lambda item: (-item[0], item[1].path))
         merged = [result for _score, result in ordered[:limit]]
 
-        wants_sessions = _query_requests_session_evidence(query_profile)
         if session.results and (wants_sessions or include_session_tail) and not any(
             result.path.startswith("logs/sessions/") for result in merged
         ):
@@ -1219,6 +1248,25 @@ def _searchable_body(content: str) -> str:
         return content.strip()
 
 
+def _focused_snippet(body: str, *, query: str, limit: int) -> str:
+    query_profile = _build_query_profile(query)
+    if not query_profile.tokens:
+        return ""
+    query_tokens = set(query_profile.tokens)
+    lines = [line.strip() for line in body.splitlines()]
+    content_lines = [line for line in lines if line and not line.startswith("#")]
+    if not content_lines:
+        return ""
+    for index, line in enumerate(content_lines):
+        line_tokens = set(_extract_normalized_tokens(line))
+        if not (query_tokens & line_tokens):
+            continue
+        start = max(0, index - 1)
+        end = min(len(content_lines), index + 3)
+        return " ".join(" ".join(content_lines[start:end]).split())[:limit]
+    return ""
+
+
 def _rerank_candidate_from_row(row: _ChunkRow) -> RerankCandidate:
     frontmatter = _load_frontmatter(row.frontmatter_json)
     hints: dict[str, str] = {}
@@ -1260,7 +1308,9 @@ def _merge_source_prior(result: SearchResult, *, query_profile: QueryProfile, so
     tokens = set(query_profile.tokens)
 
     if source == "session" or path.startswith("logs/sessions/") or evidence_class == "session":
-        return 0.015 if wants_sessions else -0.09
+        if wants_sessions:
+            return 0.015
+        return -0.18 if _is_live_session_result(result) else -0.09
 
     score = 0.0
     if is_canonical:
@@ -1293,7 +1343,12 @@ def _merge_source_prior(result: SearchResult, *, query_profile: QueryProfile, so
 
 def _query_requests_session_evidence(query_profile: QueryProfile) -> bool:
     tokens = set(query_profile.tokens)
-    return query_profile.has_temporal_hint or bool(tokens & _SESSION_QUERY_TOKENS)
+    return query_profile.has_temporal_hint or bool(tokens & (_SESSION_QUERY_TOKENS | _PRIVACY_QUERY_TOKENS))
+
+
+def _is_live_session_result(result: SearchResult) -> bool:
+    status = str(result.frontmatter.get("status", "")).strip().lower()
+    return status in {"active", "interrupted"}
 
 
 def _evidence_class_for_document(path: str, frontmatter: dict[str, object]) -> str:

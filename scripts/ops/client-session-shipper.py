@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=(
             os.environ.get("DORY_CLIENT_SPOOL_ROOT")
             or os.environ.get("DORY_SESSION_SPOOL_ROOT")
-            or str(Path.home() / ".dory" / "session-spool")
+            or str(Path.home() / ".local" / "share" / "dory" / "spool")
         ),
     )
     parser.add_argument("--base-url", default=os.environ.get("DORY_HTTP_URL", "http://127.0.0.1:8766"))
@@ -51,6 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--watch", action="store_true", help="Continuously collect and ship auto-discovered sessions.")
     parser.add_argument("--poll-seconds", type=float, default=float(os.environ.get("DORY_CLIENT_POLL_SECONDS", "15")))
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=float(os.environ.get("DORY_CLIENT_SHIPPER_TIMEOUT_SECONDS", "10")),
+    )
     parser.add_argument("--no-flush", action="store_true", help="Only enqueue locally.")
     return parser
 
@@ -63,6 +68,7 @@ def main() -> int:
         base_url=args.base_url,
         spool_root=Path(args.spool_root),
         token=args.auth_token,
+        timeout_seconds=float(args.timeout_seconds),
     )
 
     if _is_manual_mode(args):

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dory_core.index.reindex import reindex_corpus
+import pytest
+
+from dory_core.index.reindex import reindex_corpus, reindex_paths
 from dory_core.index.sqlite_store import SqliteStore
 from dory_core.index.sqlite_vector_store import SqliteVectorStore
 
@@ -76,3 +78,41 @@ def test_reindex_invalidates_embedding_cache_when_model_changes(
 
     assert sum(len(batch) for batch in first.calls) == result.chunks_indexed
     assert sum(len(batch) for batch in second.calls) == result.chunks_indexed
+
+
+def test_reindex_paths_keeps_old_vectors_when_replacement_embedding_fails(
+    tmp_path: Path,
+) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / "index"
+    note = corpus_root / "notes" / "alpha.md"
+    note.parent.mkdir(parents=True)
+    note.write_text(
+        "---\ntitle: Alpha\ntype: knowledge\n---\n\nOriginal alpha note.\n",
+        encoding="utf-8",
+    )
+
+    class WorkingEmbedder:
+        dimension = 4
+        model = "test-embedder"
+
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            return [[float(len(text)), 0.0, 0.0, 0.0] for text in texts]
+
+    class FailingEmbedder(WorkingEmbedder):
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            raise RuntimeError("embedding backend unavailable")
+
+    reindex_corpus(corpus_root, index_root, WorkingEmbedder())
+    vector_store = SqliteVectorStore(index_root / "dory.db", dimension=4)
+    before_count = vector_store.count()
+
+    note.write_text(
+        "---\ntitle: Alpha\ntype: knowledge\n---\n\nUpdated alpha note needs a new embedding.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="embedding backend unavailable"):
+        reindex_paths(corpus_root, index_root, FailingEmbedder(), ["notes/alpha.md"])
+
+    assert vector_store.count() == before_count

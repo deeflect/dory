@@ -14,15 +14,22 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 
 DORY_URL = os.environ.get("DORY_HTTP_URL", "http://127.0.0.1:8766").rstrip("/")
 DORY_TOKEN = (os.environ.get("DORY_HTTP_TOKEN") or os.environ.get("DORY_CLIENT_AUTH_TOKEN") or "").strip()
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CLIENT_ENV_PATH = Path(os.environ.get("DORY_CLIENT_ENV_FILE", str(Path.home() / ".config" / "dory" / "client.env")))
+DEFAULT_SPOOL_ROOT = Path.home() / ".local" / "share" / "dory" / "spool"
+DEFAULT_HARNESSES = "claude codex opencode openclaw hermes"
 
 TOOLS = [
     {
@@ -73,6 +80,8 @@ TOOLS = [
                 },
                 "include_content": {"type": "boolean"},
                 "min_score": {"type": "number"},
+                "rerank": {"type": "string", "default": "auto", "enum": ["auto", "true", "false"]},
+                "debug": {"type": "boolean", "default": False},
             },
             "required": ["query"],
         },
@@ -120,6 +129,7 @@ TOOLS = [
                 "timeout_ms": {"type": "integer", "default": 1200, "minimum": 100, "maximum": 5000},
                 "budget_tokens": {"type": "integer", "default": 400, "minimum": 100, "maximum": 1200},
                 "include_wake": {"type": "boolean", "default": True},
+                "rerank": {"type": "string", "default": "auto", "enum": ["auto", "true", "false"]},
             },
             "required": ["prompt", "agent"],
         },
@@ -302,6 +312,7 @@ def list_tools() -> list[dict[str, Any]]:
 
 def handle_tool_call(name: str, args: dict[str, Any]) -> str:
     if name == "dory_wake":
+        session_sync = sync_sessions_before_wake()
         result = http_post(
             "/v1/wake",
             {
@@ -312,6 +323,8 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> str:
                 "include_pinned_decisions": args.get("include_pinned_decisions", True),
             },
         )
+        if session_sync is not None:
+            result["session_sync"] = session_sync
         return json.dumps(result, indent=2)
 
     if name == "dory_search":
@@ -327,6 +340,10 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> str:
             payload["include_content"] = args["include_content"]
         if "min_score" in args:
             payload["min_score"] = args["min_score"]
+        if "rerank" in args:
+            payload["rerank"] = args["rerank"]
+        if "debug" in args:
+            payload["debug"] = args["debug"]
         result = http_post("/v1/search", payload)
         return json.dumps(result, indent=2)
 
@@ -356,6 +373,8 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> str:
             payload["profile"] = args["profile"]
         if "include_wake" in args:
             payload["include_wake"] = args["include_wake"]
+        if "rerank" in args:
+            payload["rerank"] = args["rerank"]
         result = http_post("/v1/active-memory", payload)
         return json.dumps(result, indent=2)
 
@@ -461,6 +480,143 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> str:
         },
         indent=2,
     )
+
+
+def sync_sessions_before_wake() -> dict[str, Any] | None:
+    if not _env_bool("DORY_SYNC_SESSIONS_ON_WAKE", default=True):
+        return None
+
+    shipper_script = REPO_ROOT / "scripts" / "ops" / "client-session-shipper.py"
+    if not shipper_script.exists():
+        return {
+            "ok": False,
+            "error": "client-session-shipper.py not found",
+        }
+
+    session_env = _session_sync_env()
+    spool_root = session_env.get("DORY_CLIENT_SPOOL_ROOT") or str(DEFAULT_SPOOL_ROOT)
+    checkpoints_path = session_env.get("DORY_CLIENT_CHECKPOINTS_PATH") or str(Path(spool_root) / "checkpoints.json")
+    harnesses = session_env.get("DORY_CLIENT_HARNESSES") or DEFAULT_HARNESSES
+    timeout_seconds = float(session_env.get("DORY_CLIENT_SHIPPER_TIMEOUT_SECONDS") or "3")
+
+    command = [
+        sys.executable,
+        str(shipper_script),
+        "--harnesses",
+        harnesses,
+        "--spool-root",
+        spool_root,
+        "--checkpoints-path",
+        checkpoints_path,
+        "--base-url",
+        DORY_URL,
+        "--timeout-seconds",
+        str(timeout_seconds),
+    ]
+    if DORY_TOKEN:
+        command.extend(["--auth-token", DORY_TOKEN])
+
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout_seconds + 2.0,
+            env=session_env,
+        )
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "error": "session sync timed out before wake",
+        }
+
+    if completed.returncode != 0:
+        return {
+            "ok": False,
+            "error": (completed.stderr or completed.stdout).strip()[:500],
+        }
+
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return {
+            "ok": False,
+            "error": "session sync returned non-JSON output",
+        }
+    if not isinstance(payload, dict):
+        return {
+            "ok": False,
+            "error": "session sync returned non-object JSON",
+        }
+    return _compact_session_sync(payload)
+
+
+def _session_sync_env() -> dict[str, str]:
+    loaded = _load_env_file(CLIENT_ENV_PATH)
+    merged = {**loaded, **os.environ}
+    merged["DORY_HTTP_URL"] = DORY_URL
+    if DORY_TOKEN:
+        merged["DORY_CLIENT_AUTH_TOKEN"] = DORY_TOKEN
+    merged.setdefault("DORY_CLIENT_SPOOL_ROOT", str(DEFAULT_SPOOL_ROOT))
+    merged.setdefault("DORY_SESSION_SPOOL_ROOT", merged["DORY_CLIENT_SPOOL_ROOT"])
+    merged.setdefault("DORY_CLIENT_CHECKPOINTS_PATH", str(Path(merged["DORY_CLIENT_SPOOL_ROOT"]) / "checkpoints.json"))
+    merged.setdefault("DORY_CLIENT_HARNESSES", DEFAULT_HARNESSES)
+    return {str(key): str(value) for key, value in merged.items()}
+
+
+def _load_env_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        values[key] = _parse_shell_value(raw_value)
+    return values
+
+
+def _parse_shell_value(raw_value: str) -> str:
+    try:
+        parts = shlex.split(f"value={raw_value}", posix=True)
+    except ValueError:
+        return raw_value.strip().strip("'\"")
+    if not parts:
+        return ""
+    return parts[0].removeprefix("value=")
+
+
+def _compact_session_sync(payload: dict[str, Any]) -> dict[str, Any]:
+    result = payload.get("result")
+    result_payload = result if isinstance(result, dict) else {}
+    captures = payload.get("captures")
+    queued = payload.get("queued")
+    sent = result_payload.get("sent")
+    failed = result_payload.get("failed")
+    errors = result_payload.get("errors")
+    compact: dict[str, Any] = {
+        "ok": not bool(failed),
+        "captures": len(captures) if isinstance(captures, list) else 0,
+        "queued": len(queued) if isinstance(queued, list) else 0,
+        "sent": len(sent) if isinstance(sent, list) else 0,
+        "failed": len(failed) if isinstance(failed, list) else 0,
+    }
+    if isinstance(errors, list) and errors:
+        compact["errors"] = [str(item)[:200] for item in errors[:2]]
+    return compact
+
+
+def _env_bool(name: str, *, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def send(message: dict[str, Any]) -> None:

@@ -131,6 +131,7 @@ def test_active_memory_runs_for_explicit_call_even_on_non_memory_prompt(tmp_path
     )
 
     assert result.kind == "memory"
+    assert result.took_ms >= 1
     assert "## Durable evidence" in result.block
     assert "core/active.md" in result.sources
 
@@ -434,6 +435,57 @@ def test_active_memory_truncates_large_snippets_for_bounded_blocks(tmp_path: Pat
         in result.block
     )
     assert len(result.block) < 1400
+
+
+def test_active_memory_combines_focused_snippet_with_canonical_excerpt(tmp_path: Path) -> None:
+    class FocusedSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            del req
+            return _make_response(
+                [
+                    _make_result(
+                        path="projects/dory/state.md",
+                        snippet="Docker MCP setup fails when the daemon URL is stale.",
+                        score=0.9,
+                        confidence="high",
+                    )
+                ]
+            )
+
+    (tmp_path / "projects" / "dory").mkdir(parents=True)
+    (tmp_path / "projects" / "dory" / "state.md").write_text(
+        """---
+title: Dory
+type: project
+status: active
+canonical: true
+---
+
+# Dory
+
+## Current State
+
+- Dory runs a shared MCP and HTTP memory service.
+- Search and active-memory use the same runtime.
+""",
+        encoding="utf-8",
+    )
+    engine = ActiveMemoryEngine(
+        wake_builder=_CountingWakeBuilder(),
+        search_engine=FocusedSearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="debug Dory Docker MCP setup",
+            agent="codex",
+            include_wake=False,
+        )
+    )
+
+    assert "Docker MCP setup fails when the daemon URL is stale." in result.block
+    assert "Dory runs a shared MCP and HTTP memory service." in result.block
 
 
 def test_active_memory_triggers_for_recent_work_question(tmp_path: Path) -> None:

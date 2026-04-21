@@ -36,6 +36,7 @@ from dory_core.types import (
     SearchReq,
     WakeReq,
     WriteReq,
+    serialize_search_response,
 )
 from dory_core.wake import WakeBuilder
 from dory_core.write import WriteEngine
@@ -81,6 +82,7 @@ class RuntimeCore:
     query_expander: OpenRouterQueryExpander | None = None
     retrieval_planner: OpenRouterRetrievalPlanner | None = None
     reranker: Any = None
+    rerank_candidate_limit: int = 40
 
     def wake(self, req: dict[str, Any]) -> Any:
         return WakeBuilder(self.corpus_root).build(WakeReq.model_validate(req))
@@ -96,6 +98,7 @@ class RuntimeCore:
                 retrieval_planner=self.retrieval_planner,
                 result_selector=self.retrieval_planner,
                 reranker=self.reranker,
+                rerank_candidate_limit=self.rerank_candidate_limit,
             ),
             root=self.corpus_root,
             planner=planner,
@@ -111,6 +114,7 @@ class RuntimeCore:
                 retrieval_planner=self.retrieval_planner,
                 result_selector=self.retrieval_planner,
                 reranker=self.reranker,
+                rerank_candidate_limit=self.rerank_candidate_limit,
             )
         ).research_from_req(ResearchReq.model_validate(req))
         artifact_resp = None
@@ -129,14 +133,17 @@ class RuntimeCore:
         }
 
     def search(self, req: dict[str, Any]) -> Any:
-        return SearchEngine(
+        search_req = SearchReq.model_validate(req)
+        response = SearchEngine(
             self.index_root,
             self.embedder,
             query_expander=self.query_expander,
             retrieval_planner=self.retrieval_planner,
             result_selector=self.retrieval_planner,
             reranker=self.reranker,
-        ).search(SearchReq.model_validate(req))
+            rerank_candidate_limit=self.rerank_candidate_limit,
+        ).search(search_req)
+        return serialize_search_response(response, debug=search_req.debug)
 
     def get(self, req: dict[str, Any]) -> dict[str, Any]:
         path = _resolve_corpus_path(self.corpus_root, str(req["path"]))
@@ -388,6 +395,7 @@ def main(argv: list[str] | None = None) -> None:
             query_expander=_build_query_expander(settings),
             retrieval_planner=_build_retrieval_planner(settings, purpose="query"),
             reranker=build_reranker(settings),
+            rerank_candidate_limit=settings.query_reranker_candidate_limit,
         )
     except EmbeddingConfigurationError as err:
         raise SystemExit(str(err)) from err

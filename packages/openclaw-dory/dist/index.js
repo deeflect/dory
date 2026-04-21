@@ -29,6 +29,8 @@ const MemorySearchSchema = {
         maxResults: { type: "number" },
         minScore: { type: "number" },
         corpus: { enum: ["memory", "wiki", "all"] },
+        rerank: { enum: ["auto", "true", "false"] },
+        debug: { type: "boolean" },
     },
     required: ["query"],
 };
@@ -149,6 +151,19 @@ function buildMemorySearchUnavailableResult(error) {
             error: reason,
         },
     };
+}
+function stripSearchDebugFields(item) {
+    const cleaned = stripSearchInternalFields(item);
+    delete cleaned.score;
+    delete cleaned.rank_score;
+    delete cleaned.score_normalized;
+    delete cleaned.frontmatter;
+    return cleaned;
+}
+function stripSearchInternalFields(item) {
+    const cleaned = { ...item };
+    delete cleaned._doryOrder;
+    return cleaned;
 }
 function hasOwnRecordKey(record, key) {
     return Object.prototype.hasOwnProperty.call(record, key);
@@ -312,6 +327,8 @@ function createMemorySearchTool(options, ctx) {
             const maxResults = readNumberParam(params, "maxResults");
             const minScore = readNumberParam(params, "minScore");
             const requestedCorpus = readStringParam(params, "corpus");
+            const rerank = readStringParam(params, "rerank");
+            const debug = readBooleanParam(params, "debug") ?? false;
             const shouldQueryMemory = requestedCorpus !== "wiki";
             const shouldQuerySupplements = requestedCorpus === "wiki" || requestedCorpus === "all";
             let memoryResults = [];
@@ -322,9 +339,12 @@ function createMemorySearchTool(options, ctx) {
                         maxResults,
                         minScore,
                         sessionKey: toolCtx.agentSessionKey,
-                    })).map((result) => ({
+                        rerank,
+                        debug,
+                    })).map((result, index) => ({
                         ...result,
                         corpus: "memory",
+                        _doryOrder: index,
                     }));
                 }
                 catch (error) {
@@ -349,6 +369,11 @@ function createMemorySearchTool(options, ctx) {
                 if (leftScore !== rightScore) {
                     return rightScore - leftScore;
                 }
+                const leftOrder = Number(left._doryOrder);
+                const rightOrder = Number(right._doryOrder);
+                if (Number.isFinite(leftOrder) && Number.isFinite(rightOrder) && leftOrder !== rightOrder) {
+                    return leftOrder - rightOrder;
+                }
                 return String(left.path ?? "").localeCompare(String(right.path ?? ""));
             })
                 .slice(0, Math.max(1, maxResults ?? 10));
@@ -364,7 +389,7 @@ function createMemorySearchTool(options, ctx) {
                 source: "openclaw-recall",
             });
             return jsonResult({
-                results,
+                results: debug ? results.map(stripSearchInternalFields) : results.map(stripSearchDebugFields),
                 provider: "dory-http",
                 mode: "hybrid",
             });
@@ -545,6 +570,8 @@ export class DoryMemorySearchManager {
             k: opts?.maxResults ?? 10,
             mode,
             min_score: opts?.minScore,
+            rerank: opts?.rerank,
+            debug: opts?.debug ?? false,
         });
         const warnings = Array.isArray(payload.warnings)
             ? payload.warnings.filter((value) => typeof value === "string" && value.trim().length > 0)
@@ -556,10 +583,7 @@ export class DoryMemorySearchManager {
             });
         }
         const results = Array.isArray(payload.results) ? payload.results : [];
-        const minScore = opts?.minScore ?? Number.NEGATIVE_INFINITY;
-        return results
-            .map((item) => mapSearchResult(item))
-            .filter((item) => item.score >= minScore);
+        return results.map((item, index) => mapSearchResult(item, index));
     }
     async activeMemory(prompt, opts) {
         return activeMemory(this.options, {
@@ -569,6 +593,7 @@ export class DoryMemorySearchManager {
             cwd: opts?.cwd,
             profile: opts?.profile,
             timeout_ms: opts?.timeoutMs,
+            rerank: opts?.rerank,
         });
     }
     async readFile(params) {
@@ -806,14 +831,16 @@ function resolveDoryToken(pluginConfig) {
     }
     return envToken;
 }
-function mapSearchResult(item) {
+function mapSearchResult(item, index) {
     const [startLine, endLine] = parseLineSpan(item.lines);
     const path = String(item.path ?? "");
+    const explicitScore = Number(item.rank_score ?? item.score);
+    const score = Number.isFinite(explicitScore) ? explicitScore : Math.max(0, 1 - index * 0.001);
     return {
         path,
         startLine,
         endLine,
-        score: Number(item.rank_score ?? item.score ?? 0),
+        score,
         snippet: String(item.snippet ?? ""),
         source: path.startsWith("logs/sessions/") ? "sessions" : "memory",
         citation: path ? `${path}:${startLine}` : undefined,
