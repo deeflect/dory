@@ -39,8 +39,8 @@ class DoryTool:
     # When None, `input_schema_override` must be supplied.
     request_model: type[BaseModel] | None = None
     input_schema_override: dict[str, Any] | None = None
-    # Short key used by dory_mcp.server to route to its internal handler.
-    handler_key: str = ""
+    # Short name used by dory_mcp.server to route to its internal handler.
+    handler: str = ""
 
 
 _GET_INPUT_SCHEMA = {
@@ -67,7 +67,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
             "'writing' for voice/content, or 'privacy' for boundary questions."
         ),
         request_model=WakeReq,
-        handler_key="wake",
+        handler="wake",
     ),
     DoryTool(
         name="dory_active_memory",
@@ -78,7 +78,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
             "timeout_ms <= 5000. Set include_wake=false if wake was already called."
         ),
         request_model=ActiveMemoryReq,
-        handler_key="active_memory",
+        handler="active_memory",
     ),
     DoryTool(
         name="dory_research",
@@ -86,7 +86,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
         http_path="/v1/research",
         description="Run Dory research mode and save a durable artifact.",
         request_model=ResearchReq,
-        handler_key="research",
+        handler="research",
     ),
     DoryTool(
         name="dory_search",
@@ -94,7 +94,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
         http_path="/v1/search",
         description="Search the memory tree.",
         request_model=SearchReq,
-        handler_key="search",
+        handler="search",
     ),
     DoryTool(
         name="dory_get",
@@ -102,7 +102,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
         http_path="/v1/get",
         description="Fetch a file or slice by path.",
         input_schema_override=_GET_INPUT_SCHEMA,
-        handler_key="get",
+        handler="get",
     ),
     DoryTool(
         name="dory_memory_write",
@@ -115,7 +115,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
             "tentative/scratch captures."
         ),
         request_model=MemoryWriteReq,
-        handler_key="memory_write",
+        handler="memory_write",
     ),
     DoryTool(
         name="dory_write",
@@ -129,7 +129,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
             "requires reason. Set dry_run=true to validate and preview without writing."
         ),
         request_model=WriteReq,
-        handler_key="write",
+        handler="write",
     ),
     DoryTool(
         name="dory_purge",
@@ -141,7 +141,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
             "scratch/generated roots are allowed unless allow_canonical=true."
         ),
         request_model=PurgeReq,
-        handler_key="purge",
+        handler="purge",
     ),
     DoryTool(
         name="dory_link",
@@ -149,7 +149,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
         http_path="/v1/link",
         description="Inspect wikilink edges.",
         request_model=LinkReq,
-        handler_key="link",
+        handler="link",
     ),
     DoryTool(
         name="dory_status",
@@ -157,12 +157,12 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
         http_path="/v1/status",
         description="Get Dory index and corpus status.",
         input_schema_override=_STATUS_INPUT_SCHEMA,
-        handler_key="status",
+        handler="status",
     ),
 )
 
 
-TOOL_MAP: dict[str, str] = {tool.name: tool.handler_key for tool in TOOL_REGISTRY}
+TOOL_MAP: dict[str, str] = {tool.name: tool.handler for tool in TOOL_REGISTRY}
 
 
 def tool_by_name(name: str) -> DoryTool | None:
