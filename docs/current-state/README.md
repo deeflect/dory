@@ -1,15 +1,15 @@
 # Current-state docs
 
-Implementation-grounded source of truth for the repo as it exists today.
+Current implementation notes for the public repository. These docs describe what exists now, not what older design plans proposed.
 
-Use these docs to answer:
+Use these when you need to answer:
 
-- what's in the codebase right now
-- where each subsystem lives
-- which surfaces are real vs planned
-- how data moves through the system
-- what tests validate each area
-- where docs have drifted from implementation
+- What's in the codebase today
+- Where each subsystem lives
+- Which surfaces are real vs planned
+- How data moves through the system
+- Which tests cover which area
+- Where the code has drifted from the original spec
 
 ## Trust order
 
@@ -20,13 +20,14 @@ When sources disagree:
 3. These `docs/current-state/` docs
 4. Root `README.md`
 
-Historical design specs and implementation plans are kept out of the public tree — they can contain private corpus and deployment detail. Trust current code and these docs.
+Historical design specs and implementation plans stay out of the public tree because they can carry private corpus or deployment detail. Trust the code and these docs.
 
 ## Contents
 
 - [codebase-map.md](codebase-map.md) — repo layout, packages, source and test files, starting points
 - [runtime-and-data-flow.md](runtime-and-data-flow.md) — how wake/search/get/write/session flows work in the current code, with known gaps
 - [surfaces-and-integrations.md](surfaces-and-integrations.md) — CLI, HTTP, MCP, Claude bridge, Hermes, OpenClaw surfaces with parameter tables and cross-surface drift
+- [hermes-research-publish.md](hermes-research-publish.md) — Hermes `dory_publish_research` flow, target paths, dry-run sequence, and verification
 - [operations-and-validation.md](operations-and-validation.md) — migration, dreaming, maintenance, wiki refresh, evals, deploy/install, tests by area
 - [external-memory-reference.md](external-memory-reference.md) — comparison notes from Karpathy's LLM Wiki, gbrain, mem0, MemPalace with steal/avoid guidance
 
@@ -36,37 +37,67 @@ Last synced from implementation on `2026-04-20`.
 
 ## Known drift
 
-Things the code does differently from the original spec, or caveats worth knowing:
+What the code does differently from the original spec, or caveats worth knowing.
 
-- **Vector store** — SQLite-backed via `SqliteVectorStore` in `src/dory_core/index/sqlite_vector_store.py`. Vector search is still brute-force O(n) cosine similarity. ANN indexing is future work if corpus size demands it.
-- **CLI surface** — `migrate-tui` isn't exposed in current help; historical private plan docs are outside the public tree.
-- **Surface area** — the original five-verb spec is narrower than today. Current code also exposes `active-memory`, `research`, `migrate`, `session-ingest`, `recall-event`, `public-artifacts`, metrics, and stream endpoints.
-- **Semantic writes** — registry-backed and claim-backed:
-  - `EntityRegistry` (`src/dory_core/entity_registry.py`) is the durable resolution layer
-  - `ClaimStore` (`src/dory_core/claim_store.py`) persists active claims and claim events
-  - resolved writes emit immutable evidence under `sources/semantic/YYYY/MM/DD/`
-  - semantic `forget` republishes tombstones from claim history plus claim events
-- **Hermes** — normalizes legacy search mode names before HTTP: `text`/`keyword`/`lexical` → `bm25`, `semantic` → `vector`. Native API names are accepted directly too.
-- **Atomic writes** — critical paths use temp-write-and-replace helpers, but non-core scripts still contain plain `write_text()`.
-- **Chunking** — accepts `overlap_ratio` but doesn't implement overlap.
-- **Auth asymmetry** — HTTP enforces bearer auth; raw MCP TCP has no auth handshake. The Claude Code bridge forwards bearer auth to HTTP.
-- **HTTP errors** — use FastAPI's default `{"detail": "..."}` instead of the contract's `{"error": {"code": "..."}}` format.
-- **Recall mode** — searches all sessions, not just the current session (deviates from spec).
-- **CLI link commands** — `neighbors`/`backlinks`/`lint` are top-level, not `dory link` subcommands.
-- **Claude Code bridge** — exposes `dory_active_memory` but stays an HTTP-backed compatibility bridge, not native MCP.
-- **OpenClaw probes** — `probeEmbeddingAvailability()` / `probeVectorAvailability()` fail closed when Dory can't prove vector availability.
-- **Search warnings** — `/v1/search` can surface `warnings` when optional query expansion fails and the engine falls back.
-- **Search ranking** — default hybrid/all search now gives canonical/core/project-state evidence a source prior over sessions and generated mirrors. Session evidence remains available for explicit recall/recent-history queries and as supporting tail evidence for `corpus="all"`.
-- **Search dedup** — non-exact search collapses near-duplicate generated/wiki/source mirrors behind the canonical document before the final `k`. Exact search intentionally skips this collapse for cleanup-marker checks.
-- **Privacy metadata** — frontmatter supports `visibility: private|internal|public` and `sensitivity: personal|financial|legal|contact|credentials|health|none`. `wiki-health` reports personal/raw/imported docs missing those fields.
-- **Optional LLM retrieval** — `src/dory_core/retrieval_planner.py` can plan durable query variants and optional session queries and can reorder the final candidate set through strict-schema result selection. Planner failure falls back to deterministic search. Opt in via `DORY_QUERY_PLANNER_ENABLED=true`, `DORY_QUERY_EXPANSION_ENABLED=true`, `DORY_QUERY_RERANKER_ENABLED=true`.
-- **OpenClaw status** — still snapshot-based, but now reports `custom.statusAgeMs` and `custom.statusStale` so callers can detect staleness. Source audit should inspect `packages/openclaw-dory/`, not only a live installed plugin.
-- **Active-memory** — explicit calls always run staged retrieval instead of short-circuiting on intent heuristics. Optional LLM planning/composition picks retrieval queries and compresses a tiny sanitized evidence packet into a compact `## Active memory` section. The LLM path can use OpenRouter or an OpenAI-compatible local/LAN model via `DORY_ACTIVE_MEMORY_LLM_PROVIDER`; deterministic fallback runs the same shape without an LLM. The final block is budget-clamped, durable evidence excludes generated `wiki/` cache pages, and coding/writing profiles topic-filter wiki helper context so unrelated recent pages do not bleed into focused prompts.
-- **Link output** — `dory_link`/`neighbors` support `max_edges` and `exclude_prefixes`; responses include `total_count` and `truncated` for dense graphs.
-- **Hermes provider** — built-in memory mirroring is date-partitioned under `inbox/hermes-memory-mirror/YYYY-MM-DD.md`, and HTTP tool errors return structured `error_type`/`status_code` payloads.
-- **Compiled wiki** — bounded synthesis, but now groups evidence by claim-event type and `wiki-health` audits for missing timelines too. Dory generates a Karpathy-style shell under `wiki/`: `hot.md`, `index.md`, `log.md`. Active-memory reads the shell first when present. The shell is generated from the structured claim/wiki core — never source of truth.
-- **Wiki freshness** — `wiki-refresh-once` prefers claim-store-backed page rendering when claim history exists, and prunes orphaned pages under managed families. `wiki-health` also flags pages where current-state sections disagree with retirement-only event history, and reports `claim_mismatch`, `claim_event_mismatch`, and `claim_evidence_mismatch` when compiled pages drift from ledger truth.
-- **Migration** — corpus-level LLM entity clustering plus a bounded final LLM QA loop (audit → repair flagged pages → re-audit). Audit and repair artifacts land in `inbox/migration-runs/` and fold into the run report.
+### Surface area
+
+- **Surface grew past the five-verb spec.** Alongside `wake / search / get / memory-write / link`, current code ships `active-memory`, `research`, `migrate`, `session-ingest`, `recall-event`, `public-artifacts`, metrics, and stream endpoints.
+- **CLI link commands** - `neighbors`, `backlinks`, and `lint` are top-level, not subcommands under `dory link`.
+- **`migrate-tui`** is not exposed in CLI help. The older plan docs for it live in the private tree.
+
+### Storage and indexing
+
+- **Vector store** - SQLite-backed (`SqliteVectorStore` in `src/dory_core/index/sqlite_vector_store.py`). Search is still brute-force O(n) cosine similarity. ANN indexing is on the list if corpus size ever demands it.
+- **Chunking** - accepts an `overlap_ratio` argument but does not implement overlap.
+- **Atomic writes** - critical paths use temp-write-and-replace. Some non-core scripts still use plain `write_text()`.
+
+### Auth
+
+- **HTTP** - enforces bearer auth. Raw MCP over TCP has no auth handshake. The Claude Code bridge forwards the HTTP bearer to the server.
+- **HTTP errors** - return FastAPI's default `{"detail": "..."}` instead of the contract's `{"error": {"code": "..."}}` shape.
+
+### Search
+
+- **Ranking** - default hybrid/all search prefers canonical, core, and project-state evidence over sessions and generated mirrors. Session evidence is still available for explicit recall/recent-history queries and as tail evidence when `corpus="all"`.
+- **Live sessions** - generic `corpus="all"` searches do not merge `active` or `interrupted` session hits unless the query asks for recent/session evidence. This keeps in-progress agent transcripts out of normal project answers while preserving explicit recall behavior.
+- **Dedup** - non-exact search collapses near-duplicate generated, wiki, and source mirrors behind the canonical doc before returning `k` results. Exact search skips this on purpose so cleanup-marker checks keep working.
+- **Warnings** - `/v1/search` surfaces `warnings` when optional query expansion fails and the engine falls back.
+- **Recall mode** searches all sessions, not just the current session. This deviates from the spec.
+- **Optional LLM retrieval** - `retrieval_planner.py` can plan durable and optional session query variants and reorder final candidates via strict-schema selection. Planner failure falls back to deterministic search. Opt in with `DORY_QUERY_PLANNER_ENABLED`, `DORY_QUERY_EXPANSION_ENABLED`, `DORY_QUERY_RERANKER_ENABLED`.
+
+### Semantic writes
+- Resolved through `EntityRegistry` (`src/dory_core/entity_registry.py`), the durable name-to-entity layer.
+- Backed by `ClaimStore` (`src/dory_core/claim_store.py`), which keeps active claims and a claim-event log.
+- Every resolved write drops an immutable evidence file under `sources/semantic/YYYY/MM/DD/`.
+- Semantic `forget` rebuilds the tombstone from claim history + events instead of a static overwrite.
+
+### Active-memory
+- Explicit calls always run the full staged retrieval path. No intent-heuristic short-circuit.
+- Optional LLM plan/compose stages pick queries and compress a small sanitized evidence packet into a `## Active memory` block. Without an LLM, the same shape runs deterministically.
+- Backend picked via `DORY_ACTIVE_MEMORY_LLM_PROVIDER`: OpenRouter, an OpenAI-compatible local/LAN model, `auto`, or `off`.
+- Output is budget-clamped. Durable evidence skips generated `wiki/` cache pages. Coding and writing profiles topic-filter wiki helper context so unrelated recent pages don't bleed in.
+
+### Compiled wiki
+- Generates a Karpathy-style shell under `wiki/`: `hot.md`, `index.md`, `log.md`. Active-memory reads the shell first when present. The shell is generated from the claim/wiki core — never source of truth.
+- `wiki-refresh-once` prefers claim-store-backed rendering when claim history exists, and prunes orphaned pages under managed families.
+- `wiki-health` reports `claim_mismatch`, `claim_event_mismatch`, and `claim_evidence_mismatch` when compiled pages drift from the ledger, plus flags pages whose current-state sections disagree with retirement-only event history.
+
+### Migration
+
+- Corpus-level LLM entity clustering plus a bounded final audit -> repair flagged pages -> re-audit loop.
+- Audit and repair artifacts land in `inbox/migration-runs/` and roll up into the run report.
+
+### Integrations
+
+- **Claude Code bridge** - exposes `dory_active_memory` but stays an HTTP-backed compatibility bridge, not native MCP.
+- **Hermes provider** - normalizes legacy search mode names before HTTP (`text`/`keyword`/`lexical` -> `bm25`, `semantic` -> `vector`). Native names are also accepted. Memory mirror is date-partitioned under `inbox/hermes-memory-mirror/YYYY-MM-DD.md`. HTTP tool errors return structured `error_type` / `status_code`.
+- **OpenClaw** - `probeEmbeddingAvailability()` / `probeVectorAvailability()` fail closed when Dory cannot confirm vectors are available. Status remains snapshot-based but now reports `custom.statusAgeMs` and `custom.statusStale`. Audit the source under `packages/openclaw-dory/`, not just an installed plugin.
+- **Link output** - `dory_link` / `neighbors` support `max_edges` and `exclude_prefixes`. Responses include `total_count` and `truncated` so clients know when a dense graph was capped.
+
+### Privacy metadata
+
+- Frontmatter supports `visibility: private | internal | public` and `sensitivity: personal | financial | legal | contact | credentials | health | none`.
+- `wiki-health` flags personal, raw, and imported docs missing those fields.
 
 ## Update rules
 

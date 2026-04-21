@@ -6,13 +6,13 @@ from dataclasses import dataclass
 import hashlib
 import hmac
 import json
-import os
 import secrets
 from pathlib import Path
 import time
 
 from fastapi import HTTPException, Request, status
 
+from dory_core.config import DorySettings
 from dory_core.fs import atomic_write_text
 
 
@@ -167,7 +167,7 @@ def _token_matches(token: str, tokens: dict[str, str]) -> bool:
 
 
 def _web_password() -> str:
-    return os.environ.get(WEB_PASSWORD_ENV, "").strip()
+    return (DorySettings().web_password or "").strip()
 
 
 def _issue_web_session(*, web_password: str) -> str:

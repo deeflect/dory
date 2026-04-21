@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from dory_core.config import DorySettings
 from dory_core.markdown_store import MarkdownStore
 from dory_core.openclaw_parity import OpenClawParityStore
 from dory_core.types import OpenClawParityDiagnostics
@@ -22,11 +23,21 @@ class DoryStatus:
     files_indexed: int
     chunks_indexed: int
     vectors_indexed: int
+    embedding_provider: str
+    embedding_model: str
+    embedding_dimensions: int
+    embedding_batch_size: int
+    query_reranker_enabled: bool
+    query_reranker_provider: str | None
+    query_reranker_model: str | None
+    active_memory_llm_provider: str
+    active_memory_llm_stages: str
     openclaw: OpenClawParityDiagnostics
     compat_matrix: dict[str, str]
 
 
-def build_status(corpus_root: Path, index_root: Path) -> DoryStatus:
+def build_status(corpus_root: Path, index_root: Path, settings: DorySettings | None = None) -> DoryStatus:
+    resolved_settings = settings or DorySettings()
     corpus_root = Path(corpus_root)
     index_root = Path(index_root)
     db_path = index_root / "dory.db"
@@ -46,6 +57,17 @@ def build_status(corpus_root: Path, index_root: Path) -> DoryStatus:
         files_indexed=files_indexed,
         chunks_indexed=chunks_indexed,
         vectors_indexed=vectors_indexed,
+        embedding_provider=resolved_settings.embedding_provider,
+        embedding_model=_status_embedding_model(resolved_settings),
+        embedding_dimensions=resolved_settings.embedding_dimensions,
+        embedding_batch_size=resolved_settings.embedding_batch_size,
+        query_reranker_enabled=resolved_settings.query_reranker_enabled,
+        query_reranker_provider=(
+            resolved_settings.query_reranker_provider if resolved_settings.query_reranker_enabled else None
+        ),
+        query_reranker_model=_status_reranker_model(resolved_settings),
+        active_memory_llm_provider=resolved_settings.active_memory_llm_provider,
+        active_memory_llm_stages=resolved_settings.active_memory_llm_stages,
         openclaw=_load_openclaw_diagnostics(db_path),
         compat_matrix={
             "wake": "ok",
@@ -71,6 +93,20 @@ def serialize_status(status: DoryStatus) -> dict[str, Any]:
     return payload
 
 
+def _status_embedding_model(settings: DorySettings) -> str:
+    if settings.embedding_provider == "local":
+        return settings.local_embedding_model
+    return settings.embedding_model
+
+
+def _status_reranker_model(settings: DorySettings) -> str | None:
+    if not settings.query_reranker_enabled:
+        return None
+    if settings.query_reranker_provider == "local":
+        return settings.local_reranker_model
+    return settings.openrouter_query_model or settings.openrouter_model
+
+
 def _count_corpus_files(corpus_root: Path) -> int:
     if not corpus_root.exists():
         return 0
@@ -80,7 +116,7 @@ def _count_corpus_files(corpus_root: Path) -> int:
 def _count_sqlite_rows(db_path: Path, table: str) -> int:
     if not db_path.exists():
         return 0
-    with sqlite3.connect(db_path) as connection:
+    with sqlite3.connect(db_path, timeout=0.25) as connection:
         try:
             row = connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         except sqlite3.OperationalError:
@@ -91,9 +127,13 @@ def _count_sqlite_rows(db_path: Path, table: str) -> int:
 def _count_vector_rows(records_path: Path, *, fallback_count: int) -> int:
     if not records_path.exists():
         return 0
-    if records_path.stat().st_size > _MAX_STATUS_VECTOR_JSON_BYTES:
+    try:
+        if records_path.stat().st_size > _MAX_STATUS_VECTOR_JSON_BYTES:
+            return fallback_count
+        payload = json.loads(records_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
         return fallback_count
-    return len(json.loads(records_path.read_text(encoding="utf-8")))
+    return len(payload) if isinstance(payload, list) else fallback_count
 
 
 def _load_openclaw_diagnostics(db_path: Path) -> OpenClawParityDiagnostics:

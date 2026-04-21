@@ -15,7 +15,7 @@ Docker:
 ```bash
 cp .env.example .env
 mkdir -p data/corpus
-# Edit .env and set DORY_GEMINI_API_KEY or GOOGLE_API_KEY.
+# Edit .env and set either Gemini embedding auth or local embedding endpoint variables.
 docker compose up -d --build
 ```
 
@@ -52,6 +52,10 @@ If the sidecar index is corrupted or stale, delete `~/dory/.index/` and rebuild:
 
 ```bash
 export DORY_GEMINI_API_KEY=...
+# or:
+export DORY_EMBEDDING_PROVIDER=local
+export DORY_LOCAL_EMBEDDING_BASE_URL=http://127.0.0.1:8000/v1
+export DORY_LOCAL_EMBEDDING_MODEL=qwen3-embed
 uv run dory --corpus-root ~/dory --index-root ~/dory/.index reindex
 ```
 
@@ -254,6 +258,6 @@ Dream proposal/apply is semantic-first:
 - HTTP status: `GET /v1/status`
 - Metrics: `GET /metrics`
 - Logs: `docker compose logs -f doryd`
-- Embedding auth: `DORY_GEMINI_API_KEY` or `GOOGLE_API_KEY`
+- Embedding provider: default Gemini uses `DORY_GEMINI_API_KEY` or `GOOGLE_API_KEY`; local/LAN OpenAI-compatible embeddings use `DORY_EMBEDDING_PROVIDER=local` with `DORY_LOCAL_EMBEDDING_*`
 - OpenRouter auth for dreaming / maintenance: `DORY_OPENROUTER_API_KEY` or `OPENROUTER_API_KEY`
 - Optional active-memory LLM: `DORY_ACTIVE_MEMORY_LLM_PROVIDER` (`off` / `local` / `openrouter` / `auto`). For `local`, point `DORY_LOCAL_LLM_BASE_URL` at an OpenAI-compatible endpoint (e.g. `http://127.0.0.1:11434/v1`) and set `DORY_LOCAL_LLM_MODEL`. `DORY_ACTIVE_MEMORY_LLM_STAGES` picks `plan`, `compose`, or `both`; `compose` is the safest default for small local models. Dory skips the LLM path when the request deadline is too tight, and active-memory stays read-only with budget-clamped evidence either way.

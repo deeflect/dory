@@ -2,11 +2,11 @@
 
 How to wire Claude Code, Codex CLI, opencode, OpenClaw, Hermes, or any other agent into Dory.
 
-Dory is a shared memory service, not a per-agent library. Run one daemon over a markdown corpus, then point each agent frontend at the same HTTP or MCP surface. Deployment URLs, corpus paths, and auth tokens are environment-specific and stay outside this repo.
+Dory is one shared memory service, not a per-agent library. Run the daemon over a markdown corpus, then point each agent at the same HTTP or MCP surface. Deployment URLs, corpus paths, and auth tokens are environment-specific and must stay outside the repo.
 
 ## Repo structure
 
-Agent-facing files live in these places:
+Agent-facing files:
 
 | Surface | Path | Purpose |
 |---|---|---|
@@ -20,7 +20,7 @@ Agent-facing files live in these places:
 | Hermes plugin | `plugins/hermes-dory/` | Hermes external memory provider package. |
 | Live tool schema | `GET /v1/tools` | HTTP-published MCP schema consumed by bridges and used as the contract source. |
 
-Claude Code, Codex CLI, and opencode are rule/MCP clients. OpenClaw and Hermes are code-based clients and are configured through their plugin/provider systems instead of the policy installer.
+Claude Code, Codex CLI, and opencode are rule and MCP clients. OpenClaw and Hermes are code-based clients configured through their own plugin/provider systems instead of the policy installer.
 
 ## Tool surface
 
@@ -39,32 +39,32 @@ Claude Code, Codex CLI, and opencode are rule/MCP clients. OpenClaw and Hermes a
 
 ## Read loop
 
-1. Call `dory_wake` at session start or task switch. Use `profile="coding"` for project work, `profile="writing"` for voice/content work, `profile="privacy"` for boundary-sensitive questions. Coding wake is operational context only; writing wake is voice-first; privacy wake is boundary-only and must not be treated as a profile dump.
-2. Use `dory_search` before any factual claim about projects, people, priorities, decisions, or current environment.
-3. Use `dory_get` on exact result paths before quoting or acting on memory.
-4. Use `dory_link` only when relationships or backlinks matter. Keep it bounded with `max_edges` when inspecting dense project/core docs; use `exclude_prefixes` to drop noisy families like `logs/sessions/`. Responses include `count`, `total_count`, and `truncated` so clients can tell when the graph was capped.
-5. Use `dory_active_memory(profile="coding|writing|privacy|personal|general", include_wake=false)` when wake was already called and the reply needs task-specific context. `profile="auto"` is available for compatibility, but explicit profiles are preferred for predictable source policy. If `include_wake=true`, active memory uses the profile's wake policy and avoids inlining unrelated personal context.
+1. `dory_wake` at session start or task switch. Pick the profile: `coding` for project work (operational only), `writing` for voice/content work (voice-first), `privacy` for boundary-sensitive questions (boundary-only; do not treat it as a profile dump).
+2. `dory_search` before any factual claim about projects, people, priorities, decisions, or current environment.
+3. `dory_get` on exact result paths before quoting or acting. It reads paths inside the configured Dory corpus, not arbitrary repo files cited as external evidence.
+4. `dory_link` only when relationships or backlinks matter. Bound dense project/core queries with `max_edges`, and drop noisy families like `logs/sessions/` via `exclude_prefixes`. Responses include `count`, `total_count`, and `truncated` so you can tell when the graph was capped.
+5. `dory_active_memory(profile="coding|writing|privacy|personal|general", include_wake=false)` when wake already ran and the reply needs task-specific retrieval. Prefer an explicit profile over `auto`. If you pass `include_wake=true`, active memory uses the profile's wake policy and avoids inlining unrelated personal context.
 
-Treat wake as framing, not proof that every canonical file was loaded. Search and get are the authoritative read path.
+Treat wake as framing, not proof that every canonical file was loaded. Search + get is the authoritative read path.
 
-Search results include `rank_score` for client ordering and `evidence_class` for trust posture. Prefer canonical/current evidence for current-state answers; treat `inbox`, `raw`, and `session` hits as supporting material unless the user explicitly asks for raw or recent evidence.
+Default search results include path, lines, snippet, `evidence_class`, `confidence`, and stale warnings. Debug-only internals (`score`, `score_normalized`, `rank_score`, and `frontmatter`) require `debug=true`; agents should trust the returned order instead of reading score fields. Prefer canonical/current evidence for current-state answers; treat `inbox`, `raw`, and `session` hits as supporting material unless the user explicitly asked for raw or recent material.
 
 ## Write policy
 
-Write only when at least one of these holds:
+Write only when at least one of these is true:
 
-- the user explicitly says *remember*, *save*, or *update*
-- a durable decision was made
-- project state materially changed
-- a durable people/project/current-truth fact was established
+- The user explicitly says *remember*, *save*, or *update*.
+- A durable decision was made.
+- Project state materially changed.
+- A durable people, project, or current-truth fact was established.
 
-Use `dry_run=true` first when the route isn't obvious. Inspect `target_path`, `subject_ref`, and `message` before committing.
+Dry-run first when the route isn't obvious (`dry_run=true`). Inspect `target_path`, `subject_ref`, and `message` before committing.
 
-Prefer `dory_memory_write` for durable semantic writes. Keep subjects specific — a generic subject can resolve into an existing canonical page. Dry-run previews for canonical targets are labeled `CANONICAL TARGET`; live semantic writes to canonical targets require `allow_canonical=true` after preview.
+**Prefer `dory_memory_write`** for durable semantic writes. Keep subjects specific — a generic subject can resolve into an existing canonical page. Canonical target previews are labeled `CANONICAL TARGET`; live writes to canonical targets need `allow_canonical=true` after preview. Use `force_inbox=true` for tentative or review-needed material.
 
-Use `force_inbox=true` for tentative or review-needed material. Use `dory_write` only when you know the exact target path and have read the current hash with `dory_get`; exact write kinds are `append`, `create`, `replace`, and `forget`. New exact-path files require `frontmatter.title` and `frontmatter.type`; use `type: capture` for `inbox/**`. Replace/forget require `expected_hash`; forget also requires `reason`.
+**Use `dory_write` only when you know the exact path** and have read the current hash with `dory_get`. Kinds: `append`, `create`, `replace`, `forget`. New files need `frontmatter.title` and `frontmatter.type`; use `type: capture` for `inbox/**`. `replace` and `forget` require `expected_hash`; `forget` also requires a `reason`.
 
-`forget` retires memory while preserving audit history. Reserve `dory_purge` for exact generated/test/scratch cleanup — live purge requires a reason and matching `expected_hash`.
+`forget` retires memory but keeps the audit trail. Reserve `dory_purge` for exact generated, test, or scratch cleanup. Live purge needs a reason and a matching `expected_hash`.
 
 ## HTTP setup
 
@@ -103,9 +103,11 @@ HTTP-backed bridge for hosts expecting a stdio MCP process:
 python3 scripts/claude-code/dory-mcp-http-bridge.py
 ```
 
-The bridge reads `DORY_HTTP_URL` and `DORY_CLIENT_AUTH_TOKEN` from the environment. Its fallback is `http://127.0.0.1:8766`, so remote deployments must set the URL explicitly.
+The bridge reads `DORY_HTTP_URL` and `DORY_CLIENT_AUTH_TOKEN` from the environment. Default fallback is `http://127.0.0.1:8766`, so remote deployments need to set the URL explicitly.
 
-Restart open agent sessions after tool-schema changes — MCP hosts often cache schemas for the life of the process. New sessions pull the live schema from `/v1/tools`.
+By default the bridge runs one local session sync before `dory_wake`. That lets Claude see just-finished Codex/Claude/OpenClaw/Hermes sessions without waiting for the background shipper poll. Set `DORY_SYNC_SESSIONS_ON_WAKE=false` to skip this.
+
+Restart open agent sessions after tool-schema changes because MCP hosts cache schemas per process. New sessions pull live schemas from `/v1/tools`.
 
 ## Per-agent installer
 
@@ -115,11 +117,11 @@ From the repo root:
 DORY_HTTP_URL=http://127.0.0.1:8766 ./scripts/agent-policy/install.sh
 ```
 
-Registers the HTTP-backed MCP bridge, inserts `scripts/agent-policy/dory-policy.md` into supported agent rule files, validates bundled Dory skills, and symlinks `skills/dory-*` into common global skill directories. Idempotent.
+Registers the HTTP-backed MCP bridge, inserts `scripts/agent-policy/dory-policy.md` into supported agent rule files, validates the bundled skills, and symlinks `skills/dory-*` into global skill folders. Idempotent.
 
-Skill links are installed into `~/.agents/skills`, `~/.claude/skills`, and `~/.codex/skills` when those agent sections are enabled. Flags: `--dry-run`, `--skip-claude`, `--skip-codex`, `--skip-opencode`, `--skip-skills`.
+Skill symlinks land in `~/.agents/skills`, `~/.claude/skills`, and `~/.codex/skills` when the corresponding agent section is enabled. Flags: `--dry-run`, `--skip-claude`, `--skip-codex`, `--skip-opencode`, `--skip-skills`.
 
-OpenClaw setup lives under `packages/openclaw-dory/`. Hermes setup lives under `plugins/hermes-dory/`. They use the same HTTP daemon and bearer-token model, but they are not installed by `scripts/agent-policy/install.sh`.
+OpenClaw lives under `packages/openclaw-dory/`. Hermes lives under `plugins/hermes-dory/`. They use the same HTTP daemon and bearer-token model, but neither is installed by `scripts/agent-policy/install.sh`.
 
 ## Direct HTTP examples
 
@@ -152,4 +154,4 @@ curl -X POST "$DORY_HTTP_URL/v1/memory-write" \
 
 ## Privacy boundary
 
-This repo ships public-safe code, examples, and synthetic evals. Real corpus data, private eval questions, run artifacts, deployment domains, tokens, and machine-specific paths stay outside the public tree.
+This repo ships public-safe code, examples, and synthetic evals. Real corpus data, private eval questions, run artifacts, deployment domains, tokens, and machine-specific paths live outside the public tree.

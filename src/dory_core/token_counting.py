@@ -42,6 +42,9 @@ class TiktokenCounter:
     _cache: dict[str, object] = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        # Dynamic DORY_WAKE_TOKEN_ENCODING_<agent> prefix can't be declared in
+        # DorySettings without changing the user-facing env shape, so env iteration
+        # stays here by design.
         merged = dict(_AGENT_ENCODINGS)
         merged.update(self.agent_encodings)
         for key, value in os.environ.items():

@@ -42,6 +42,8 @@ The `client` flow will:
 4. The host stores it under `logs/sessions/...`.
 5. Nightly digestion summarizes shipped sessions with `dory ops daily-digest-once`, then dreaming/maintenance can turn useful parts into distilled notes and proposed durable memory.
 
+The Claude Code HTTP bridge also runs a one-shot session sync immediately before `dory_wake` by default. That closes the gap where a just-finished Codex or Claude session exists locally but has not yet been picked up by the background poller. Set `DORY_SYNC_SESSIONS_ON_WAKE=false` to disable this behavior.
+
 ## Troubleshooting
 
 - **Shipper can't reach the host** — it should keep retrying from the local spool.

@@ -1,60 +1,41 @@
 # Runtime and data flow
 
-What the current code actually does at runtime.
+What the code actually does at runtime. If a section here contradicts the spec, trust the code.
 
 ## Runtime faces
 
-All major read/write behavior is shared across:
+Same read/write core, different wrappers:
 
-- CLI — `src/dory_cli/main.py`
-- HTTP — `src/dory_http/app.py`
-- Native MCP bridge — `src/dory_mcp/server.py`
-- Claude bridge — `scripts/claude-code/dory-mcp-http-bridge.py`
-- Hermes provider — `plugins/hermes-dory/provider.py`
-- OpenClaw plugin — `packages/openclaw-dory/src/index.ts`
+- CLI - `src/dory_cli/main.py`
+- HTTP - `src/dory_http/app.py`
+- Native MCP bridge - `src/dory_mcp/server.py`
+- Claude bridge - `scripts/claude-code/dory-mcp-http-bridge.py`
+- Hermes provider - `plugins/hermes-dory/provider.py`
+- OpenClaw plugin - `packages/openclaw-dory/src/index.ts`
 
-The real center of gravity is `dory_core`.
+Everything routes through `dory_core`. The wrappers are thin.
 
 ## Storage model
 
-Three distinct storage layers.
+Three layers:
 
-### 1. Durable markdown corpus
+### 1. Markdown corpus (source of truth)
 
-Source of truth.
+- Scanned by `MarkdownStore` in `src/dory_core/markdown_store.py`
+- Frontmatter parsed by `src/dory_core/frontmatter.py`
+- Chunked by `chunk_markdown()` in `src/dory_core/chunking.py`
 
-- scanned by `MarkdownStore` in `src/dory_core/markdown_store.py`
-- parsed via frontmatter helpers in `src/dory_core/frontmatter.py`
-- chunked by `chunk_markdown()` in `src/dory_core/chunking.py`
+### 2. Index sidecar (disposable)
 
-### 2. Durable index sidecar
+Lives under `index_root`. Blow it away and rebuild any time.
 
-Lives under `index_root`.
+- `index_root/dory.db` - SQLite. Holds the entity registry, claims, claim events, files, chunks, FTS, edge graph, embedding cache, chunk vectors, recall log, and parity tables.
+- `chunk_vectors` - the vector table, managed by `SqliteVectorStore`. Brute-force O(n) cosine today. A legacy `index_root/lance/chunks_vec.json` is imported as a fallback when the SQLite vector table is empty.
 
-- SQLite database at `index_root/dory.db`
-  - entity registry tables
-  - claims
-  - claim events
-  - files
-  - chunks
-  - FTS table
-  - edge graph
-  - embedding cache
-  - chunk vectors
-  - recall log
-  - parity tables
-- Vector records now live in SQLite table `chunk_vectors`
-  - managed by `SqliteVectorStore`
-  - brute-force O(n) cosine similarity
-  - legacy `index_root/lance/chunks_vec.json` imports as fallback when SQLite vectors are empty
+### 3. Session evidence plane (separate)
 
-### 3. Session evidence plane
-
-Separate from durable memory.
-
-- SQLite database at `index_root/session_plane.db`
-- used for session recall and ingest
-- managed by `SessionEvidencePlane` in `src/dory_core/session_plane.py`
+- `index_root/session_plane.db` - SQLite, managed by `SessionEvidencePlane` in `src/dory_core/session_plane.py`.
+- Used for session recall and ingest. Deliberately separate from durable memory so raw logs don't leak into canonical answers.
 
 ## Reindex flow
 
@@ -110,8 +91,8 @@ Current behavior:
 
 Input aliases:
 
-- `text`, `keyword`, `lexical` → `bm25`
-- `semantic` → `vector`
+- `text`, `keyword`, `lexical` -> `bm25`
+- `semantic` -> `vector`
 
 `corpus` values:
 
@@ -128,7 +109,7 @@ Input aliases:
   - gets vector candidates
   - fuses rankings via RRF
   - applies priors for canonical/current/source-backed docs
-  - returns a client-facing `rank_score` and `evidence_class`; raw `score` remains mode-specific diagnostic data
+  - returns `evidence_class` and confidence in the default client-facing response; `rank_score`, `score_normalized`, raw `score`, and `frontmatter` are diagnostic fields exposed only with `debug=true`
   - demotes raw inbox, generated, and session-like material unless a scope/exact query asks for it
   - adds lexical and temporal boosts
   - optionally expands queries through OpenRouter (`query_expansion.py`) when `DORY_QUERY_EXPANSION_ENABLED=true`
@@ -149,44 +130,51 @@ Score inconsistency: BM25-only returns negative scores; hybrid/vector return pos
 
 ### Session fallback
 
-For hybrid search:
+In hybrid search:
 
-- Without an LLM retrieval planner, weak durable results can still trigger the deterministic fallback into session-plane results.
-- With an LLM retrieval planner, session use can become part of the explicit search plan instead of relying only on the weak-result heuristic.
-- When the planner is available, the final merged durable/session candidate set can also be reordered through strict-schema result selection before the response is returned.
+- Deterministic path — weak durable results trigger a fallback into session-plane results.
+- With the LLM retrieval planner on — session use becomes part of the explicit plan instead of relying on the weakness heuristic. The final merged durable + session set can also be reordered via strict-schema selection.
+- Generic `corpus="all"` merges skip `active` and `interrupted` session rows unless the query asks for session or recent-history evidence. This keeps live agent transcripts out of normal project-state answers while preserving explicit recall.
 
-Durable memory isn't the only retrieval source, but session recall now has an opt-in LLM-assisted path for deciding when to merge. The default path stays deterministic to keep interactive search fast.
+### Client session sync
+
+- The background client shipper scans local harness stores on its poll interval and posts cleaned sessions to `/v1/session-ingest`.
+- The Claude Code HTTP bridge also runs the shipper once immediately before `dory_wake` by default. This makes just-finished local Codex/Claude/OpenClaw/Hermes sessions available to a wake call without waiting for the next poll.
+- The pre-wake sync uses the configured client env, spool, and checkpoint paths. Disable it with `DORY_SYNC_SESSIONS_ON_WAKE=false`.
+
+Default stays deterministic so interactive search stays fast. The LLM path is opt-in.
 
 ## Active-memory flow
 
-`ActiveMemoryEngine` in `src/dory_core/active_memory.py` is an optional staged retrieval helper.
+`ActiveMemoryEngine` in `src/dory_core/active_memory.py`. Optional staged retrieval helper, not a full autonomous sub-agent.
 
 Stages:
 
-1. Explicit active-memory call enters the staged retrieval flow.
-2. Request `profile` resolves to `general`, `coding`, `writing`, `privacy`, or `personal`; `auto` uses prompt classification as a compatibility fallback.
-3. The source policy for that profile decides wake profile, whether session evidence is allowed, whether generated wiki helper context is allowed, and which path families are blocked.
-4. Generated wiki shell is helper context only when the source policy allows it; helper files are not returned as citeable sources unless rendered as evidence.
-5. Bounded wake build uses the profile's wake policy and is only rendered when no stronger durable/session evidence was found.
-6. Optional retrieval planner turns prompt plus compact helper context into durable/session query sets.
-5. Durable hybrid search with rerank enabled by default for this pass.
-6. Session-plane recall search only when the source policy allows session context and the prompt asks for recency/session evidence.
-7. Optional composer turns a tiny, sanitized evidence packet into a compact active-memory synthesis.
-8. Final block renders synthesis plus bounded durable/session evidence sections under the request token budget and returns the resolved profile.
+1. Explicit call enters the staged flow.
+2. Request `profile` resolves to `general`, `coding`, `writing`, `privacy`, or `personal`. `auto` falls back to prompt classification.
+3. The profile's source policy decides the wake profile, whether session evidence is allowed, whether the generated wiki shell is used as helper context, and which path families are blocked.
+4. Optional retrieval planner turns the prompt plus compact helper context into durable and optional session queries.
+5. Durable hybrid search with rerank enabled by default.
+6. Session-plane recall only when the profile allows it and the prompt asks for recency.
+7. Optional composer compresses a tiny sanitized evidence packet into a synthesis block.
+8. Final output: synthesis + bounded durable/session evidence under the request token budget. Response includes the resolved profile.
 
-Behavior notes:
+Profile rules:
 
-- Explicit `active-memory` endpoint/CLI/tool calls always run the staged retrieval flow; callers should set `profile` when they know the task class.
-- Not a full autonomous sub-agent; it's a bounded retrieval helper.
-- The first routing layer is the profile source policy plus canonical search priors, not broad unweighted search.
-- `coding` excludes personal/voice paths by policy.
-- `privacy` is boundary-only and disables session evidence, generated wiki helper context, raw inbox, people pages, and personal knowledge pages.
-- `writing` loads voice context without full identity/profile context.
-- Wiki pages are hidden helper context when allowed. Durable active-memory evidence excludes `wiki/` so generated cache pages do not outrank canonical files.
-- Active-memory emits a compact `## Active memory` synthesis across current focus, helper hints, and selected durable/session hits before bounded evidence sections.
-- When an active-memory LLM provider is configured, planning and composition are strict-schema LLM passes from `src/dory_core/retrieval_planner.py`. `DORY_ACTIVE_MEMORY_LLM_PROVIDER=openrouter` uses the maintenance OpenRouter model; `local` uses an OpenAI-compatible local/LAN endpoint from `DORY_LOCAL_LLM_*`; `auto` prefers local and falls back to OpenRouter. `DORY_ACTIVE_MEMORY_LLM_STAGES=compose` keeps deterministic retrieval but uses the LLM to compress selected evidence; `plan` uses the LLM only for query expansion; `both` does both when the request deadline has enough time.
-- Active-memory is read-only. The LLM receives sanitized snippets and strict schemas only; it has no write path and cannot mutate the corpus or index.
-- Sources are citeable rendered wake or retrieved evidence paths; hidden helper files are not returned as sources.
+- `coding` blocks personal/voice paths.
+- `writing` loads voice context without full identity.
+- `privacy` is boundary-only: no session evidence, no wiki helper, no inbox, no people pages, no personal knowledge.
+
+LLM path (optional):
+
+- Provider via `DORY_ACTIVE_MEMORY_LLM_PROVIDER`: `openrouter`, `local` (OpenAI-compatible endpoint from `DORY_LOCAL_LLM_*`), `auto` (local then OpenRouter), or `off`.
+- Stages via `DORY_ACTIVE_MEMORY_LLM_STAGES`: `plan`, `compose`, or `both`. Deterministic retrieval always runs; the LLM only touches the stages you enable.
+- Read-only. The LLM sees sanitized snippets and strict schemas. No write path. If the deadline is tight, LLM stages are skipped.
+
+Other notes:
+
+- Wiki pages are helper context only and are never returned as citeable sources. Durable evidence excludes `wiki/` so generated cache pages do not outrank canonical files.
+- Output starts with a `## Active memory` synthesis across current focus, helper hints, and selected durable/session hits, followed by bounded evidence sections. When a canonical file is available locally, active-memory combines the focused search snippet with a compact canonical excerpt so `include_wake=false` calls are not reduced to a single generic line.
 
 ## Get flow
 
@@ -197,6 +185,7 @@ HTTP `GET /v1/get`:
 - resolves a corpus-relative path
 - prevents escape from the corpus root
 - slices lines via `from` and `lines` query params
+- returns 404 for paths outside the configured corpus, even when a memory document cites those paths as implementation evidence
 - returns content, frontmatter, hash, and line counts
 
 Native MCP `dory_get` returns the same path, line, frontmatter, and hash metadata.
@@ -234,68 +223,78 @@ Known gaps:
 
 `SemanticWriteEngine` in `src/dory_core/semantic_write.py` is the preferred durable write layer.
 
-Steps:
+Pipeline:
 
-1. Resolve the subject through `EntityRegistry`, with fallback subject matching.
-2. Route the request to a canonical target path.
-3. Create an immutable semantic evidence artifact under `sources/semantic/YYYY/MM/DD/*.md`.
-4. Append/replace/forget through `WriteEngine`.
-5. Mutate `ClaimStore` current claims and claim events using the semantic evidence artifact as provenance.
-6. Rebuild canonical pages from active claims plus claim events.
-7. On `forget`, republish the tombstone page from claim history plus claim events.
+1. Resolve the subject through `EntityRegistry` (with fallback matching).
+2. Route to a canonical target path.
+3. Drop an immutable evidence artifact under `sources/semantic/YYYY/MM/DD/*.md`.
+4. Append / replace / forget through `WriteEngine`.
+5. Update `ClaimStore` active claims and claim events using the evidence artifact as provenance.
+6. Rebuild the canonical page from active claims + events.
+7. On `forget`, republish the tombstone page from claim history + events.
 
-Behavior notes:
+Notes:
 
-- Person/project/concept/decision/core pages are structured section documents.
-- Semantic writes auto-maintain `Timeline` and `Evidence` from claim events, not just page-local append state.
-- Resolved semantic writes always emit immutable evidence artifacts unless quarantined.
-- Claim events persist `entity_id`, `event_type`, `reason`, `evidence_path`, `created_at`.
-- Semantic `forget` leaves the original page superseded and writes the retired history/evidence view to the tombstone.
-- Unresolved low-confidence subjects are rejected or quarantined.
-- Registry-backed subject resolution is refreshed by semantic writes through `_sync_registry()`, so same-process writes can resolve newly established subjects.
+- Person, project, concept, decision, and core pages are structured section docs.
+- `Timeline` and `Evidence` on those pages come from claim events, not ad-hoc appends.
+- Every resolved semantic write emits an immutable evidence artifact unless quarantined.
+- Claim events carry `entity_id`, `event_type`, `reason`, `evidence_path`, `created_at`.
+- Semantic `forget` supersedes the original page and writes the retired history + evidence view to the tombstone.
+- Unresolved low-confidence subjects get rejected or quarantined.
+- `_sync_registry()` refreshes registry state inside the same process, so writes can resolve subjects that were just established.
 
 ## Migration flow
 
-`MigrationEngine` in `src/dory_core/migration_engine.py` runs in four semantic stages when LLM support is enabled:
+`MigrationEngine` in `src/dory_core/migration_engine.py`. Four stages when LLM support is on:
 
 1. Per-document strict extraction
 2. Evidence-first staging for unresolved docs
-3. Corpus-level entity clustering across extracted candidates
-4. Claim-store-backed canonical compilation plus optional generated-page audit/repair
+3. Corpus-level entity clustering across candidates
+4. Claim-store-backed canonical compilation, plus optional audit / repair pass on generated pages
 
-Behavior:
+### Inputs
 
-- Every selected markdown file can emit a structured document artifact under `inbox/migration-documents/<run_id>/`.
-- Migration stages `.json`, `.jsonl`, `.ndjson`, `.txt`, `.yaml`, `.yml`, `.toml`, and `.csv` legacy inputs alongside `.md` files, normalizing them to markdown before classification.
-- Unresolved docs stay evidence-only or quarantine by default, but bounded no-LLM promotion now exists for a narrow subset of structured inputs:
-  - transcript-shaped `.jsonl` / `.ndjson` session evidence can emit clear deterministic atoms and promote those bounded facts into canonical synthesis
-  - typed JSON payloads with explicit supported families (`project`, `person`, `decision`, `concept`) can promote without an LLM when they provide a clear title plus summary
-- Per-document artifacts record extraction/classification fallback reasons when LLM promotion degrades to evidence-only.
-- Resolved docs participate in a corpus-level entity clustering pass before atoms are committed.
-- Clustering can merge aliases like `person:primary-user` and `person:primary-user-alias` across source files before claims/pages are written.
-- Migration preserves extracted source dates when writing claims, so canonical timelines reflect source `time_ref` instead of migration-run time.
-- Migration applies a small claim-write policy instead of blindly appending every atom:
-  - `project_update` → claim kind `state`
-  - A newer `project_update` for the same project replaces the current active project state claim instead of leaving multiple active states side by side
-  - `person_fact` / `concept_claim` → claim kind `fact`
-  - `goal` / `open_question` / `followup` / `timeline_event` → claim kind `note`
-- Core-doc migration uses file-specific section targets instead of a generic `Role` fallback:
-  - `core/user.md` → `Summary`
-  - `core/identity.md` → `Role`
-  - `core/soul.md` → `Voice`
-  - `core/env.md` → `Environment`
-  - `core/active.md` → `Current Focus`
-  - `core/defaults.md` → `Default Operating Assumptions`
-- After compilation, migration can emit a separate audit artifact under `inbox/migration-runs/<run_id>.audit.json`.
-- When pages are flagged, migration can also emit a repair artifact under `inbox/migration-runs/<run_id>.repair.json`, apply one bounded grounded repair pass, and re-audit before writing the final report/run artifact.
-- Run-level fallback warnings persist in the main run artifact/report for entity-resolution, audit, and repair failures that previously degraded silently.
-- Normalized non-Markdown evidence is written as markdown targets like `*.json.md`, `*.jsonl.md`, `*.ndjson.md`, so the durable corpus stays markdown-first even when the legacy source was structured data.
-- Transcript-shaped JSON Lines inputs render extracted record summaries plus text-only transcript lines before the raw payload block, giving LLM-backed migration a cleaner evidence surface than raw event logs alone.
-- Deterministic classification routes transcript-shaped `.jsonl` / `.ndjson` inputs into `logs/sessions/imported/*.md` with session frontmatter.
-- In no-LLM mode, transcript-shaped session evidence can emit bounded deterministic atoms into the per-document migration artifact and, when clear enough, participate in bounded canonical synthesis.
-- Typed JSON exports with explicit `kind`/`type` families (`project`, `person`, `decision`, `concept`) can emit bounded deterministic atoms and promote into canonical synthesis without an LLM, provided the payload declares a supported family and provides a clear title plus summary.
-- Explicit structured-export adapters exist for known schema-tagged payloads: `dory.project_export.v1`, `dory.person_export.v1`, `dory.decision_export.v1`, `dory.concept_export.v1`.
-- Unknown structured schemas stay evidence-only instead of being promoted through broader family guessing.
+- Markdown files + legacy structured inputs: `.json`, `.jsonl`, `.ndjson`, `.txt`, `.yaml`, `.yml`, `.toml`, `.csv`. Non-markdown inputs are normalized to markdown before classification and land as `*.json.md`, `*.jsonl.md`, etc. so the corpus stays markdown-first.
+- Per-document artifacts land under `inbox/migration-documents/<run_id>/` and record fallback reasons when LLM promotion degrades to evidence-only.
+
+### No-LLM promotion
+
+Unresolved docs stay evidence-only or quarantined by default, but a narrow set of structured inputs can promote deterministically:
+
+- Transcript-shaped `.jsonl` / `.ndjson` session evidence with clear assistant statements.
+- Typed JSON with an explicit family (`project`, `person`, `decision`, `concept`) plus a title and summary.
+- Schema-tagged exports with a registered adapter: `dory.project_export.v1`, `dory.person_export.v1`, `dory.decision_export.v1`, `dory.concept_export.v1`. Unknown schemas stay evidence-only.
+
+### Claim-write policy
+
+Migration doesn't just append every atom — it maps them to claim kinds:
+
+- `project_update` → claim kind `state`. A newer `project_update` for the same project replaces the current active state claim instead of leaving multiple actives side by side.
+- `person_fact` / `concept_claim` → claim kind `fact`.
+- `goal` / `open_question` / `followup` / `timeline_event` → claim kind `note`.
+
+Extracted source dates (from `time_ref`) are preserved on the written claims so canonical timelines reflect when things happened, not when migration ran.
+
+### Entity clustering
+
+Resolved docs go through a corpus-level clustering pass before atoms are committed. Clustering merges aliases (e.g. `person:primary-user` and `person:primary-user-alias`) across source files before claims and pages are written.
+
+### Core docs
+
+Core docs map to specific sections instead of a generic `Role` fallback:
+
+- `core/user.md` → `Summary`
+- `core/identity.md` → `Role`
+- `core/soul.md` → `Voice`
+- `core/env.md` → `Environment`
+- `core/active.md` → `Current Focus`
+- `core/defaults.md` → `Default Operating Assumptions`
+
+### Audit and repair
+
+- After compilation, migration emits `inbox/migration-runs/<run_id>.audit.json`.
+- If pages are flagged, it emits `inbox/migration-runs/<run_id>.repair.json`, applies one bounded grounded repair pass, and re-audits before writing the final report and run artifact.
+- Entity-resolution, audit, and repair failures that previously degraded silently now persist as fallback warnings in the run report.
 
 ## Session ingest flow
 
@@ -337,22 +336,9 @@ in `src/dory_core/link.py`.
 
 Note: the code block regex in `link.py` (`re.compile(r"```.*?```", re.DOTALL)`) can match incorrectly across multiple fenced code blocks and doesn't handle unclosed blocks.
 
-## Active memory flow (summary)
-
-`ActiveMemoryEngine` in `src/dory_core/active_memory.py` is an optional staged pre-reply helper.
-
-- Resolves an explicit profile (`coding`, `writing`, `privacy`, `personal`, `general`) or classifies `auto`.
-- Applies profile source policy before rendering evidence; `coding` blocks personal/voice profile pages, and `privacy` is boundary-only.
-- Builds a reduced wake block only when requested and only through the profile's wake policy.
-- Runs durable hybrid search plus optional session recall when the prompt asks for recent/session context.
-- Uses optional strict-schema LLM planning/composition when configured, but falls back to deterministic retrieval.
-- Emits a synthesized block with compact durable/session evidence sections and citeable source paths.
-
-Read-only bounded context supplement. The active-memory LLM path never writes memory.
-
 ## Research flow
 
-`ResearchEngine` in `src/dory_core/research.py` — still bounded, but no longer a snippet dump.
+`ResearchEngine` in `src/dory_core/research.py` is still bounded, but no longer a snippet dump.
 
 - Runs hybrid search with rerank enabled.
 - Requests compact snippets rather than whole chunk bodies.
@@ -362,10 +348,10 @@ Read-only bounded context supplement. The active-memory LLM path never writes me
 
 Artifact targets:
 
-- reports → `references/reports/`
-- briefings → `references/briefings/`
-- wiki notes → `wiki/concepts/`
-- proposals → `inbox/proposed/`
+- reports -> `references/reports/`
+- briefings -> `references/briefings/`
+- wiki notes -> `wiki/concepts/`
+- proposals -> `inbox/proposed/`
 
 ## OpenClaw parity flow
 
@@ -382,26 +368,26 @@ Current code supports:
 
 ## Claim-driven publishing
 
-`ClaimStore` and the canonical/wiki renderers split current state from history:
+`ClaimStore` plus the canonical / wiki renderers split current state from history.
 
-- Active/current sections come from active claims.
-- `Timeline` comes from ordered claim events.
-- `Evidence` comes from deduped claim-event `evidence_path`s.
-- Older callers can still fall back to synthesized events from claim history, but live semantic writes now supply explicit claim events.
+- Active / current sections: from active claims.
+- `Timeline`: from ordered claim events.
+- `Evidence`: from deduped `evidence_path` values on those events.
+- Older callers can still synthesize events from claim history, but live semantic writes supply explicit claim events now.
 
 Main code:
 
 - `src/dory_core/claim_store.py`
 - `src/dory_core/canonical_pages.py`
 - `src/dory_core/compiled_wiki.py`
-- recall-promotion candidate tracking used by dreaming
+- Recall-promotion candidate tracking (used by dreaming)
 
 ## Token counting
 
 Two implementations:
 
-- `src/dory_core/token_counting.py` — tiktoken-based counting with per-agent encoding and heuristic fallback
-- `src/dory_core/chunking.py` — uses `text.split()` (whitespace split), not tiktoken
+- `src/dory_core/token_counting.py` - tiktoken-based counting with per-agent encoding and heuristic fallback
+- `src/dory_core/chunking.py` - uses `text.split()` (whitespace split), not tiktoken
 
 Chunking doesn't use the tiktoken counter, so chunk boundaries are based on word count, not actual token count.
 
@@ -409,9 +395,9 @@ Chunking doesn't use the tiktoken counter, so chunk boundaries are based on word
 
 Domain exceptions in `src/dory_core/errors.py`:
 
-- `DoryError` — base
-- `DoryConfigError` — configuration issues
-- `DoryValidationError` — input validation failures
+- `DoryError` - base
+- `DoryConfigError` - configuration issues
+- `DoryValidationError` - input validation failures
 
 HTTP mapping: all `DoryValidationError` instances return 400 regardless of the specific failure (path invalid, precondition failed, injection blocked, quota exceeded, frontmatter invalid). The API contract defines distinct error codes and HTTP status codes for each.
 
@@ -419,12 +405,11 @@ MCP mapping: tool-call exceptions are caught at the server boundary and returned
 
 ## Current risks and drift
 
-- Vector layer is SQLite-backed brute-force search, not ANN indexing.
-- MCP has no authentication; HTTP does.
-- Claude Code bridge forwards HTTP bearer auth, but native MCP has no auth handshake.
-- Recall mode searches all sessions, not just the current session.
-- Main write paths are atomic, but non-core scripts still contain non-atomic file writes.
-- `SubjectResolver` entries become stale in long-running daemons.
-- HTTP error responses don't match the API contract format.
-- Chunking uses whitespace-split token counting, not tiktoken.
-- Chunk overlap parameter is accepted but not implemented.
+- Vector search is SQLite + brute-force cosine, not ANN.
+- MCP has no auth. HTTP does. The Claude Code bridge forwards HTTP bearer auth; raw MCP over TCP doesn't.
+- Recall mode searches all sessions, not just the current one.
+- Critical write paths are atomic; some non-core scripts still use plain `write_text()`.
+- `SubjectResolver` entries can go stale in long-running daemons.
+- HTTP errors return `{"detail": "..."}` instead of the contract's `{"error": {"code": ...}}` shape.
+- Chunking splits on whitespace for token counts, not tiktoken.
+- Chunk `overlap_ratio` is accepted but not implemented.

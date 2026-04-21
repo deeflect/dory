@@ -178,11 +178,13 @@ def build_default_shipper(
     base_url: str,
     spool_root: Path,
     token: str | None = None,
+    timeout_seconds: float = 10.0,
 ) -> SessionShipper:
     return SessionShipper(
         base_url=base_url,
         spool=SessionSpool(Path(spool_root)),
         transport=UrllibSessionTransport(token=token),
+        timeout_seconds=timeout_seconds,
     )
 
 

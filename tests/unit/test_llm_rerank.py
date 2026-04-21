@@ -7,11 +7,14 @@ import pytest
 
 from dory_core.llm.openrouter import OpenRouterProviderError
 from dory_core.llm_rerank import (
+    OpenAICompatibleReranker,
     OpenRouterReranker,
     RerankCandidate,
     _build_user_prompt,
     _parse_rerank_payload,
+    build_reranker,
 )
+from dory_core.config import DorySettings
 
 
 @dataclass
@@ -75,6 +78,78 @@ def test_openrouter_reranker_handles_empty_candidates() -> None:
     assert result is not None
     assert result.ordered_chunk_ids == ()
     assert result.scores == {}
+
+
+def test_openai_compatible_reranker_returns_ordered_result(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeResponse:
+        status_code = 200
+        headers: dict[str, str] = {}
+        text = ""
+
+        def json(self) -> dict[str, object]:
+            return {
+                "results": [
+                    {"index": 1, "relevance_score": 0.9},
+                    {"index": 0, "relevance_score": 0.2},
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, *, base_url: str, timeout: float) -> None:
+            calls.append({"base_url": base_url, "timeout": timeout})
+
+        def __enter__(self) -> "FakeClient":
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def post(self, path: str, *, headers: dict[str, str], json: dict[str, object]) -> FakeResponse:
+            calls.append({"path": path, "headers": headers, "json": json})
+            return FakeResponse()
+
+    monkeypatch.setattr("dory_core.llm_rerank.httpx.Client", FakeClient)
+    reranker = OpenAICompatibleReranker(
+        api_key="secret",
+        base_url="https://llm.example.test",
+        model="qwen3-rerank",
+    )
+
+    result = reranker.rerank(query="q", candidates=[_candidate("a", snippet="A"), _candidate("b", snippet="B")])
+
+    assert result is not None
+    assert result.ordered_chunk_ids == ("b", "a")
+    assert result.scores == {"b": 0.9, "a": 0.2}
+    assert calls[0] == {"base_url": "https://llm.example.test/v1", "timeout": 30.0}
+    request = calls[1]
+    assert request["path"] == "/rerank"
+    assert request["headers"] == {"Content-Type": "application/json", "Authorization": "Bearer secret"}
+    assert request["json"]["model"] == "qwen3-rerank"
+    assert request["json"]["query"] == "q"
+    assert request["json"]["top_n"] == 2
+    assert request["json"]["documents"] == [
+        "path: docs/a.md\ntitle: A\n\nA",
+        "path: docs/b.md\ntitle: B\n\nB",
+    ]
+
+
+def test_build_reranker_can_use_local_provider() -> None:
+    reranker = build_reranker(
+        DorySettings(
+            query_reranker_enabled=True,
+            query_reranker_provider="local",
+            local_reranker_api_key="placeholder",
+            local_reranker_base_url="https://llm.example.test/v1",
+            local_reranker_model="qwen3-rerank",
+        )
+    )
+
+    assert isinstance(reranker, OpenAICompatibleReranker)
+    assert reranker.api_key == "placeholder"
+    assert reranker.base_url == "https://llm.example.test/v1"
+    assert reranker.model == "qwen3-rerank"
 
 
 def test_openrouter_reranker_returns_none_on_provider_error() -> None:

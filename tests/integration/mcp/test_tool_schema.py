@@ -42,6 +42,7 @@ def test_dory_active_memory_schema_exposes_include_wake_and_limits() -> None:
     props = active_tool["inputSchema"]["properties"]
 
     assert "include_wake" in props
+    assert props["rerank"]["enum"] == ["auto", "true", "false"]
     assert props["profile"]["enum"] == ["auto", "general", "coding", "writing", "privacy", "personal"]
     assert props["budget_tokens"]["maximum"] == 1200
     assert props["timeout_ms"]["maximum"] == 5000
@@ -56,6 +57,8 @@ def test_dory_search_schema_exposes_min_score() -> None:
     assert search_tool["inputSchema"]["properties"]["corpus"]["enum"] == ["durable", "sessions", "all"]
     assert "scope" in search_tool["inputSchema"]["properties"]
     assert "include_content" in search_tool["inputSchema"]["properties"]
+    assert search_tool["inputSchema"]["properties"]["rerank"]["enum"] == ["auto", "true", "false"]
+    assert "debug" in search_tool["inputSchema"]["properties"]
     assert "exact" in search_tool["inputSchema"]["properties"]["mode"]["enum"]
     assert "text" in search_tool["inputSchema"]["properties"]["mode"]["enum"]
 

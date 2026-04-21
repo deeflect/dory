@@ -55,6 +55,7 @@ class SearchReq(BaseModel):
     min_score: float = 0.0
     include_content: bool = True
     rerank: Literal["auto", "true", "false"] = "auto"
+    debug: bool = False
 
     @field_validator("mode", mode="before")
     @classmethod
@@ -87,6 +88,20 @@ class SearchResp(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+_SEARCH_RESULT_DEBUG_FIELDS = {"score", "score_normalized", "rank_score", "frontmatter"}
+
+
+def serialize_search_response(response: SearchResp, *, debug: bool = False) -> dict[str, Any]:
+    payload = response.model_dump(mode="json")
+    if debug:
+        return payload
+    for result in payload.get("results", []):
+        if isinstance(result, dict):
+            for field in _SEARCH_RESULT_DEBUG_FIELDS:
+                result.pop(field, None)
+    return payload
+
+
 class ActiveMemoryReq(BaseModel):
     prompt: str
     agent: str
@@ -102,6 +117,7 @@ class ActiveMemoryResp(BaseModel):
     kind: Literal["none", "memory"]
     block: str
     summary: str
+    took_ms: int = 0
     profile: Literal["general", "coding", "writing", "privacy", "personal"] = "general"
     confidence: Literal["low", "medium", "high"] | None = None
     sources: list[str] = Field(default_factory=list)

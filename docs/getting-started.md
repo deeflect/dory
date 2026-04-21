@@ -1,8 +1,8 @@
 # Getting started
 
-Install Dory, run it, and point your agents at it. This guide is for people who want to use Dory — not study the internals.
+Install Dory, run it, and point your agents at it. For implementation details, see [current-state](current-state/README.md).
 
-Dory is a shared memory service, not a per-agent library. You run one corpus and one index, then point Claude Code, Codex, opencode, OpenClaw, Hermes, or any MCP/HTTP client at the same surface.
+Dory is one shared memory service, not a per-agent library. Run one corpus, one index. Point Claude Code, Codex, opencode, OpenClaw, Hermes, or any MCP/HTTP client at the same surface.
 
 ## Pick a setup
 
@@ -20,8 +20,8 @@ Dory is a shared memory service, not a per-agent library. You run one corpus and
 - Python 3.12+
 - [`uv`](https://docs.astral.sh/uv/)
 - Docker (only for the Docker path)
-- Gemini API key — required for HTTP/MCP/search/semantic writes/reindex/evals today
-- OpenRouter API key — optional, for dreaming, maintenance, and LLM-assisted retrieval
+- Embedding provider - Gemini key for the default provider, or an OpenAI-compatible local/LAN embedding endpoint
+- OpenRouter API key - optional, for dreaming, maintenance, and LLM-assisted retrieval
 
 ## Local CLI install
 
@@ -38,9 +38,9 @@ uv run dory init
 
 This guide uses these local paths:
 
-- corpus → `data/corpus`
-- index → `.dory/index`
-- auth tokens → `.dory/auth-tokens.json`
+- corpus -> `data/corpus`
+- index -> `.dory/index`
+- auth tokens -> `.dory/auth-tokens.json`
 
 Write and read a test memory:
 
@@ -52,13 +52,24 @@ uv run dory search "active focus"
 uv run dory wake --profile coding --budget 1200
 ```
 
-`--force-inbox` on a fresh corpus is deliberate: Dory doesn't know what `atlas` is yet, so it captures the note under `inbox/semantic/` instead of guessing a canonical target. Once you have canonical project or person pages, run with `--dry-run` first, check the route, then add `--allow-canonical` to update the canonical page.
+`--force-inbox` is there on purpose. A fresh corpus doesn't know what `atlas` is, so Dory parks the note under `inbox/semantic/` instead of guessing a canonical target. Once canonical project or person pages exist, run with `--dry-run`, check the route, then add `--allow-canonical` to commit.
 
-Before search, semantic writes, reindex, HTTP, or MCP, set one of:
+Before search, semantic writes, reindex, HTTP, or MCP with the default Gemini embedding provider, set one of:
 
 ```bash
 export DORY_GEMINI_API_KEY=...
 export GOOGLE_API_KEY=...
+```
+
+For a local/LAN OpenAI-compatible embedding endpoint instead:
+
+```bash
+export DORY_EMBEDDING_PROVIDER=local
+export DORY_LOCAL_EMBEDDING_BASE_URL=http://127.0.0.1:8000/v1
+export DORY_LOCAL_EMBEDDING_MODEL=qwen3-embed
+export DORY_LOCAL_EMBEDDING_API_KEY=...
+export DORY_EMBEDDING_DIMENSIONS=1024
+export DORY_EMBEDDING_BATCH_SIZE=16
 ```
 
 ## HTTP daemon
@@ -112,7 +123,7 @@ mkdir -p data/corpus
 docker compose up -d --build
 ```
 
-Set `DORY_GEMINI_API_KEY` or `GOOGLE_API_KEY` in `.env` before starting the container. On Linux hosts, the container runs as UID `10000`; if Docker cannot write the bind mount, run:
+Set `DORY_GEMINI_API_KEY` or `GOOGLE_API_KEY` in `.env` before starting the container when using the default Gemini embedding provider. For local/LAN embeddings, set `DORY_EMBEDDING_PROVIDER=local` and the `DORY_LOCAL_EMBEDDING_*` values instead. On Linux hosts, the container runs as UID `10000`; if Docker cannot write the bind mount, run:
 
 ```bash
 sudo chown -R 10000:10000 data/corpus
@@ -127,6 +138,19 @@ DORY_HTTP_PORT=8766
 DORY_ALLOW_NO_AUTH=false
 DORY_WEB_PASSWORD=
 DORY_GEMINI_API_KEY=...
+DORY_EMBEDDING_PROVIDER=gemini
+DORY_EMBEDDING_MODEL=gemini-embedding-001
+DORY_EMBEDDING_DIMENSIONS=768
+DORY_EMBEDDING_BATCH_SIZE=100
+DORY_LOCAL_EMBEDDING_BASE_URL=http://127.0.0.1:8000/v1
+DORY_LOCAL_EMBEDDING_MODEL=qwen3-embed
+DORY_LOCAL_EMBEDDING_API_KEY=
+DORY_LOCAL_EMBEDDING_QUERY_INSTRUCTION=Given a web search query, retrieve relevant passages that answer the query
+DORY_QUERY_RERANKER_ENABLED=false
+DORY_QUERY_RERANKER_PROVIDER=openrouter
+DORY_LOCAL_RERANKER_BASE_URL=http://127.0.0.1:8000/v1
+DORY_LOCAL_RERANKER_MODEL=qwen3-rerank
+DORY_LOCAL_RERANKER_API_KEY=
 DORY_OPENROUTER_API_KEY=
 DORY_ACTIVE_MEMORY_LLM_PROVIDER=off
 DORY_ACTIVE_MEMORY_LLM_STAGES=compose
@@ -139,9 +163,19 @@ DORY_LOCAL_LLM_API_KEY=
 
 `DORY_DATA_ROOT` is the host directory mounted into the container at `/var/lib/dory`. Any host path works as long as Docker can write to it.
 
-Compose uses host networking during image build so dependency install steps inherit the host resolver. At runtime, leave `DORY_DOCKER_DNS_SERVERS` blank unless Docker bridge DNS cannot resolve your provider hosts. `GEMINI_API_KEY` and `OPENROUTER_API_KEY` are also passed through as provider compatibility aliases.
+Notes:
 
-`DORY_ACTIVE_MEMORY_LLM_PROVIDER` controls the optional active-memory planner/composer. Use `local` for an OpenAI-compatible local/LAN endpoint, `openrouter` for the hosted path, `auto` to prefer local then fall back to OpenRouter, or `off` for deterministic retrieval only. `DORY_ACTIVE_MEMORY_LLM_STAGES` can be `both`, `plan`, or `compose`; `compose` is usually safest for small local models because deterministic retrieval stays fast while the model only compresses selected evidence. `plan` is useful when the local model is good at strict JSON query expansion. Dory skips LLM stages when the request deadline is too tight. `DORY_LOCAL_LLM_BASE_URL` may be either the service root or its `/v1` OpenAI-compatible root.
+- Image build uses host networking so the resolver works in locked-down networks. Leave `DORY_DOCKER_DNS_SERVERS` blank at runtime unless bridge DNS can't resolve your providers.
+- `GEMINI_API_KEY` and `OPENROUTER_API_KEY` are accepted as compatibility aliases.
+
+Optional active-memory LLM. `DORY_ACTIVE_MEMORY_LLM_PROVIDER`:
+
+- `off` - deterministic retrieval only (default)
+- `local` - OpenAI-compatible local/LAN endpoint (set `DORY_LOCAL_LLM_*`)
+- `openrouter` - hosted
+- `auto` - local first, OpenRouter fallback
+
+`DORY_ACTIVE_MEMORY_LLM_STAGES` picks which stages the LLM touches: `plan` (query expansion), `compose` (evidence compression), or `both`. `compose` is the safest default for small local models. Dory skips LLM stages if the request deadline is tight. `DORY_LOCAL_LLM_BASE_URL` accepts either the service root or its `/v1` path.
 
 Create a bearer token inside the container so it lands in the mounted token store:
 
@@ -167,7 +201,7 @@ export DORY_CLIENT_AUTH_TOKEN="$(uv run dory auth new codex)"
 ./scripts/agent-policy/install.sh
 ```
 
-The installer drops Dory rules into supported agent config files, wires the HTTP-backed MCP bridge, validates bundled Dory skills, and symlinks `skills/dory-*` into common global skill folders. It's idempotent:
+The installer drops Dory rules into supported agent config files, wires the HTTP-backed MCP bridge, validates the bundled skills, and symlinks `skills/dory-*` into common global skill folders. It is idempotent and safe to run again:
 
 ```bash
 ./scripts/agent-policy/install.sh --dry-run
@@ -207,15 +241,15 @@ Or, if the same machine is both host and client:
 bash scripts/ops/install-dory.sh solo
 ```
 
-The shipper scans known harness stores, scrubs obvious noise and secrets, spools locally when offline, and sends session evidence to the host. Durable memory promotion happens later through dream/maintenance flows.
+The shipper scans known harness stores, scrubs obvious noise and secrets, spools locally when offline, and ships session evidence to the host. Promotion into durable memory happens later through dream and maintenance runs.
 
-To turn shipped session evidence into a daily digest:
+Daily digest of shipped session evidence:
 
 ```bash
 uv run dory --corpus-root data/corpus --index-root .dory/index ops daily-digest-once
 ```
 
-By default this writes yesterday's `digests/daily/YYYY-MM-DD.md`, skips sessions modified in the last 30 minutes, refuses to overwrite an existing digest, and reindexes only the written digest path. Use `--today`, `--date YYYY-MM-DD`, `--dry-run`, or `--overwrite` for manual runs.
+Defaults: writes yesterday's `digests/daily/YYYY-MM-DD.md`, skips sessions touched in the last 30 minutes, won't overwrite an existing digest, reindexes only the written path. Use `--today`, `--date YYYY-MM-DD`, `--dry-run`, or `--overwrite` for manual runs.
 
 ## Browser wiki and Obsidian
 
@@ -252,7 +286,7 @@ uv run dory ops eval-once
 
 ## Where next
 
-- [Agent integration](agent-integration.md) — MCP/HTTP/CLI wiring per client
-- [Deployment runbook](../references/runbook.md) — ops, backup, recovery, validation
-- [Client runbook](../references/client-runbook.md) — session shipping
-- [Current-state docs](current-state/README.md) — implementation details and known drift
+- [Agent integration](agent-integration.md) - MCP/HTTP/CLI wiring per client
+- [Deployment runbook](../references/runbook.md) - ops, backup, recovery, validation
+- [Client runbook](../references/client-runbook.md) - session shipping
+- [Current-state docs](current-state/README.md) - implementation details and known drift

@@ -15,7 +15,9 @@ class DorySettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DORY_",
         env_file=".env",
+        env_ignore_empty=True,
         extra="ignore",
+        populate_by_name=True,
     )
 
     root: str = "."
@@ -23,15 +25,37 @@ class DorySettings(BaseSettings):
     index_root: str | None = None
     auth_tokens_path: str | None = None
     allow_no_auth: bool = False
+    web_password: str | None = None
     http_host: str = "127.0.0.1"
     http_port: int = 8000
     gemini_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("DORY_GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY"),
     )
+    embedding_provider: Literal["gemini", "local"] = "gemini"
     embedding_model: str = "gemini-embedding-001"
     embedding_dimensions: int = Field(default=768, ge=1, le=3072)
     embedding_batch_size: int = Field(default=100, ge=1, le=512)
+    embed_inter_batch_delay: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=60.0,
+        validation_alias=AliasChoices("DORY_EMBED_INTER_BATCH_DELAY"),
+    )
+    embed_max_retries: int = Field(
+        default=6,
+        ge=0,
+        le=20,
+        validation_alias=AliasChoices("DORY_EMBED_MAX_RETRIES"),
+    )
+    local_embedding_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DORY_LOCAL_EMBEDDING_API_KEY", "DORY_LOCAL_LLM_API_KEY"),
+    )
+    local_embedding_base_url: str = "http://127.0.0.1:8000/v1"
+    local_embedding_model: str = "qwen3-embed"
+    local_embedding_query_instruction: str = "Given a web search query, retrieve relevant passages that answer the query"
+    local_embedding_timeout_seconds: float = Field(default=30.0, gt=0.0, le=300.0)
     sovereign_mode: bool = False
     ollama_base_url: str = "http://127.0.0.1:11434"
     openrouter_api_key: str | None = Field(
@@ -58,9 +82,30 @@ class DorySettings(BaseSettings):
     query_expansion_enabled: bool = False
     query_expansion_max: int = Field(default=2, ge=0, le=5)
     query_reranker_enabled: bool = False
+    query_reranker_provider: Literal["openrouter", "local"] = "openrouter"
+    query_reranker_candidate_limit: int = Field(default=40, ge=2, le=100)
+    local_reranker_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DORY_LOCAL_RERANKER_API_KEY", "DORY_LOCAL_LLM_API_KEY"),
+    )
+    local_reranker_base_url: str = "http://127.0.0.1:8000/v1"
+    local_reranker_model: str = "qwen3-rerank"
+    local_reranker_timeout_seconds: float = Field(default=30.0, gt=0.0, le=300.0)
     eval_judge_enabled: bool = True
     max_write_bytes: int = Field(default=10_240, ge=1)
     default_wake_budget_tokens: int = Field(default=600, ge=1, le=1500)
+    migrate_progress: bool = False
+    openrouter_input_price_per_million: float | None = None
+    openrouter_output_price_per_million: float | None = None
+    claude_projects_root: str | None = None
+    codex_sessions_root: str | None = None
+    opencode_db_path: str | None = None
+    openclaw_agents_root: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("DORY_OPENCLAW_AGENTS_ROOT", "DORY_OPENCLAW_SESSIONS_ROOT"),
+    )
+    hermes_sessions_root: str | None = None
+    hermes_state_db_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

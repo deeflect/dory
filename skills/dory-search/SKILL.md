@@ -19,3 +19,4 @@ Rules:
 - Use `mode=text`, `mode=keyword`, or `mode=lexical` when you want BM25-only search; all three normalize to `bm25`
 - Use `mode=semantic` when you want vector-only search; it normalizes to `vector`
 - Hybrid search is deterministic by default; LLM-assisted planning, expansion, and reranking require explicit `DORY_QUERY_*` server flags
+- Use `rerank="false"` for baseline deterministic search, `rerank="true"` to force the configured reranker, and `rerank="auto"` to follow server defaults

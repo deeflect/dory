@@ -45,6 +45,7 @@ def test_active_memory_http_endpoint_returns_memory_block(tmp_path: Path, monkey
     payload = result.json()
     assert payload["kind"] == "memory"
     assert payload["summary"] == "Rooster is the focus."
+    assert "took_ms" in payload
     assert stub.requests
     assert stub.requests[0].profile == "general"
 

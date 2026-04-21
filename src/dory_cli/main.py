@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import sys
 from dataclasses import asdict, dataclass
@@ -72,7 +71,16 @@ from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
 from dory_core.search import SearchEngine
 from dory_core.semantic_write import SemanticWriteEngine
 from dory_core.status import build_status, format_status
-from dory_core.types import ActiveMemoryReq, MemoryWriteReq, PurgeReq, ResearchReq, SearchReq, SearchScope, WakeReq
+from dory_core.types import (
+    ActiveMemoryReq,
+    MemoryWriteReq,
+    PurgeReq,
+    ResearchReq,
+    SearchReq,
+    SearchScope,
+    WakeReq,
+    serialize_search_response,
+)
 from dory_core.wake import WakeBuilder
 from dory_http.auth import issue_token
 
@@ -743,6 +751,7 @@ def search(
     types: list[str] = typer.Option([], "--type"),
     statuses: list[str] = typer.Option([], "--status"),
     tags: list[str] = typer.Option([], "--tag"),
+    debug: bool = typer.Option(False, "--debug"),
 ) -> None:
     config = _get_config(ctx)
     try:
@@ -755,6 +764,7 @@ def search(
             retrieval_planner=planner,
             result_selector=planner,
             reranker=build_reranker(settings),
+            rerank_candidate_limit=settings.query_reranker_candidate_limit,
         )
         resp = engine.search(
             SearchReq(
@@ -763,11 +773,12 @@ def search(
                 corpus=corpus,
                 mode=mode,
                 scope=SearchScope(type=types, status=statuses, tags=tags),
+                debug=debug,
             )
         )
     except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
         _fail_with_runtime_error(str(err))
-    typer.echo(resp.model_dump_json(indent=2))
+    typer.echo(json.dumps(serialize_search_response(resp, debug=debug), indent=2, sort_keys=True))
 
 
 @app.command()
@@ -1283,6 +1294,7 @@ def _build_active_memory_engine(config: RuntimeConfig) -> ActiveMemoryEngine:
             retrieval_planner=query_planner,
             result_selector=query_planner,
             reranker=build_reranker(settings),
+            rerank_candidate_limit=settings.query_reranker_candidate_limit,
         ),
         root=config.corpus_root,
         planner=planner,
@@ -1361,11 +1373,7 @@ def _planner_with_pricing_overrides(planner: MigrationPlanner, pricing_file: Pat
 
 def _build_migrate_route_progress_reporter() -> Callable[[ExecutionProgress], None] | None:
     """Print a simple [x/total] line on stderr as migrate-route processes files."""
-    force_progress = os.getenv("DORY_MIGRATE_PROGRESS", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }
+    force_progress = DorySettings().migrate_progress
     if not force_progress and not sys.stderr.isatty():
         return None
 
@@ -1385,7 +1393,7 @@ def _build_migrate_route_progress_reporter() -> Callable[[ExecutionProgress], No
 
 
 def _build_migration_progress_reporter() -> Callable[[MigrationProgress], None] | None:
-    force_progress = os.getenv("DORY_MIGRATE_PROGRESS", "").strip().lower() in {"1", "true", "yes"}
+    force_progress = DorySettings().migrate_progress
     if not force_progress and not sys.stderr.isatty():
         return None
 
@@ -1547,6 +1555,7 @@ def _build_research_engine(config: RuntimeConfig) -> ResearchEngine:
             retrieval_planner=planner,
             result_selector=planner,
             reranker=build_reranker(settings),
+            rerank_candidate_limit=settings.query_reranker_candidate_limit,
         )
     )
 

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import contextvars
 import json
+import logging
+import uuid
 from urllib.parse import parse_qs, urlencode
 from dataclasses import asdict, dataclass
 from datetime import date
@@ -51,6 +54,7 @@ from dory_core.types import (
     WakeReq,
     PurgeReq,
     WriteReq,
+    serialize_search_response,
 )
 from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.wake import WakeBuilder
@@ -67,6 +71,17 @@ from dory_http.wiki import render_wiki_login, render_wiki_page, render_wiki_sear
 from dory_mcp.tools import build_tool_schemas
 
 
+_logger = logging.getLogger(__name__)
+_request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "dory_request_id", default=None
+)
+
+
+def current_request_id() -> str | None:
+    """Return the request ID bound to the current FastAPI request, if any."""
+    return _request_id_var.get()
+
+
 @dataclass(frozen=True, slots=True)
 class HttpRuntime:
     corpus_root: Path
@@ -77,6 +92,7 @@ class HttpRuntime:
     query_expander: OpenRouterQueryExpander | None
     retrieval_planner: OpenRouterRetrievalPlanner | None
     reranker: Any
+    rerank_candidate_limit: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,7 +121,26 @@ def build_app(
         query_expander=_build_query_expander(settings),
         retrieval_planner=_build_retrieval_planner(settings, purpose="query"),
         reranker=build_reranker(settings),
+        rerank_candidate_limit=settings.query_reranker_candidate_limit,
     )
+
+    @app.middleware("http")
+    async def _request_id_middleware(request: Request, call_next):
+        incoming = request.headers.get("x-request-id", "").strip()
+        # Trust the caller-supplied value when it looks ID-shaped; otherwise mint one.
+        # The bounds keep a rogue client from stuffing headers with arbitrary content
+        # that would later land in logs.
+        if incoming and len(incoming) <= 128 and all(ch.isalnum() or ch in "-_" for ch in incoming):
+            request_id = incoming
+        else:
+            request_id = uuid.uuid4().hex
+        token = _request_id_var.set(request_id)
+        try:
+            response = await call_next(request)
+        finally:
+            _request_id_var.reset(token)
+        response.headers["x-request-id"] = request_id
+        return response
 
     @app.get("/wiki", response_class=HTMLResponse)
     def wiki_index(request: Request) -> Response:
@@ -180,18 +215,16 @@ def build_app(
     def search(req: SearchReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
         try:
-            return (
-                SearchEngine(
-                    runtime.index_root,
-                    runtime.embedder,
-                    query_expander=runtime.query_expander,
-                    retrieval_planner=runtime.retrieval_planner,
-                    result_selector=runtime.retrieval_planner,
-                    reranker=runtime.reranker,
-                )
-                .search(req)
-                .model_dump(mode="json")
-            )
+            response = SearchEngine(
+                runtime.index_root,
+                runtime.embedder,
+                query_expander=runtime.query_expander,
+                retrieval_planner=runtime.retrieval_planner,
+                result_selector=runtime.retrieval_planner,
+                reranker=runtime.reranker,
+                rerank_candidate_limit=runtime.rerank_candidate_limit,
+            ).search(req)
+            return serialize_search_response(response, debug=req.debug)
         except EmbeddingProviderError as err:
             raise HTTPException(status_code=503, detail=str(err)) from err
 
@@ -215,6 +248,7 @@ def build_app(
                     retrieval_planner=runtime.retrieval_planner,
                     result_selector=runtime.retrieval_planner,
                     reranker=runtime.reranker,
+                    rerank_candidate_limit=runtime.rerank_candidate_limit,
                 )
             ).research_from_req(req)
             artifact_resp = None
@@ -372,7 +406,7 @@ def build_app(
     @app.get("/v1/status")
     def status(request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
-        return serialize_status(build_status(runtime.corpus_root, runtime.index_root))
+        return serialize_status(build_status(runtime.corpus_root, runtime.index_root, settings))
 
     @app.get("/v1/tools")
     def tools(request: Request) -> dict[str, Any]:
@@ -382,7 +416,7 @@ def build_app(
     @app.get("/metrics", response_class=PlainTextResponse)
     def metrics(request: Request) -> str:
         _authorize_request(request, runtime)
-        return render_metrics(build_status(runtime.corpus_root, runtime.index_root))
+        return render_metrics(build_status(runtime.corpus_root, runtime.index_root, settings))
 
     @app.get("/v1/stream")
     def stream(
@@ -393,7 +427,7 @@ def build_app(
         _authorize_request(request, runtime)
 
         def _events() -> str:
-            yield _sse_event("status", serialize_status(build_status(runtime.corpus_root, runtime.index_root)))
+            yield _sse_event("status", serialize_status(build_status(runtime.corpus_root, runtime.index_root, settings)))
             if reindex:
                 try:
                     if force and runtime.index_root.exists():
@@ -589,6 +623,8 @@ def _build_active_memory_engine(runtime: HttpRuntime) -> ActiveMemoryEngine:
             query_expander=runtime.query_expander,
             retrieval_planner=runtime.retrieval_planner,
             result_selector=runtime.retrieval_planner,
+            reranker=runtime.reranker,
+            rerank_candidate_limit=runtime.rerank_candidate_limit,
         ),
         root=runtime.corpus_root,
         planner=planner,

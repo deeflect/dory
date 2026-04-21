@@ -82,10 +82,9 @@ def reindex_paths(
             continue
         documents.append(document)
 
+    prepared = _prepare_rows(documents, runtime=runtime, embedder=embedder)
     stale_chunk_ids = runtime.sqlite_store.load_chunk_ids_for_paths(affected_paths)
     runtime.vector_store.delete_many(stale_chunk_ids)
-
-    prepared = _prepare_rows(documents, runtime=runtime, embedder=embedder)
     runtime.sqlite_store.upsert_documents(
         prepared.file_rows,
         prepared.chunk_rows,

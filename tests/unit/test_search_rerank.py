@@ -144,3 +144,43 @@ def test_rerank_warns_and_falls_through_on_exception(tmp_path: Path, fake_embedd
 
     assert engine._rerank(rows, "q") == rows
     assert any("Rerank failed" in w for w in engine._warnings)
+
+
+def test_rerank_limited_only_sends_top_candidates(tmp_path: Path, fake_embedder) -> None:
+    reranker = _FakeReranker(order_by_chunk_id={"b": 0.9, "a": 0.8, "c": 0.1})
+    engine = SearchEngine(tmp_path, fake_embedder, reranker=reranker, rerank_candidate_limit=2)
+    rows = [
+        _ChunkRow(
+            chunk_id="a",
+            path="docs/a.md",
+            content="a",
+            start_line=1,
+            end_line=1,
+            frontmatter_json="{}",
+            score=0.5,
+        ),
+        _ChunkRow(
+            chunk_id="b",
+            path="docs/b.md",
+            content="b",
+            start_line=1,
+            end_line=1,
+            frontmatter_json="{}",
+            score=0.4,
+        ),
+        _ChunkRow(
+            chunk_id="c",
+            path="docs/c.md",
+            content="c",
+            start_line=1,
+            end_line=1,
+            frontmatter_json="{}",
+            score=0.3,
+        ),
+    ]
+
+    reranked = engine._rerank_limited(rows, "q")
+
+    assert [candidate.chunk_id for candidate in reranker.last_candidates] == ["a", "b"]
+    assert [row.chunk_id for row in reranked] == ["b", "a", "c"]
+    assert any("Rerank considered the top 2 candidates" in warning for warning in engine._warnings)

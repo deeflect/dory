@@ -54,10 +54,14 @@ class OpenClawParityStore:
     def db_path(self) -> Path:
         return self.index_root / "dory.db"
 
+    def _connect(self) -> sqlite3.Connection:
+        timeout = 0.25 if self.readonly else 5.0
+        return sqlite3.connect(self.db_path, timeout=timeout)
+
     def record_recall_event(self, req: RecallEventReq) -> RecallEventResp:
         result_paths_json = json.dumps(list(req.result_paths), sort_keys=True)
         created_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO openclaw_recall_events(
@@ -80,7 +84,7 @@ class OpenClawParityStore:
         return RecallEventResp(stored=True, selected_path=req.selected_path, created_at=created_at)
 
     def load_recent_recall_events(self, *, limit: int = 10) -> tuple[RecallEventRecord, ...]:
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
             rows = connection.execute(
                 """
                 SELECT id, agent, session_key, query, result_paths_json, selected_path, corpus, source, created_at
@@ -120,7 +124,7 @@ class OpenClawParityStore:
         min_events: int = 2,
         limit: int = 10,
     ) -> tuple[RecallPromotionCandidate, ...]:
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
             rows = connection.execute(
                 """
                 SELECT
@@ -182,7 +186,7 @@ class OpenClawParityStore:
         distilled_path: str,
     ) -> None:
         promoted_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO openclaw_recall_promotions(
@@ -214,9 +218,16 @@ class OpenClawParityStore:
                 recall_tracking_enabled=True,
                 artifact_listing_enabled=True,
             )
-        summary = self.recent_recall_summary()
-        candidates = self.list_recall_promotion_candidates()
-        last_promotion_at = self._last_recall_promotion_at()
+        try:
+            summary = self.recent_recall_summary()
+            candidates = self.list_recall_promotion_candidates()
+            last_promotion_at = self._last_recall_promotion_at()
+        except sqlite3.OperationalError:
+            return OpenClawParityDiagnostics(
+                flush_enabled=False,
+                recall_tracking_enabled=True,
+                artifact_listing_enabled=True,
+            )
         return OpenClawParityDiagnostics(
             flush_enabled=False,
             recall_tracking_enabled=True,
@@ -229,7 +240,7 @@ class OpenClawParityStore:
         )
 
     def _last_recall_promotion_at(self) -> str | None:
-        with sqlite3.connect(self.db_path) as connection:
+        with self._connect() as connection:
             row = connection.execute(
                 """
                 SELECT promoted_at

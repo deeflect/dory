@@ -122,9 +122,9 @@ Implemented MCP tools (10):
 | Tool | Required | Optional |
 |---|---|---|
 | `dory_wake` | — | `budget_tokens`, `agent`, `profile`, `include_recent_sessions`, `include_pinned_decisions` |
-| `dory_active_memory` | `prompt`, `agent` | `cwd`, `profile`, `timeout_ms`, `budget_tokens`, `include_wake` |
+| `dory_active_memory` | `prompt`, `agent` | `cwd`, `profile`, `timeout_ms`, `budget_tokens`, `include_wake`, `rerank` |
 | `dory_research` | `question` | `kind`, `corpus`, `limit`, `save` |
-| `dory_search` | `query` | `k`, `mode`, `corpus`, `scope`, `include_content`, `min_score` |
+| `dory_search` | `query` | `k`, `mode`, `corpus`, `scope`, `include_content`, `min_score`, `rerank`, `debug` |
 | `dory_get` | `path` | `from`, `lines` |
 | `dory_memory_write` | `action`, `kind`, `subject`, `content` | `scope`, `confidence`, `source`, `soft`, `dry_run`, `force_inbox`, `allow_canonical`, `agent`, `session_id`, `reason` |
 | `dory_write` | `kind`, `target` | `content`, `soft`, `dry_run`, `frontmatter`, `agent`, `session_id`, `expected_hash`, `reason` |
@@ -134,9 +134,11 @@ Implemented MCP tools (10):
 
 Notes:
 
-- Native MCP schemas expose the finalized tool fields: search mode aliases, wake profiles, active-memory limits, dry-run write guards, purge guards.
+- Native MCP schemas expose the finalized tool fields: search mode aliases, per-request rerank control, debug-only search internals, wake profiles, active-memory limits, dry-run write guards, purge guards.
+- Search hides `score`, `score_normalized`, `rank_score`, and `frontmatter` by default. Use `debug=true` only for retrieval diagnostics.
 - `dory_write` is the exact-path write surface; `dory_memory_write` is semantic.
 - `dory_get` mirrors the HTTP metadata payload (`from`, `lines_returned`, `total_lines`, `frontmatter`, `hash`, `content`).
+- `dory_get` reads exact paths inside the configured Dory corpus. Repo paths cited as external implementation evidence are not guaranteed to be retrievable unless they are also present in that corpus.
 - Native `dory_search` and `dory_active_memory` share retrieval/runtime behavior with CLI and HTTP because they call the same `SearchEngine` and `ActiveMemoryEngine`. LLM-assisted query planning/reranking is opt-in.
 - No authentication is enforced on MCP connections (HTTP has bearer auth; MCP doesn't).
 
@@ -151,9 +153,9 @@ Implemented bridge tools (10):
 | Tool | Key differences from native |
 |---|---|
 | `dory_wake` | adds defaults: budget=1200, profile="coding", agent="claude-code", sessions=0, pinned=True |
-| `dory_search` | adds `mode` enum (`bm25\|text\|keyword\|lexical\|vector\|semantic\|hybrid\|recall\|exact`), default k=5 |
+| `dory_search` | adds `mode` enum (`bm25\|text\|keyword\|lexical\|vector\|semantic\|hybrid\|recall\|exact`), `rerank` enum (`auto\|true\|false`), `debug`, default k=5 |
 | `dory_research` | HTTP-backed research call with bounded artifact options |
-| `dory_active_memory` | HTTP-backed staged active-memory call with defaults and optional `include_wake` |
+| `dory_active_memory` | HTTP-backed staged active-memory call with defaults and optional `include_wake` / `rerank` |
 | `dory_get` | accepts native `from` and legacy `from_line`; adds defaults |
 | `dory_link` | adds `op` enum (`neighbors\|backlinks\|lint`), `direction` enum (`out\|in\|both`), `max_edges`, and `exclude_prefixes` |
 | `dory_memory_write` | adds `kind` enum plus `dry_run`, `force_inbox`, `allow_canonical` |
@@ -170,6 +172,7 @@ Known issues:
 - Bridge defaults to `http://127.0.0.1:8766`; installed agents should set `DORY_HTTP_URL` / `~/.config/dory/env` for remote or TLS deployments.
 - Bridge has a 30-second HTTP timeout; native MCP has no timeout.
 - Bridge inherits HTTP retrieval-planner behavior for `dory_search` and `dory_active_memory`; it doesn't implement its own planner.
+- Before `dory_wake`, the bridge runs a one-shot local session sync through `scripts/ops/client-session-shipper.py` by default. It reads `~/.config/dory/client.env` when present, uses the configured spool/checkpoint paths, and can be disabled with `DORY_SYNC_SESSIONS_ON_WAKE=false`.
 
 ## Hermes integration
 
@@ -208,7 +211,7 @@ Known issues:
 - When no external client is provided, the provider keeps a reusable owned `httpx.Client`.
 - `RuntimeError` is raised on HTTP errors instead of a domain-specific exception.
 - Hermes parity tests now assert semantic artifact creation on `memory_write(write|forget)` in `tests/integration/http/test_hermes_shim_contract.py`.
-- `publish_research` is a Hermes convenience wrapper around HTTP `POST /v1/write`; it creates `knowledge/research/<timestamp>-<title>.md` with `type: knowledge` and `source_kind: research`, defaults to dry-run, and Dory incrementally indexes the file on live writes.
+- `publish_research` is a Hermes convenience wrapper around HTTP `POST /v1/write`; it creates `knowledge/research/<timestamp>-<title>.md` with `type: knowledge` and `source_kind: research`, defaults to dry-run, and Dory incrementally indexes the file on live writes. See [hermes-research-publish.md](hermes-research-publish.md) for the exact runbook.
 
 ## OpenClaw integration
 
