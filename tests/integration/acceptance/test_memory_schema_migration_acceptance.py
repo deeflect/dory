@@ -98,7 +98,7 @@ def test_memory_schema_migration_acceptance_supports_fake_llm_operator_path(
                 }
             raise AssertionError(schema_name)
 
-    monkeypatch.setattr("dory_cli.main.build_openrouter_client", lambda settings=None, purpose=None: _FakeClient())
+    monkeypatch.setattr("dory_cli._internals.build_openrouter_client", lambda settings=None, purpose=None: _FakeClient())
 
     result = cli_runner.invoke(
         app,
@@ -168,7 +168,7 @@ def test_memory_schema_migration_acceptance_records_quarantine_counters_and_arti
                 }
             raise AssertionError(schema_name)
 
-    monkeypatch.setattr("dory_cli.main.build_openrouter_client", lambda settings=None, purpose=None: _FakeClient())
+    monkeypatch.setattr("dory_cli._internals.build_openrouter_client", lambda settings=None, purpose=None: _FakeClient())
 
     result = cli_runner.invoke(
         app,

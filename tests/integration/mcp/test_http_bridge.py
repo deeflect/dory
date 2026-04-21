@@ -132,7 +132,6 @@ def test_bridge_syncs_local_sessions_before_wake(monkeypatch) -> None:
         "agent": "claude-code",
         "profile": "coding",
         "include_recent_sessions": 1,
-        "include_pinned_decisions": True,
     }
     assert '"session_sync"' in result
     assert '"sent": 1' in result
@@ -338,7 +337,10 @@ def test_bridge_falls_back_to_local_tool_schema(monkeypatch) -> None:
 
     monkeypatch.setattr(bridge, "http_get", lambda endpoint: {"ok": False, "error": "missing"})
 
-    assert any(tool["name"] == "dory_purge" for tool in bridge.list_tools())
+    fallback = bridge.list_tools()
+    # Fallback is intentionally minimal — agents that see the degraded list
+    # should still be able to hit dory_status to diagnose the outage.
+    assert any(tool["name"] == "dory_status" for tool in fallback)
 
 
 def test_bridge_forwards_bearer_token_from_env(monkeypatch) -> None:

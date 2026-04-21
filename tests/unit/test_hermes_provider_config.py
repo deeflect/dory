@@ -213,7 +213,9 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     assert schemas["dory_search"]["parameters"]["properties"]["rerank"]["enum"] == ["auto", "true", "false"]
     assert "debug" in schemas["dory_search"]["parameters"]["properties"]
     assert "profile" in schemas["dory_wake"]["parameters"]["properties"]
+    assert "agent" not in schemas["dory_wake"]["parameters"].get("required", [])
     assert "include_wake" in schemas["dory_active_memory"]["parameters"]["properties"]
+    assert "agent" not in schemas["dory_active_memory"]["parameters"].get("required", [])
     assert schemas["dory_active_memory"]["parameters"]["properties"]["rerank"]["enum"] == [
         "auto",
         "true",
@@ -230,6 +232,7 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     assert "dry_run" in schemas["dory_memory_write"]["parameters"]["properties"]
     assert "force_inbox" in schemas["dory_memory_write"]["parameters"]["properties"]
     assert "allow_canonical" in schemas["dory_memory_write"]["parameters"]["properties"]
+    assert "from_line" in schemas["dory_get"]["parameters"]["properties"]
     assert "expected_hash" in schemas["dory_write"]["parameters"]["properties"]
     assert "expected_hash" in schemas["dory_write"]["description"]
     assert schemas["dory_link"]["parameters"]["properties"]["max_edges"]["default"] == 40

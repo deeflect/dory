@@ -60,7 +60,7 @@ def test_ops_dream_once_writes_distilled_and_proposed(
             },
         ]
     )
-    monkeypatch.setattr("dory_cli.main.build_openrouter_client", lambda settings=None: client)
+    monkeypatch.setattr("dory_cli._internals.build_openrouter_client", lambda settings=None: client)
 
     result = cli_runner.invoke(
         app,
@@ -105,7 +105,7 @@ def test_ops_dream_once_limit_caps_session_backlog(cli_runner, monkeypatch, tmp_
             {"actions": []},
         ]
     )
-    monkeypatch.setattr("dory_cli.main.build_openrouter_client", lambda settings=None: client)
+    monkeypatch.setattr("dory_cli._internals.build_openrouter_client", lambda settings=None: client)
 
     result = cli_runner.invoke(
         app,
@@ -167,7 +167,7 @@ def test_ops_dream_once_promotes_recall_candidates(cli_runner, monkeypatch, tmp_
             }
         ]
     )
-    monkeypatch.setattr("dory_cli.main.build_openrouter_client", lambda settings=None: client)
+    monkeypatch.setattr("dory_cli._internals.build_openrouter_client", lambda settings=None: client)
 
     result = cli_runner.invoke(
         app,
@@ -210,7 +210,7 @@ def test_ops_maintain_once_writes_reports(cli_runner, monkeypatch, tmp_path: Pat
             }
         ]
     )
-    monkeypatch.setattr("dory_cli.main.build_openrouter_client", lambda settings=None: client)
+    monkeypatch.setattr("dory_cli._internals.build_openrouter_client", lambda settings=None: client)
 
     result = cli_runner.invoke(
         app,
@@ -298,7 +298,7 @@ def test_ops_watch_degrades_cleanly_without_openrouter(cli_runner, monkeypatch, 
     index_root = tmp_path / ".index"
     corpus_root.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr("dory_cli.main.build_runtime_embedder", lambda: object())
+    monkeypatch.setattr("dory_cli._internals.build_runtime_embedder", lambda: object())
     monkeypatch.setattr("dory_cli.main._build_openrouter_client_for_purpose", lambda settings, purpose: None)
 
     started: dict[str, object] = {}

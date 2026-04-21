@@ -63,6 +63,16 @@ def test_dory_search_schema_exposes_min_score() -> None:
     assert "text" in search_tool["inputSchema"]["properties"]["mode"]["enum"]
 
 
+def test_dory_get_schema_keeps_legacy_from_line_alias() -> None:
+    tools = build_tool_schemas()
+    get_tool = next(tool for tool in tools if tool["name"] == "dory_get")
+    props = get_tool["inputSchema"]["properties"]
+
+    assert "from" in props
+    assert "from_line" in props
+    assert get_tool["inputSchema"]["required"] == ["path"]
+
+
 def test_dory_write_schema_retains_legacy_path_fields() -> None:
     tools = build_tool_schemas()
     write_tool = next(tool for tool in tools if tool["name"] == "dory_write")

@@ -4,6 +4,12 @@ Thin MCP stdio bridge that proxies to a running dory-http server.
 Claude Code spawns this as a subprocess; it speaks JSON-RPC on stdin/stdout
 and forwards tool calls to the Dory HTTP API.
 
+Tool schemas come from the server at /v1/tools (the canonical source of truth
+lives in `dory_core.tool_registry`). The only bridge-local behavior is:
+  - pre-wake session sync (fired before dory_wake)
+  - a small set of client-side defaults (agent="claude-code", etc.)
+  - GET routing for dory_get / dory_status
+
 Usage in Claude Code MCP config:
   "command": "python3",
   "args": ["/path/to/dory-mcp-http-bridge.py"],
@@ -31,222 +37,45 @@ CLIENT_ENV_PATH = Path(os.environ.get("DORY_CLIENT_ENV_FILE", str(Path.home() / 
 DEFAULT_SPOOL_ROOT = Path.home() / ".local" / "share" / "dory" / "spool"
 DEFAULT_HARNESSES = "claude codex opencode openclaw hermes"
 
-TOOLS = [
+# Minimal offline fallback: only surfaces dory_status / dory_search if /v1/tools
+# is unreachable at tools/list time. Full schemas come from the server.
+_FALLBACK_TOOLS: list[dict[str, Any]] = [
     {
-        "name": "dory_wake",
-        "description": (
-            "Get the frozen wake-up context block. Call this at session start or task switch. "
-            "Use search/get for active project or writing-specific context."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "budget_tokens": {"type": "integer", "default": 1200},
-                "agent": {"type": "string", "default": "claude-code"},
-                "profile": {
-                    "type": "string",
-                    "default": "coding",
-                    "enum": ["default", "casual", "coding", "writing", "privacy"],
-                },
-                "include_recent_sessions": {"type": "integer", "default": 0},
-                "include_pinned_decisions": {"type": "boolean", "default": True},
-            },
-        },
+        "name": "dory_status",
+        "description": "Get Dory index status.",
+        "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "dory_search",
         "description": "Hybrid search over Dory memory corpus.",
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "k": {"type": "integer", "default": 5},
-                "mode": {
-                    "type": "string",
-                    "default": "hybrid",
-                    "enum": ["bm25", "text", "keyword", "lexical", "vector", "semantic", "hybrid", "recall", "exact"],
-                },
-                "corpus": {"type": "string", "default": "durable", "enum": ["durable", "sessions", "all"]},
-                "scope": {
-                    "type": "object",
-                    "properties": {
-                        "path_glob": {"type": "string"},
-                        "type": {"type": "array", "items": {"type": "string"}},
-                        "status": {"type": "array", "items": {"type": "string"}},
-                        "tags": {"type": "array", "items": {"type": "string"}},
-                        "since": {"type": "string"},
-                        "until": {"type": "string"},
-                    },
-                },
-                "include_content": {"type": "boolean"},
-                "min_score": {"type": "number"},
-                "rerank": {"type": "string", "default": "auto", "enum": ["auto", "true", "false"]},
-                "debug": {"type": "boolean", "default": False},
-            },
+            "properties": {"query": {"type": "string"}},
             "required": ["query"],
         },
     },
-    {
-        "name": "dory_research",
-        "description": (
-            "Run Dory research mode for bounded, citable multi-source investigations. "
-            "Use only when search/get would require several source files."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "question": {"type": "string"},
-                "kind": {
-                    "type": "string",
-                    "default": "report",
-                    "enum": ["report", "briefing", "wiki-note", "proposal"],
-                },
-                "corpus": {"type": "string", "default": "all", "enum": ["durable", "sessions", "all"]},
-                "limit": {"type": "integer", "default": 8, "minimum": 1, "maximum": 20},
-                "save": {"type": "boolean", "default": True},
-            },
-            "required": ["question"],
-        },
-    },
-    {
-        "name": "dory_active_memory",
-        "description": (
-            "Run the staged active-memory pass before replying. Use for high-stakes or ambiguous "
-            "answers, not as a default replacement for wake/search/get. Limits: budget_tokens <= 1200, "
-            "timeout_ms <= 5000. Set include_wake=false when wake was already called."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "prompt": {"type": "string"},
-                "agent": {"type": "string", "default": "claude-code"},
-                "cwd": {"type": "string"},
-                "profile": {
-                    "type": "string",
-                    "default": "auto",
-                    "enum": ["auto", "general", "coding", "writing", "privacy", "personal"],
-                },
-                "timeout_ms": {"type": "integer", "default": 1200, "minimum": 100, "maximum": 5000},
-                "budget_tokens": {"type": "integer", "default": 400, "minimum": 100, "maximum": 1200},
-                "include_wake": {"type": "boolean", "default": True},
-                "rerank": {"type": "string", "default": "auto", "enum": ["auto", "true", "false"]},
-            },
-            "required": ["prompt", "agent"],
-        },
-    },
-    {
-        "name": "dory_get",
-        "description": "Fetch a specific file from the corpus by path.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"},
-                "from": {"type": "integer", "default": 1},
-                "from_line": {"type": "integer", "default": 1},
-                "lines": {"type": "integer"},
-            },
-            "required": ["path"],
-        },
-    },
-    {
-        "name": "dory_link",
-        "description": "Inspect backlinks, neighbors, or run link lint.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "op": {"type": "string", "enum": ["neighbors", "backlinks", "lint"]},
-                "path": {"type": "string"},
-                "direction": {"type": "string", "default": "out", "enum": ["out", "in", "both"]},
-                "depth": {"type": "integer", "default": 1},
-            },
-            "required": ["op"],
-        },
-    },
-    {
-        "name": "dory_memory_write",
-        "description": (
-            "Persist semantic memory through Dory. Prefer this over dory_write for new "
-            "remember/save/update/forget actions. Semantic subjects can route into canonical docs; "
-            "set dry_run=true to preview, allow_canonical=true to commit canonical writes, or "
-            "force_inbox=true for tentative/scratch captures."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["write", "replace", "forget"],
-                },
-                "kind": {
-                    "type": "string",
-                    "enum": ["fact", "preference", "state", "decision", "note"],
-                },
-                "subject": {"type": "string"},
-                "content": {"type": "string"},
-                "scope": {"type": "string", "enum": ["person", "project", "concept", "decision", "core"]},
-                "confidence": {"type": "string"},
-                "source": {"type": "string"},
-                "soft": {"type": "boolean", "default": False},
-                "dry_run": {"type": "boolean", "default": False},
-                "force_inbox": {"type": "boolean", "default": False},
-                "allow_canonical": {"type": "boolean", "default": False},
-                "agent": {"type": "string", "default": "claude-code"},
-                "session_id": {"type": "string"},
-                "reason": {"type": "string"},
-            },
-            "required": ["action", "kind", "subject", "content"],
-        },
-    },
-    {
-        "name": "dory_write",
-        "description": (
-            "Exact-path markdown write through Dory. Use only when you know the target "
-            "path and, for replace/forget, have read the current hash first. Prefer dory_memory_write "
-            "for semantic remember/save/update actions. Set dry_run=true to validate and preview without writing."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "kind": {"type": "string", "enum": ["append", "create", "replace", "forget"]},
-                "target": {"type": "string"},
-                "content": {"type": "string"},
-                "soft": {"type": "boolean", "default": False},
-                "dry_run": {"type": "boolean", "default": False},
-                "frontmatter": {"type": "object"},
-                "agent": {"type": "string", "default": "claude-code"},
-                "session_id": {"type": "string"},
-                "expected_hash": {"type": "string"},
-                "reason": {"type": "string"},
-            },
-            "required": ["kind", "target"],
-        },
-    },
-    {
-        "name": "dory_purge",
-        "description": (
-            "Hard-delete an exact markdown path from the corpus and index. Defaults to dry_run=true. "
-            "Live purge requires reason and matching expected_hash. Only scratch/generated roots are "
-            "allowed unless allow_canonical=true."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "target": {"type": "string"},
-                "expected_hash": {"type": "string"},
-                "reason": {"type": "string"},
-                "dry_run": {"type": "boolean", "default": True},
-                "allow_canonical": {"type": "boolean", "default": False},
-                "include_related_tombstone": {"type": "boolean", "default": False},
-            },
-            "required": ["target"],
-        },
-    },
-    {
-        "name": "dory_status",
-        "description": "Get Dory index status.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
 ]
+
+# Tools served over HTTP GET. Everything else is POST with JSON body.
+_GET_TOOLS: dict[str, str] = {
+    "dory_get": "/v1/get",
+    "dory_status": "/v1/status",
+}
+
+# Bridge-side default injection. These are client-context defaults that don't
+# belong in the server's Pydantic models.
+_CLIENT_DEFAULTS: dict[str, dict[str, Any]] = {
+    "dory_wake": {"agent": "claude-code", "profile": "coding", "include_recent_sessions": 0},
+    "dory_active_memory": {"agent": "claude-code"},
+    "dory_write": {"agent": "claude-code"},
+    "dory_memory_write": {"agent": "claude-code"},
+}
+
+
+def _endpoint_for(tool_name: str) -> str:
+    """Map `dory_memory_write` → `/v1/memory-write`. Matches dory_http routes."""
+    stem = tool_name.removeprefix("dory_").replace("_", "-")
+    return f"/v1/{stem}"
 
 
 def http_post(endpoint: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -305,181 +134,70 @@ def _perform_request(request: urllib.request.Request) -> dict[str, Any]:
 def list_tools() -> list[dict[str, Any]]:
     payload = http_get("/v1/tools")
     tools = payload.get("tools")
-    if isinstance(tools, list):
-        return tools
-    return TOOLS
+    if isinstance(tools, list) and tools:
+        return [_decorate_schema(tool) for tool in tools]
+    return _FALLBACK_TOOLS
+
+
+def _decorate_schema(tool: dict[str, Any]) -> dict[str, Any]:
+    """Patch client-side defaults into the advertised schema so agents see them."""
+    name = tool.get("name", "")
+    overrides = _CLIENT_DEFAULTS.get(name)
+    if not overrides:
+        return tool
+    schema = tool.get("inputSchema")
+    if not isinstance(schema, dict):
+        return tool
+    props = schema.get("properties")
+    if not isinstance(props, dict):
+        return tool
+    patched_props = dict(props)
+    for field_name, default_value in overrides.items():
+        existing = patched_props.get(field_name)
+        if isinstance(existing, dict):
+            patched = dict(existing)
+            patched["default"] = default_value
+            patched_props[field_name] = patched
+    return {**tool, "inputSchema": {**schema, "properties": patched_props}}
 
 
 def handle_tool_call(name: str, args: dict[str, Any]) -> str:
+    # Pre-wake session sync stays here — it's a local-client side effect, not
+    # something the server can do for us.
+    pre_call_result: dict[str, Any] | None = None
     if name == "dory_wake":
-        session_sync = sync_sessions_before_wake()
-        result = http_post(
-            "/v1/wake",
-            {
-                "budget_tokens": args.get("budget_tokens", 600),
-                "agent": args.get("agent", "claude-code"),
-                "profile": args.get("profile", "coding"),
-                "include_recent_sessions": args.get("include_recent_sessions", 0),
-                "include_pinned_decisions": args.get("include_pinned_decisions", True),
-            },
-        )
-        if session_sync is not None:
-            result["session_sync"] = session_sync
-        return json.dumps(result, indent=2)
+        pre_call_result = sync_sessions_before_wake()
 
-    if name == "dory_search":
-        payload: dict[str, Any] = {
-            "query": args["query"],
-            "k": args.get("k", 5),
-            "mode": args.get("mode", "hybrid"),
-            "corpus": args.get("corpus", "durable"),
-        }
-        if "scope" in args:
-            payload["scope"] = args["scope"]
-        if "include_content" in args:
-            payload["include_content"] = args["include_content"]
-        if "min_score" in args:
-            payload["min_score"] = args["min_score"]
-        if "rerank" in args:
-            payload["rerank"] = args["rerank"]
-        if "debug" in args:
-            payload["debug"] = args["debug"]
-        result = http_post("/v1/search", payload)
-        return json.dumps(result, indent=2)
+    merged_args = {**_CLIENT_DEFAULTS.get(name, {}), **args}
 
-    if name == "dory_research":
-        payload: dict[str, Any] = {
-            "question": args["question"],
-            "kind": args.get("kind", "report"),
-            "corpus": args.get("corpus", "all"),
-            "limit": args.get("limit", 8),
-            "save": args.get("save", True),
-        }
-        result = http_post("/v1/research", payload)
-        return json.dumps(result, indent=2)
+    if name in _GET_TOOLS:
+        endpoint = _GET_TOOLS[name]
+        query_params = _get_query_params(name, merged_args)
+        url = f"{endpoint}?{urllib.parse.urlencode(query_params)}" if query_params else endpoint
+        result = http_get(url)
+    else:
+        result = http_post(_endpoint_for(name), merged_args)
 
-    if name == "dory_active_memory":
-        payload: dict[str, Any] = {
-            "prompt": args["prompt"],
-            "agent": args.get("agent", "claude-code"),
-        }
-        if "cwd" in args:
-            payload["cwd"] = args["cwd"]
-        if "timeout_ms" in args:
-            payload["timeout_ms"] = args["timeout_ms"]
-        if "budget_tokens" in args:
-            payload["budget_tokens"] = args["budget_tokens"]
-        if "profile" in args:
-            payload["profile"] = args["profile"]
-        if "include_wake" in args:
-            payload["include_wake"] = args["include_wake"]
-        if "rerank" in args:
-            payload["rerank"] = args["rerank"]
-        result = http_post("/v1/active-memory", payload)
-        return json.dumps(result, indent=2)
+    if not isinstance(result, dict):
+        result = {"ok": False, "error": {"type": "protocol_error", "message": "non-dict response"}}
+    if pre_call_result is not None:
+        result["session_sync"] = pre_call_result
+    return json.dumps(result, indent=2)
 
+
+def _get_query_params(name: str, args: dict[str, Any]) -> dict[str, Any]:
     if name == "dory_get":
-        params: dict[str, Any] = {"path": args["path"]}
+        params: dict[str, Any] = {}
+        if "path" in args:
+            params["path"] = args["path"]
+        # `from_line` was an older alias for `from`; keep accepting it.
         from_value = args.get("from", args.get("from_line"))
         if from_value is not None:
             params["from"] = from_value
         if "lines" in args:
             params["lines"] = args["lines"]
-        query_string = urllib.parse.urlencode(params)
-        result = http_get(f"/v1/get?{query_string}")
-        return json.dumps(result, indent=2)
-
-    if name == "dory_link":
-        payload: dict[str, Any] = {"op": args.get("op", "")}
-        if "path" in args:
-            payload["path"] = args["path"]
-        if "direction" in args:
-            payload["direction"] = args["direction"]
-        if "depth" in args:
-            payload["depth"] = args["depth"]
-        result = http_post("/v1/link", payload)
-        return json.dumps(result, indent=2)
-
-    if name == "dory_write":
-        payload: dict[str, Any] = {
-            "kind": args["kind"],
-            "target": args["target"],
-            "content": args.get("content", ""),
-            "agent": args.get("agent", "claude-code"),
-        }
-        if "frontmatter" in args:
-            payload["frontmatter"] = args["frontmatter"]
-        if "soft" in args:
-            payload["soft"] = args["soft"]
-        if "dry_run" in args:
-            payload["dry_run"] = args["dry_run"]
-        if "session_id" in args:
-            payload["session_id"] = args["session_id"]
-        if "expected_hash" in args:
-            payload["expected_hash"] = args["expected_hash"]
-        if "reason" in args:
-            payload["reason"] = args["reason"]
-        result = http_post("/v1/write", payload)
-        return json.dumps(result, indent=2)
-
-    if name == "dory_purge":
-        payload: dict[str, Any] = {"target": args["target"]}
-        if "expected_hash" in args:
-            payload["expected_hash"] = args["expected_hash"]
-        if "reason" in args:
-            payload["reason"] = args["reason"]
-        if "dry_run" in args:
-            payload["dry_run"] = args["dry_run"]
-        if "allow_canonical" in args:
-            payload["allow_canonical"] = args["allow_canonical"]
-        if "include_related_tombstone" in args:
-            payload["include_related_tombstone"] = args["include_related_tombstone"]
-        result = http_post("/v1/purge", payload)
-        return json.dumps(result, indent=2)
-
-    if name == "dory_memory_write":
-        payload: dict[str, Any] = {
-            "action": args["action"],
-            "kind": args["kind"],
-            "subject": args["subject"],
-            "content": args["content"],
-            "agent": args.get("agent", "claude-code"),
-        }
-        if "scope" in args:
-            payload["scope"] = args["scope"]
-        if "confidence" in args:
-            payload["confidence"] = args["confidence"]
-        if "source" in args:
-            payload["source"] = args["source"]
-        if "soft" in args:
-            payload["soft"] = args["soft"]
-        if "dry_run" in args:
-            payload["dry_run"] = args["dry_run"]
-        if "force_inbox" in args:
-            payload["force_inbox"] = args["force_inbox"]
-        if "allow_canonical" in args:
-            payload["allow_canonical"] = args["allow_canonical"]
-        if "session_id" in args:
-            payload["session_id"] = args["session_id"]
-        if "reason" in args:
-            payload["reason"] = args["reason"]
-        result = http_post("/v1/memory-write", payload)
-        return json.dumps(result, indent=2)
-
-    if name == "dory_status":
-        result = http_get("/v1/status")
-        return json.dumps(result, indent=2)
-
-    return json.dumps(
-        {
-            "ok": False,
-            "error": {
-                "type": "unknown_tool",
-                "message": f"unknown tool: {name}",
-            },
-        },
-        indent=2,
-    )
+        return params
+    return {}
 
 
 def sync_sessions_before_wake() -> dict[str, Any] | None:
@@ -645,7 +363,7 @@ def main() -> None:
                     "result": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {"tools": {}},
-                        "serverInfo": {"name": "dory-http-bridge", "version": "0.2.0"},
+                        "serverInfo": {"name": "dory-http-bridge", "version": "0.3.0"},
                     },
                 }
             )

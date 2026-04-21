@@ -58,7 +58,7 @@ def test_dream_distill_and_propose_commands(cli_runner, monkeypatch, tmp_path: P
         ]
     )
     monkeypatch.setattr(
-        "dory_cli.main.build_openrouter_client",
+        "dory_cli._internals.build_openrouter_client",
         lambda settings=None: client,
     )
 
@@ -125,7 +125,7 @@ def test_maintain_inspect_command_writes_report(
         ]
     )
     monkeypatch.setattr(
-        "dory_cli.main.build_openrouter_client",
+        "dory_cli._internals.build_openrouter_client",
         lambda settings=None: client,
     )
 
