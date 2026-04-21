@@ -13,7 +13,7 @@ def test_cli_purge_defaults_to_dry_run_without_embedder(cli_runner, tmp_path: Pa
     target.parent.mkdir(parents=True)
     target.write_text("---\ntitle: CLI purge\ntype: capture\n---\n\nTemporary.\n", encoding="utf-8")
     monkeypatch.setattr(
-        "dory_cli.main.build_runtime_embedder",
+        "dory_cli._internals.build_runtime_embedder",
         lambda: (_ for _ in ()).throw(AssertionError("dry-run purge must not build embeddings")),
     )
 

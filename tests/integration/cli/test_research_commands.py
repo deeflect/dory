@@ -38,10 +38,10 @@ def test_cli_research_writes_artifact_and_returns_path(
             return [[0.0] for _ in texts]
 
     monkeypatch.setattr(
-        "dory_cli.main.build_runtime_embedder",
+        "dory_cli._internals.build_runtime_embedder",
         _FakeEmbedder,
     )
-    monkeypatch.setattr("dory_cli.main.ResearchEngine", lambda search_engine: _FakeResearchEngine(search_engine))
+    monkeypatch.setattr("dory_cli._internals.ResearchEngine", lambda search_engine: _FakeResearchEngine(search_engine))
 
     result = cli_runner.invoke(
         app,
@@ -81,10 +81,10 @@ def test_cli_research_briefing_writes_briefing_path(
             return [[0.0] for _ in texts]
 
     monkeypatch.setattr(
-        "dory_cli.main.build_runtime_embedder",
+        "dory_cli._internals.build_runtime_embedder",
         _FakeEmbedder,
     )
-    monkeypatch.setattr("dory_cli.main.ResearchEngine", lambda search_engine: _FakeResearchEngine(search_engine))
+    monkeypatch.setattr("dory_cli._internals.ResearchEngine", lambda search_engine: _FakeResearchEngine(search_engine))
 
     result = cli_runner.invoke(
         app,

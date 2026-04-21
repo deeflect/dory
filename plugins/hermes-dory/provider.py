@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -1135,6 +1136,10 @@ def _iter_hermes_config_candidates(
 
 
 def _build_tool_schemas() -> list[dict[str, Any]]:
+    canonical_tools = _build_canonical_hermes_tool_schemas()
+    if canonical_tools is not None:
+        return [*canonical_tools, _publish_research_tool_schema()]
+
     return [
         {
             "name": "dory_wake",
@@ -1257,6 +1262,7 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                 "properties": {
                     "path": {"type": "string"},
                     "from": {"type": "integer"},
+                    "from_line": {"type": "integer"},
                     "lines": {"type": "integer"},
                 },
                 "required": ["path"],
@@ -1345,6 +1351,70 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
             },
         },
     ]
+
+
+def _build_canonical_hermes_tool_schemas() -> list[dict[str, Any]] | None:
+    try:
+        from dory_core.tool_registry import build_mcp_tool_schemas
+    except ImportError:
+        return None
+
+    return [_mcp_tool_schema_to_hermes(tool) for tool in build_mcp_tool_schemas()]
+
+
+def _mcp_tool_schema_to_hermes(tool: dict[str, Any]) -> dict[str, Any]:
+    name = str(tool.get("name", ""))
+    parameters = deepcopy(tool.get("inputSchema"))
+    if not isinstance(parameters, dict):
+        parameters = {"type": "object", "properties": {}}
+    _apply_hermes_schema_defaults(name, parameters)
+    return {
+        "name": name,
+        "description": str(tool.get("description", "")),
+        "parameters": parameters,
+    }
+
+
+def _apply_hermes_schema_defaults(tool_name: str, parameters: dict[str, Any]) -> None:
+    defaults: dict[str, dict[str, Any]] = {
+        "dory_wake": {"agent": "hermes"},
+        "dory_active_memory": {"agent": "hermes"},
+    }
+    tool_defaults = defaults.get(tool_name)
+    if not tool_defaults:
+        return
+
+    properties = parameters.get("properties")
+    if isinstance(properties, dict):
+        for field_name, default_value in tool_defaults.items():
+            field_schema = properties.get(field_name)
+            if isinstance(field_schema, dict):
+                field_schema["default"] = default_value
+
+    required = parameters.get("required")
+    if isinstance(required, list):
+        parameters["required"] = [field for field in required if field not in tool_defaults]
+
+
+def _publish_research_tool_schema() -> dict[str, Any]:
+    return {
+        "name": "dory_publish_research",
+        "description": "Publish externally produced Hermes research Markdown into Dory knowledge via /v1/write. Defaults to dry_run=true; set dry_run=false to create and incrementally index knowledge/research/<timestamp>-<title>.md.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "body": {"type": "string"},
+                "question": {"type": "string"},
+                "sources": {"type": "array", "items": {"type": "string"}},
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "target": {"type": "string"},
+                "dry_run": {"type": "boolean", "default": True},
+                "visibility": {"type": "string", "enum": ["internal", "public", "private"], "default": "internal"},
+            },
+            "required": ["title", "body"],
+        },
+    }
 
 
 def _load_yaml_mapping(path: Path) -> dict[str, Any]:
