@@ -17,7 +17,6 @@ from dory_cli._internals import (
     _build_migration_planner,
     _build_migration_progress_reporter,
     _build_migration_scope,
-    _build_openrouter_client_for_purpose,
     _build_query_expander,
     _build_research_engine,
     _build_retrieval_planner,
@@ -40,7 +39,7 @@ from dory_cli.eval import app as eval_app
 from dory_core.artifacts import ArtifactWriter
 from dory_core.config import DorySettings, resolve_runtime_paths
 from dory_core.dreaming.events import SessionClosedEvent
-from dory_core.dreaming.extract import DistillationWriter, OpenRouterSessionDistiller, resolve_dream_backend
+from dory_core.dreaming.extract import DistillationWriter, OpenRouterSessionDistiller
 from dory_core.dreaming.proposals import ProposalGenerator, list_proposals, load_proposal
 from dory_core.embedding import EmbeddingConfigurationError, EmbeddingProviderError, build_runtime_embedder
 from dory_core.index.reindex import (
@@ -52,6 +51,7 @@ from dory_core.index.reindex import (
     reindex_paths,
 )
 from dory_core.link import LinkService
+from dory_core.llm.dream import build_dream_llm, require_dream_llm
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
 from dory_core.llm_rerank import build_reranker
 from dory_core.maintenance import MaintenanceReportWriter, OpenRouterMaintenanceInspector, PrivacyMetadataBackfiller
@@ -1072,11 +1072,11 @@ def dream_distill(
 ) -> None:
     config = _get_config(ctx)
     settings = DorySettings()
-    client = _require_openrouter_client(settings, purpose="dream")
+    dream_llm = require_dream_llm(settings)
     session_file = _resolve_corpus_path(config.corpus_root, session_path)
     resolved_agent = agent or _infer_agent_from_session_path(session_path)
     event = SessionClosedEvent.now(agent=resolved_agent, session_path=session_path)
-    distiller = OpenRouterSessionDistiller(client=client, writer=DistillationWriter(config.corpus_root))
+    distiller = OpenRouterSessionDistiller(client=dream_llm.client, writer=DistillationWriter(config.corpus_root))
     target = distiller.distill(event, session_file.read_text(encoding="utf-8"))
     typer.echo(str(target.relative_to(config.corpus_root)))
 
@@ -1088,12 +1088,12 @@ def dream_propose(
 ) -> None:
     config = _get_config(ctx)
     settings = DorySettings()
-    client = _require_openrouter_client(settings, purpose="dream")
+    dream_llm = require_dream_llm(settings)
     distilled_path = _resolve_distilled_path(config.corpus_root, distilled_id)
     generator = ProposalGenerator(
         root=config.corpus_root,
-        backend=resolve_dream_backend(settings),
-        client=client,
+        backend=dream_llm.backend,
+        client=dream_llm.client,
     )
     target = generator.generate(distilled_path)
     typer.echo(str(target.relative_to(config.corpus_root)))
@@ -1179,8 +1179,13 @@ def ops_dream_once(
 ) -> None:
     config = _get_config(ctx)
     settings = DorySettings()
-    client = _require_openrouter_client(settings, purpose="dream")
-    result = DreamOnceRunner(config.corpus_root, client, index_root=config.index_root).run(
+    dream_llm = require_dream_llm(settings)
+    result = DreamOnceRunner(
+        config.corpus_root,
+        dream_llm.client,
+        index_root=config.index_root,
+        backend=dream_llm.backend,
+    ).run(
         session_paths=session or None,
         limit=limit,
         min_session_age_seconds=min_age_minutes * 60,
@@ -1210,11 +1215,11 @@ def ops_daily_digest_once(
 ) -> None:
     config = _get_config(ctx)
     settings = DorySettings()
-    client = _require_openrouter_client(settings, purpose="dream")
+    dream_llm = require_dream_llm(settings)
     target_date = date.today().isoformat() if today else digest_date or previous_day()
     result = DailyDigestWriter(
         config.corpus_root,
-        OpenRouterDailyDigestGenerator(client=client),
+        OpenRouterDailyDigestGenerator(client=dream_llm.client),
     ).write(
         target_date=target_date,
         overwrite=overwrite,
@@ -1309,17 +1314,18 @@ def ops_watch(
     dream_enabled = False
     dream_warning: str | None = None
     if dream:
-        client = _build_openrouter_client_for_purpose(settings, purpose="dream")
-        if client is None:
+        dream_llm = build_dream_llm(settings)
+        if dream_llm is None:
             dream_warning = (
-                "dream mode disabled: OpenRouter API key is missing. "
-                "Set DORY_OPENROUTER_API_KEY or OPENROUTER_API_KEY to enable it."
+                "dream mode disabled: no dream LLM is configured. "
+                "Set DORY_DREAM_LLM_PROVIDER=local with DORY_LOCAL_LLM_* or configure OpenRouter."
             )
         else:
             dream_runner = DreamOnceRunner(
                 config.corpus_root,
-                client,
+                dream_llm.client,
                 index_root=config.index_root,
+                backend=dream_llm.backend,
             )
             dream_enabled = True
     try:

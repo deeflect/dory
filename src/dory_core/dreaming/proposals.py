@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
-from dory_core.llm.openrouter import OpenRouterClient
+from dory_core.llm.json_client import JSONGenerationClient
 from dory_core.types import MemoryWriteAction, MemoryWriteKind
 
 
@@ -75,7 +75,7 @@ class ProposalGenerator:
         root: Path,
         backend: str,
         *,
-        client: OpenRouterClient | None = None,
+        client: JSONGenerationClient | None = None,
     ) -> None:
         self.root = Path(root)
         self.backend = backend

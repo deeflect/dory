@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from dory_cli.main import app
+from dory_core.llm.dream import DreamLLM
 
 
 class _QueuedOpenRouterClient:
@@ -57,10 +58,7 @@ def test_dream_distill_and_propose_commands(cli_runner, monkeypatch, tmp_path: P
             },
         ]
     )
-    monkeypatch.setattr(
-        "dory_cli._internals.build_openrouter_client",
-        lambda settings=None: client,
-    )
+    monkeypatch.setattr("dory_cli.main.require_dream_llm", lambda settings: DreamLLM(client=client, backend="openrouter"))
 
     distill_result = cli_runner.invoke(
         app,

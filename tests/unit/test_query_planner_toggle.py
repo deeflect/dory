@@ -51,7 +51,7 @@ def test_cli_query_planner_can_be_disabled(monkeypatch) -> None:
         calls.append(purpose)
         return _FakePlannerClient()
 
-    monkeypatch.setattr(cli_main, "_build_openrouter_client_for_purpose", fake_build_openrouter_client_for_purpose)
+    monkeypatch.setattr("dory_cli._internals._build_openrouter_client_for_purpose", fake_build_openrouter_client_for_purpose)
 
     planner = cli_main._build_retrieval_planner(settings, purpose="query")
 

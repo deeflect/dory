@@ -98,8 +98,8 @@ Runtime behavior:
 
 Backend selection:
 
-- Dream distillation/proposal generation currently requires the OpenRouter-compatible dream client path.
-- `sovereign_mode` only changes the stored proposal backend label today; it does not make dream execution local by itself.
+- Dream distillation/proposal generation uses `DORY_DREAM_LLM_PROVIDER`.
+- Supported values are `openrouter`, `local`, and `auto`; the local path uses the OpenAI-compatible `DORY_LOCAL_LLM_*` endpoint.
 
 ## Daily Digests
 
@@ -119,7 +119,7 @@ Runtime behavior:
 - The default scheduled behavior writes yesterday's `digests/daily/YYYY-MM-DD.md`.
 - It skips sessions modified more recently than the configured age guard so active sessions are not summarized mid-write.
 - It refuses to overwrite an existing digest unless `--overwrite` is passed.
-- It uses OpenRouter for digest generation and reindexes the written digest path by default.
+- It uses the configured dream LLM provider for digest generation and reindexes the written digest path by default.
 - `mine-digests` is the follow-up claim extraction pass; it does not create the digest file.
 
 ## Maintenance

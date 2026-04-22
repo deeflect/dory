@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 from dory_core.frontmatter import dump_markdown_document, load_markdown_document
 from dory_core.fs import atomic_write_text
-from dory_core.llm.openrouter import OpenRouterClient
+from dory_core.llm.json_client import JSONGenerationClient
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,8 +70,8 @@ _SYSTEM_PROMPT = (
 
 
 @dataclass(frozen=True, slots=True)
-class OpenRouterDailyDigestGenerator:
-    client: OpenRouterClient
+class LLMDailyDigestGenerator:
+    client: JSONGenerationClient
 
     def generate(self, *, target_date: str, sessions: tuple[DigestSessionSource, ...]) -> DailyDigest:
         payload = self.client.generate_json(
@@ -81,6 +81,9 @@ class OpenRouterDailyDigestGenerator:
             schema=_DAILY_DIGEST_SCHEMA,
         )
         return _coerce_daily_digest(payload, target_date=target_date)
+
+
+OpenRouterDailyDigestGenerator = LLMDailyDigestGenerator
 
 
 @dataclass(frozen=True, slots=True)

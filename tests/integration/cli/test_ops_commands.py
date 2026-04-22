@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from dory_cli.main import app
+from dory_core.llm.dream import DreamLLM
 from dory_core.openclaw_parity import OpenClawParityStore
 from dory_core.types import RecallEventReq
 
@@ -60,7 +61,7 @@ def test_ops_dream_once_writes_distilled_and_proposed(
             },
         ]
     )
-    monkeypatch.setattr("dory_cli._internals.build_openrouter_client", lambda settings=None: client)
+    monkeypatch.setattr("dory_cli.main.require_dream_llm", lambda settings: DreamLLM(client=client, backend="openrouter"))
 
     result = cli_runner.invoke(
         app,
@@ -105,7 +106,7 @@ def test_ops_dream_once_limit_caps_session_backlog(cli_runner, monkeypatch, tmp_
             {"actions": []},
         ]
     )
-    monkeypatch.setattr("dory_cli._internals.build_openrouter_client", lambda settings=None: client)
+    monkeypatch.setattr("dory_cli.main.require_dream_llm", lambda settings: DreamLLM(client=client, backend="openrouter"))
 
     result = cli_runner.invoke(
         app,
@@ -167,7 +168,7 @@ def test_ops_dream_once_promotes_recall_candidates(cli_runner, monkeypatch, tmp_
             }
         ]
     )
-    monkeypatch.setattr("dory_cli._internals.build_openrouter_client", lambda settings=None: client)
+    monkeypatch.setattr("dory_cli.main.require_dream_llm", lambda settings: DreamLLM(client=client, backend="openrouter"))
 
     result = cli_runner.invoke(
         app,
@@ -299,7 +300,7 @@ def test_ops_watch_degrades_cleanly_without_openrouter(cli_runner, monkeypatch, 
     corpus_root.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr("dory_cli._internals.build_runtime_embedder", lambda: object())
-    monkeypatch.setattr("dory_cli.main._build_openrouter_client_for_purpose", lambda settings, purpose: None)
+    monkeypatch.setattr("dory_cli.main.build_dream_llm", lambda settings: None)
 
     started: dict[str, object] = {}
 

@@ -177,6 +177,8 @@ LLM path (optional):
 - Stages via `DORY_ACTIVE_MEMORY_LLM_STAGES`: `plan`, `compose`, or `both`. Deterministic retrieval always runs; the LLM only touches the stages you enable.
 - Read-only. The LLM sees sanitized snippets and strict schemas. No write path. If the deadline is tight, LLM stages are skipped.
 
+Dream/digest jobs use `DORY_DREAM_LLM_PROVIDER` (`openrouter`, `local`, or `auto`). The local path reuses `DORY_LOCAL_LLM_*`, so session distillation and daily digests can run against a LAN OpenAI-compatible model without internet access from the container.
+
 Other notes:
 
 - Wiki pages are helper context only and are never returned as citeable sources. Durable evidence excludes `wiki/` so generated cache pages do not outrank canonical files.

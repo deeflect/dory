@@ -185,6 +185,8 @@ Optional active-memory LLM. `DORY_ACTIVE_MEMORY_LLM_PROVIDER`:
 
 `DORY_ACTIVE_MEMORY_LLM_STAGES` picks which stages the LLM touches: `plan` (query expansion), `compose` (evidence compression), or `both`. `compose` is the safest default for small local models. Dory skips LLM stages if the request deadline is tight. `DORY_LOCAL_LLM_BASE_URL` accepts either the service root or its `/v1` path.
 
+Dreaming and daily digest generation use `DORY_DREAM_LLM_PROVIDER`. Set it to `local` for the same OpenAI-compatible LAN endpoint, `openrouter` for hosted generation, or `auto` to try local first.
+
 Create a bearer token inside the container so it lands in the mounted token store:
 
 ```bash

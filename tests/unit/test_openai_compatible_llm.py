@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dory_core.config import DorySettings
+from dory_core.llm.dream import build_dream_llm
 from dory_core.llm.openai_compatible import OpenAICompatibleJSONClient, build_local_llm_client
 
 
@@ -27,6 +28,37 @@ def test_build_local_llm_client_uses_settings() -> None:
     assert client.model == "Qwen3.5-4B-4bit"
     assert client.timeout_seconds == 4.0
     assert client.max_tokens == 256
+
+
+def test_build_dream_llm_prefers_configured_local_client() -> None:
+    dream_llm = build_dream_llm(
+        DorySettings(
+            dream_llm_provider="local",
+            local_llm_api_key="test",
+            local_llm_base_url="https://llm.example.test",
+            local_llm_model="Qwen3.5-4B-4bit",
+        )
+    )
+
+    assert dream_llm is not None
+    assert dream_llm.backend == "local"
+    assert isinstance(dream_llm.client, OpenAICompatibleJSONClient)
+
+
+def test_build_dream_llm_auto_falls_back_to_openrouter(monkeypatch) -> None:
+    class _FakeOpenRouterClient:
+        def generate_json(self, **kwargs):
+            return {}
+
+    monkeypatch.setattr(
+        "dory_core.llm.dream.build_openrouter_client",
+        lambda settings, purpose: _FakeOpenRouterClient(),
+    )
+
+    dream_llm = build_dream_llm(DorySettings(dream_llm_provider="auto", local_llm_api_key=None))
+
+    assert dream_llm is not None
+    assert dream_llm.backend == "openrouter"
 
 
 def test_openai_compatible_generate_json_uses_strict_schema(monkeypatch) -> None:

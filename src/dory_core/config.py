@@ -70,6 +70,7 @@ class DorySettings(BaseSettings):
     openrouter_maintenance_model: str = "google/gemini-3.1-flash-lite-preview"
     openrouter_timeout_seconds: float = Field(default=30.0, gt=0.0, le=300.0)
     openrouter_reasoning_effort: str = "low"
+    dream_llm_provider: Literal["openrouter", "local", "auto"] = "openrouter"
     local_llm_api_key: str | None = None
     local_llm_base_url: str = "http://127.0.0.1:11434/v1"
     local_llm_model: str = "qwen3.5:4b"
