@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from watchdog.events import FileModifiedEvent
+from watchdog.events import FileDeletedEvent, FileModifiedEvent, FileMovedEvent
 
 from dory_core.index.reindex import ReindexResult
 from dory_core.watch import MarkdownChangeHandler, is_markdown_change
@@ -85,3 +85,64 @@ Hello world.
 
     assert result is not None
     assert calls == [["core/user.md"]]
+
+
+def test_watch_handler_reindexes_deleted_path(
+    tmp_path: Path,
+    fake_embedder: object,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    (root / "core").mkdir(parents=True)
+    target = root / "core" / "user.md"
+
+    calls: list[list[str]] = []
+
+    def _fake_reindex_paths(
+        root_path: Path, index_path: Path, embedder: object, relative_paths: list[str]
+    ) -> ReindexResult:
+        assert root_path == root
+        assert index_path == index_root
+        assert embedder is fake_embedder
+        calls.append(relative_paths)
+        return ReindexResult(files_indexed=0, chunks_indexed=0, vectors_indexed=0, skipped_files=1)
+
+    monkeypatch.setattr("dory_core.watch.reindex_paths", _fake_reindex_paths)
+
+    handler = MarkdownChangeHandler(root=root, index_root=index_root, embedder=fake_embedder)
+    result = handler.on_deleted(FileDeletedEvent(str(target)))
+
+    assert result is not None
+    assert calls == [["core/user.md"]]
+
+
+def test_watch_handler_reindexes_moved_paths(
+    tmp_path: Path,
+    fake_embedder: object,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    (root / "core").mkdir(parents=True)
+    source = root / "core" / "old.md"
+    target = root / "core" / "new.md"
+
+    calls: list[list[str]] = []
+
+    def _fake_reindex_paths(
+        root_path: Path, index_path: Path, embedder: object, relative_paths: list[str]
+    ) -> ReindexResult:
+        assert root_path == root
+        assert index_path == index_root
+        assert embedder is fake_embedder
+        calls.append(relative_paths)
+        return ReindexResult(files_indexed=1, chunks_indexed=1, vectors_indexed=1, skipped_files=1)
+
+    monkeypatch.setattr("dory_core.watch.reindex_paths", _fake_reindex_paths)
+
+    handler = MarkdownChangeHandler(root=root, index_root=index_root, embedder=fake_embedder)
+    result = handler.on_moved(FileMovedEvent(str(source), str(target)))
+
+    assert result is not None
+    assert calls == [["core/old.md", "core/new.md"]]

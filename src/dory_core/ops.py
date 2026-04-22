@@ -332,7 +332,9 @@ class OpsWatchRunner:
         observer.start()
         try:
             while True:
-                self.process_pending()
+                payload = self.process_pending()
+                if payload is not None:
+                    print(serialize_result(payload), flush=True)
                 time.sleep(poll_interval)
         finally:
             observer.stop()
