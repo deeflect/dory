@@ -58,7 +58,8 @@ What the code does differently from the original spec, or caveats worth knowing.
 
 ### Search
 
-- **Ranking** - default hybrid/all search prefers canonical, core, and project-state evidence over sessions and generated mirrors. Session evidence is still available for explicit recall/recent-history queries and as tail evidence when `corpus="all"`.
+- **Durable vs session search** - durable BM25/vector search indexes canonical/project/wiki/digest-style markdown, not raw `logs/sessions/**`. Raw sessions live in `session_plane.db` and are available through `mode="recall"` or `corpus="sessions"`.
+- **Ranking** - default hybrid/all search prefers canonical, core, and project-state evidence over generated mirrors. Session evidence is available for explicit recall/recent-history queries and as tail evidence when `corpus="all"`.
 - **Live sessions** - generic `corpus="all"` searches do not merge `active` or `interrupted` session hits unless the query asks for recent/session evidence. This keeps in-progress agent transcripts out of normal project answers while preserving explicit recall behavior.
 - **Dedup** - non-exact search collapses near-duplicate generated, wiki, and source mirrors behind the canonical doc before returning `k` results. Exact search skips this on purpose so cleanup-marker checks keep working.
 - **Warnings** - `/v1/search` surfaces `warnings` when optional query expansion fails and the engine falls back.

@@ -31,22 +31,26 @@ Lives under `index_root`. Blow it away and rebuild any time.
 
 - `index_root/dory.db` - SQLite. Holds the entity registry, claims, claim events, files, chunks, FTS, edge graph, embedding cache, chunk vectors, recall log, and parity tables.
 - `chunk_vectors` - the vector table, managed by `SqliteVectorStore`. Brute-force O(n) cosine today. A legacy `index_root/lance/chunks_vec.json` is imported as a fallback when the SQLite vector table is empty.
+- Raw session logs under `logs/sessions/**` are excluded from this durable index. They are raw evidence, not canonical memory.
 
 ### 3. Session evidence plane (separate)
 
 - `index_root/session_plane.db` - SQLite, managed by `SessionEvidencePlane` in `src/dory_core/session_plane.py`.
 - Used for session recall and ingest. Deliberately separate from durable memory so raw logs don't leak into canonical answers.
+- Session-plane search is lexical/FTS-based with recency scoring; it is reached through `mode="recall"` or `corpus="sessions"`, and may be merged into `corpus="all"` only for explicit recent/session-style queries.
+- `dory reindex` and `dory ops watch` sync session markdown into `session_plane.db` without embedding it into the durable vector index.
 
 ## Reindex flow
 
 Full reindex:
 
-1. `MarkdownStore.scan()` walks `*.md`.
+1. `MarkdownStore.scan()` walks durable `*.md`, excluding `logs/sessions/**`.
 2. Each doc is parsed and chunked.
 3. `reindex_corpus()` prepares file rows and chunk rows.
 4. New embeddings are generated for uncached content hashes.
 5. `SqliteStore.replace_documents()` rewrites file/chunk/FTS/cache state.
 6. `SqliteVectorStore.replace()` rewrites vector rows in `dory.db`.
+7. Session logs are synced separately into `session_plane.db`.
 
 Partial reindex:
 
@@ -128,6 +132,7 @@ Score inconsistency: BM25-only returns negative scores; hybrid/vector return pos
 - Session-plane ranking combines FTS hits with token coverage and recency
 - Session snippets are cut around matching query terms instead of always returning the first bytes
 - Recall mode currently searches ALL session documents, not just the current session (deviates from spec)
+- Raw session logs are not part of durable BM25/vector memory. Use recall/session search when the user asks about recent work, prior conversations, or agent-session evidence.
 
 ### Session fallback
 

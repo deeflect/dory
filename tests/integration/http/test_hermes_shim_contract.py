@@ -159,7 +159,7 @@ def test_hermes_provider_covers_http_verbs(
     assert research["artifact"] is None
     assert research["research"]["sources"]
     assert isinstance(link, dict)
-    assert status["files_indexed"] == 9
+    assert status["files_indexed"] == 8
 
 
 def test_hermes_provider_supports_hermes_plugin_surface(

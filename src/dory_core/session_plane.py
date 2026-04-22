@@ -112,6 +112,28 @@ class SessionEvidencePlane:
             )
             connection.commit()
 
+    def delete_paths(self, paths: list[str] | tuple[str, ...]) -> int:
+        normalized_paths = sorted({str(path) for path in paths})
+        if not normalized_paths:
+            return 0
+        with sqlite3.connect(self.db_path) as connection:
+            deleted = 0
+            for path in normalized_paths:
+                cursor = connection.execute("DELETE FROM session_docs WHERE path = ?", (path,))
+                deleted += cursor.rowcount
+            connection.commit()
+        return deleted
+
+    def load_paths(self) -> set[str]:
+        with sqlite3.connect(self.db_path) as connection:
+            rows = connection.execute("SELECT path FROM session_docs").fetchall()
+        return {str(path) for (path,) in rows}
+
+    def count_docs(self) -> int:
+        with sqlite3.connect(self.db_path) as connection:
+            row = connection.execute("SELECT COUNT(*) FROM session_docs").fetchone()
+        return int(row[0] if row is not None else 0)
+
     def search(self, query: SessionSearchQuery) -> SessionSearchResponse:
         fts_query = _build_fts_query(query.query)
         if not fts_query:

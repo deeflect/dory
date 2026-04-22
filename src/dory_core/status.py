@@ -9,6 +9,7 @@ from typing import Any
 from dory_core.config import DorySettings
 from dory_core.markdown_store import MarkdownStore
 from dory_core.openclaw_parity import OpenClawParityStore
+from dory_core.session_sync import SESSION_LOG_PREFIX, plan_session_sync
 from dory_core.types import OpenClawParityDiagnostics
 
 _MAX_STATUS_VECTOR_JSON_BYTES = 5_000_000
@@ -20,6 +21,10 @@ class DoryStatus:
     corpus_root: str
     index_root: str
     corpus_files: int
+    session_files: int
+    session_docs_indexed: int
+    session_missing_docs: int
+    session_stale_docs: int
     files_indexed: int
     chunks_indexed: int
     vectors_indexed: int
@@ -48,7 +53,8 @@ def build_status(corpus_root: Path, index_root: Path, settings: DorySettings | N
     index_root = Path(index_root)
     db_path = index_root / "dory.db"
     lance_path = index_root / "lance" / "chunks_vec.json"
-    corpus_files = _count_corpus_files(corpus_root)
+    corpus_files = _count_durable_corpus_files(corpus_root)
+    session_plan = plan_session_sync(corpus_root, index_root / "session_plane.db")
     files_indexed = _count_sqlite_rows(db_path, "files")
     chunks_indexed = _count_sqlite_rows(db_path, "chunks")
     vectors_indexed = _count_sqlite_rows(db_path, "chunk_vectors") or _count_vector_rows(
@@ -66,6 +72,10 @@ def build_status(corpus_root: Path, index_root: Path, settings: DorySettings | N
         corpus_root=str(corpus_root),
         index_root=str(index_root),
         corpus_files=corpus_files,
+        session_files=session_plan.session_files,
+        session_docs_indexed=session_plan.session_docs_indexed,
+        session_missing_docs=session_plan.missing_docs,
+        session_stale_docs=session_plan.stale_docs,
         files_indexed=files_indexed,
         chunks_indexed=chunks_indexed,
         vectors_indexed=vectors_indexed,
@@ -125,10 +135,10 @@ def _status_reranker_model(settings: DorySettings) -> str | None:
     return settings.openrouter_query_model or settings.openrouter_model
 
 
-def _count_corpus_files(corpus_root: Path) -> int:
+def _count_durable_corpus_files(corpus_root: Path) -> int:
     if not corpus_root.exists():
         return 0
-    return len(MarkdownStore().walk(corpus_root))
+    return len(MarkdownStore().walk(corpus_root, exclude_prefixes=(SESSION_LOG_PREFIX,)))
 
 
 def _count_sqlite_rows(db_path: Path, table: str) -> int:

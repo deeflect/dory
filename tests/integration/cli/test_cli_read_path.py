@@ -82,9 +82,10 @@ def test_cli_status_reports_index_counts(cli_runner, indexed_fixture_env) -> Non
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     assert payload["api_version"] == "v1"
-    assert payload["corpus_files"] == 7
-    assert payload["files_indexed"] == 7
-    assert payload["chunks_indexed"] >= 7
+    assert payload["corpus_files"] == 6
+    assert payload["session_files"] == 1
+    assert payload["files_indexed"] == 6
+    assert payload["chunks_indexed"] >= 6
 
 
 def test_cli_reindex_reports_summary(cli_runner, indexed_fixture_env) -> None:
@@ -102,9 +103,10 @@ def test_cli_reindex_reports_summary(cli_runner, indexed_fixture_env) -> None:
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
-    assert payload["files_indexed"] == 7
-    assert payload["chunks_indexed"] >= 7
+    assert payload["files_indexed"] == 6
+    assert payload["chunks_indexed"] >= 6
     assert payload["vectors_indexed"] == payload["chunks_indexed"]
+    assert payload["session_sync"]["docs_indexed"] == 1
 
 
 def test_cli_reindex_default_is_reconcile_no_op(cli_runner, indexed_fixture_env) -> None:
@@ -122,12 +124,13 @@ def test_cli_reindex_default_is_reconcile_no_op(cli_runner, indexed_fixture_env)
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
-    assert payload["plan"]["unchanged_count"] == 7
+    assert payload["plan"]["unchanged_count"] == 6
     assert payload["plan"]["new_paths"] == []
     assert payload["plan"]["changed_paths"] == []
     assert payload["plan"]["orphan_paths"] == []
     assert payload["files_indexed"] == 0
     assert payload["orphans_removed"] == 0
+    assert payload["session_sync"]["docs_indexed"] == 1
 
 
 def test_cli_reindex_plan_is_dry_run(cli_runner, indexed_fixture_env) -> None:
@@ -146,4 +149,5 @@ def test_cli_reindex_plan_is_dry_run(cli_runner, indexed_fixture_env) -> None:
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
     assert "unchanged_count" in payload
-    assert payload["unchanged_count"] == 7
+    assert payload["unchanged_count"] == 6
+    assert payload["session_plane"]["session_files"] == 1

@@ -217,6 +217,7 @@ Behavior:
 
 - Buffers markdown filesystem events.
 - Reindexes non-session markdown changes.
+- Syncs changed `logs/sessions/**` files into `session_plane.db` instead of embedding them into durable memory.
 - Can pass changed session files into dreaming when configured with a dream runner.
 
 ## Eval harness

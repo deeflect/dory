@@ -36,7 +36,7 @@ def test_http_requires_bearer_token_when_auth_file_present(
     assert unauthorized.status_code == 401
     assert invalid.status_code == 401
     assert authorized.status_code == 200
-    assert authorized.json()["files_indexed"] == 7
+    assert authorized.json()["files_indexed"] == 6
 
 
 def test_http_requires_bearer_token_when_auth_file_is_missing_or_empty(

@@ -29,7 +29,8 @@ def test_status_and_metrics_routes(
 
     assert status.status_code == 200
     payload = status.json()
-    assert payload["files_indexed"] == 7
+    assert payload["files_indexed"] == 6
+    assert payload["session_files"] == 1
     assert payload["embedding_provider"] in {"gemini", "local"}
     assert payload["embedding_model"]
     assert payload["embedding_dimensions"] > 0

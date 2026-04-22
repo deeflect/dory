@@ -19,10 +19,10 @@ def test_reindex_indexes_fixture_corpus(
     sqlite_store = SqliteStore(tmp_path / "dory.db")
     vector_store = SqliteVectorStore(tmp_path / "dory.db", dimension=768)
 
-    assert result.files_indexed == 7
-    assert result.chunks_indexed >= 7
+    assert result.files_indexed == 6
+    assert result.chunks_indexed >= 6
     assert result.vectors_indexed == result.chunks_indexed
-    assert sqlite_store.count_rows("files") == 7
+    assert sqlite_store.count_rows("files") == 6
     assert sqlite_store.count_rows("chunks") == result.chunks_indexed
     assert vector_store.count() == result.chunks_indexed
 
@@ -48,7 +48,7 @@ def test_reindex_reuses_embedding_cache_for_unchanged_chunks(
     reindex_corpus(sample_corpus_root, tmp_path, first)
     reindex_corpus(sample_corpus_root, tmp_path, second)
 
-    assert sum(len(batch) for batch in first.calls) >= 7
+    assert sum(len(batch) for batch in first.calls) >= 6
     assert sum(len(batch) for batch in second.calls) == 0
 
     sqlite_store = SqliteStore(tmp_path / "dory.db")
@@ -209,3 +209,30 @@ def test_reconcile_falls_back_to_rebuild_when_model_changes(
     result = reconcile_corpus(corpus_root, index_root, fresh)
     assert fresh.calls >= 1
     assert result.plan.embedding_model_changed is True
+
+
+def test_reindex_treats_session_logs_as_non_durable(
+    tmp_path: Path,
+) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / "index"
+    (corpus_root / "notes").mkdir(parents=True)
+    (corpus_root / "logs" / "sessions" / "codex" / "mini").mkdir(parents=True)
+    (corpus_root / "notes" / "alpha.md").write_text(
+        "---\ntitle: Alpha\ntype: knowledge\n---\n\nAlpha body.\n", encoding="utf-8"
+    )
+    (corpus_root / "logs" / "sessions" / "codex" / "mini" / "2026-04-22-s1.md").write_text(
+        "---\ntitle: Session\ntype: session\n---\n\nRaw session body.\n", encoding="utf-8"
+    )
+
+    class Embedder:
+        dimension = 4
+        model = "test-embedder"
+
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            return [[float(len(text)), 0.0, 0.0, 0.0] for text in texts]
+
+    result = reindex_corpus(corpus_root, index_root, Embedder())
+
+    assert result.files_indexed == 1
+    assert SqliteStore(index_root / "dory.db").load_file_hashes().keys() == {"notes/alpha.md"}
