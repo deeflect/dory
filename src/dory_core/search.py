@@ -19,6 +19,7 @@ from dory_core.frontmatter import load_markdown_document
 from dory_core.index.sqlite_vector_store import SqliteVectorStore
 from dory_core.llm_rerank import LLMReranker, RerankCandidate
 from dory_core.query_expansion import QueryExpander
+from dory_core.rerank_orchestrator import RerankOrchestrator
 from dory_core.retrieval_planner import SearchQueryPlanner, SearchResultSelector, SearchRetrievalPlan
 from dory_core.rerank import resolve_rerank_mode
 from dory_core.schema import TIMELINE_MARKER
@@ -228,8 +229,7 @@ class SearchEngine:
         self.query_expander = query_expander
         self.retrieval_planner = retrieval_planner
         self.result_selector = result_selector
-        self.reranker = reranker
-        self.rerank_candidate_limit = max(2, rerank_candidate_limit)
+        self.rerank_orchestrator = RerankOrchestrator(reranker, rerank_candidate_limit)
         self.db_path = self.index_root / "dory.db"
         self.vector_store = SqliteVectorStore(
             self.index_root / "dory.db",
@@ -237,21 +237,24 @@ class SearchEngine:
         )
         self.vector_store.import_legacy_json_if_empty(self.index_root / "lance")
         self.session_plane = SessionEvidencePlane(self.index_root / "session_plane.db")
-        self._warnings: list[str] = []
 
     def search(self, req: SearchReq) -> SearchResp:
         started = time.perf_counter()
         mode = req.mode
         rerank_decision = resolve_rerank_mode(req.rerank, phase=self.rerank_phase)
-        self._warnings = []
-        search_plan = self._plan_search(req) if mode == "hybrid" and req.corpus != "sessions" else None
+        warnings: list[str] = []
+        search_plan = (
+            self._plan_search(req, warnings=warnings)
+            if mode == "hybrid" and req.corpus != "sessions"
+            else None
+        )
 
         if mode == "recall" or req.corpus == "sessions":
             response = _apply_min_score(
                 self._search_session_plane(req.query, req.k, started=started),
                 req.min_score,
             )
-            response = self._select_results(response, req=req)
+            response = self._select_results(response, req=req, warnings=warnings)
             self._record_recall(req.query, response.results)
             return response
         durable = self._search_durable(
@@ -259,6 +262,7 @@ class SearchEngine:
             started=started,
             rerank_enabled=rerank_decision.enabled,
             search_plan=search_plan,
+            warnings=warnings,
         )
         if req.corpus == "durable":
             if search_plan is not None and search_plan.include_session_results:
@@ -273,7 +277,7 @@ class SearchEngine:
                     ),
                     req.min_score,
                 )
-                merged = self._select_results(merged, req=req)
+                merged = self._select_results(merged, req=req, warnings=warnings)
                 self._record_recall(req.query, merged.results)
                 return merged
             if search_plan is None and mode == "hybrid" and self._should_fallback_to_session_plane(req, durable):
@@ -282,11 +286,11 @@ class SearchEngine:
                     self._merge_with_session_results(durable, session, req.query, req.k, started=started),
                     req.min_score,
                 )
-                merged = self._select_results(merged, req=req)
+                merged = self._select_results(merged, req=req, warnings=warnings)
                 self._record_recall(req.query, merged.results)
                 return merged
             durable = _apply_min_score(durable, req.min_score)
-            durable = self._select_results(durable, req=req)
+            durable = self._select_results(durable, req=req, warnings=warnings)
             self._record_recall(req.query, durable.results)
             return durable
 
@@ -304,7 +308,7 @@ class SearchEngine:
                 ),
                 req.min_score,
             )
-            merged = self._select_results(merged, req=req)
+            merged = self._select_results(merged, req=req, warnings=warnings)
             self._record_recall(req.query, merged.results)
             return merged
 
@@ -313,49 +317,14 @@ class SearchEngine:
                 self._merge_with_session_results(durable, session, req.query, req.k, started=started),
                 req.min_score,
             )
-            merged = self._select_results(merged, req=req)
+            merged = self._select_results(merged, req=req, warnings=warnings)
             self._record_recall(req.query, merged.results)
             return merged
 
         durable = _apply_min_score(durable, req.min_score)
-        durable = self._select_results(durable, req=req)
+        durable = self._select_results(durable, req=req, warnings=warnings)
         self._record_recall(req.query, durable.results)
         return durable
-
-    def _rerank(self, rows: list[_ChunkRow], query: str) -> list[_ChunkRow]:
-        if self.reranker is None or len(rows) < 2:
-            return rows
-
-        candidates = [_rerank_candidate_from_row(row) for row in rows]
-        try:
-            result = self.reranker.rerank(query=query, candidates=candidates)
-        except Exception:
-            _logger.exception("rerank call failed; falling back to base hybrid ranking")
-            self._warnings.append("Rerank failed; kept the base hybrid ranking.")
-            return rows
-        if result is None:
-            self._warnings.append("Rerank returned no usable ranking; kept the base hybrid ranking.")
-            return rows
-
-        rows_by_id = {row.chunk_id: row for row in rows}
-        reranked: list[_ChunkRow] = []
-        for chunk_id in result.ordered_chunk_ids:
-            row = rows_by_id.get(chunk_id)
-            if row is None:
-                continue
-            reranked.append(replace(row, score=result.scores.get(chunk_id, row.score)))
-        return reranked
-
-    def _rerank_limited(self, rows: list[_ChunkRow], query: str) -> list[_ChunkRow]:
-        if len(rows) <= self.rerank_candidate_limit:
-            return self._rerank(rows, query)
-        self._warnings.append(
-            f"Rerank considered the top {self.rerank_candidate_limit} candidates and kept the remaining base order."
-        )
-        return [
-            *self._rerank(rows[: self.rerank_candidate_limit], query),
-            *rows[self.rerank_candidate_limit :],
-        ]
 
     def _search_durable(
         self,
@@ -364,6 +333,7 @@ class SearchEngine:
         started: float,
         rerank_enabled: bool,
         search_plan: SearchRetrievalPlan | None = None,
+        warnings: list[str],
     ) -> SearchResp:
         mode = req.mode
         row_limit = _search_row_limit(req)
@@ -374,16 +344,16 @@ class SearchEngine:
         elif mode == "vector":
             rows = self._vector(req.query, row_limit)
         elif mode == "hybrid":
-            rows = self._hybrid(req.query, row_limit, search_plan=search_plan)
+            rows = self._hybrid(req.query, row_limit, search_plan=search_plan, warnings=warnings)
         else:  # pragma: no cover - guarded by SearchReq
             raise ValueError(f"unsupported search mode: {mode}")
 
         if rerank_enabled:
-            if self.reranker is None:
+            if self.rerank_orchestrator.reranker is None:
                 if req.rerank == "true":
-                    self._warnings.append("Rerank requested but no reranker backend is configured.")
+                    warnings.append("Rerank requested but no reranker backend is configured.")
             else:
-                rows = self._rerank_limited(rows, req.query)
+                rows = self.rerank_orchestrator.rerank(rows, query=req.query, warnings=warnings)
 
         scope_has_filters = _scope_has_filters(req.scope)
         filtered_rows = []
@@ -437,7 +407,7 @@ class SearchEngine:
             count=len(results),
             results=results,
             took_ms=took_ms,
-            warnings=list(self._warnings),
+            warnings=list(warnings),
         )
 
     def _bm25(self, query: str, limit: int) -> list[_ChunkRow]:
@@ -553,6 +523,7 @@ class SearchEngine:
         limit: int,
         *,
         search_plan: SearchRetrievalPlan | None = None,
+        warnings: list[str],
     ) -> list[_ChunkRow]:
         if search_plan is not None and search_plan.durable_queries:
             return self._hybrid_with_queries(search_plan.durable_queries, limit)
@@ -570,7 +541,7 @@ class SearchEngine:
         if not self._should_expand(query_profile, rows):
             return rows[:limit]
 
-        expansion_queries = self._expanded_queries(query)
+        expansion_queries = self._expanded_queries(query, warnings=warnings)
         if len(expansion_queries) <= 1:
             return rows[:limit]
 
@@ -603,17 +574,23 @@ class SearchEngine:
         )
         return rows[:limit]
 
-    def _plan_search(self, req: SearchReq) -> SearchRetrievalPlan | None:
+    def _plan_search(self, req: SearchReq, *, warnings: list[str]) -> SearchRetrievalPlan | None:
         if self.retrieval_planner is None:
             return None
         try:
             return self.retrieval_planner.plan_search(query=req.query, corpus=req.corpus)
         except Exception:
             _logger.exception("retrieval planner failed; falling back to deterministic query planning")
-            self._warnings.append("Retrieval planning failed; search used deterministic query planning.")
+            warnings.append("Retrieval planning failed; search used deterministic query planning.")
             return None
 
-    def _select_results(self, response: SearchResp, *, req: SearchReq) -> SearchResp:
+    def _select_results(
+        self,
+        response: SearchResp,
+        *,
+        req: SearchReq,
+        warnings: list[str],
+    ) -> SearchResp:
         if self.result_selector is None or len(response.results) < 2:
             return response
         candidates = tuple(
@@ -636,13 +613,13 @@ class SearchEngine:
             )
         except Exception:
             _logger.exception("result selector failed; keeping deterministic ranking")
-            self._warnings.append("Result selection failed; search kept deterministic ranking.")
+            warnings.append("Result selection failed; search kept deterministic ranking.")
             return SearchResp(
                 query=response.query,
                 count=len(response.results),
                 results=response.results,
                 took_ms=response.took_ms,
-                warnings=_dedupe_preserve_order([*response.warnings, *self._warnings]),
+                warnings=_dedupe_preserve_order([*response.warnings, *warnings]),
             )
         selected = _with_rank_scores(_reorder_results(response.results, selection.selected_paths))
         return SearchResp(
@@ -650,17 +627,17 @@ class SearchEngine:
             count=len(selected),
             results=selected,
             took_ms=response.took_ms,
-            warnings=_dedupe_preserve_order([*response.warnings, *self._warnings]),
+            warnings=_dedupe_preserve_order([*response.warnings, *warnings]),
         )
 
-    def _expanded_queries(self, query: str) -> list[str]:
+    def _expanded_queries(self, query: str, *, warnings: list[str]) -> list[str]:
         if self.query_expander is None:
             return [query]
         try:
             expanded = self.query_expander.expand(query)
         except Exception:
             _logger.exception("query expander failed; using base query only")
-            self._warnings.append("Query expansion failed; search used the base query only.")
+            warnings.append("Query expansion failed; search used the base query only.")
             return [query]
         deduped = [query]
         seen = {query.strip().lower()}

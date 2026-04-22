@@ -35,6 +35,16 @@ class HeuristicTokenCounter:
         return len(stripped.split())
 
 
+@dataclass(frozen=True, slots=True)
+class _HeuristicEncoding:
+    def encode(self, text: str, **kwargs: object) -> list[str]:
+        del kwargs
+        stripped = text.strip()
+        if not stripped:
+            return []
+        return stripped.split()
+
+
 @dataclass(slots=True)
 class TiktokenCounter:
     default_encoding: str = _DEFAULT_ENCODING
@@ -66,11 +76,21 @@ class TiktokenCounter:
     def _resolve_encoding(self, agent: str) -> object:
         encoding_name = self.agent_encodings.get(agent.lower(), self.default_encoding)
         if encoding_name not in self._cache:
-            try:
-                self._cache[encoding_name] = tiktoken.get_encoding(encoding_name)
-            except KeyError:
-                self._cache[encoding_name] = tiktoken.get_encoding(self.default_encoding)
+            self._cache[encoding_name] = self._load_encoding(encoding_name)
         return self._cache[encoding_name]
+
+    def _load_encoding(self, encoding_name: str) -> object:
+        try:
+            return tiktoken.get_encoding(encoding_name)
+        except KeyError:
+            if encoding_name == self.default_encoding:
+                return _HeuristicEncoding()
+            try:
+                return tiktoken.get_encoding(self.default_encoding)
+            except Exception:
+                return _HeuristicEncoding()
+        except Exception:
+            return _HeuristicEncoding()
 
 
 def build_token_counter() -> TokenCounter:
