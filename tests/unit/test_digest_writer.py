@@ -8,6 +8,7 @@ from dory_core.digest_writer import (
     DailyDigest,
     DailyDigestWriter,
     DigestSessionSource,
+    batch_daily_sessions,
     collect_daily_sessions,
     previous_day,
 )
@@ -92,7 +93,41 @@ def test_collect_daily_sessions_keeps_full_session_content_by_default(tmp_path: 
     assert sessions[0].content == body
 
 
-def test_daily_digest_writer_summarizes_each_session_then_merges(tmp_path: Path) -> None:
+def test_batch_daily_sessions_packs_small_sessions_and_singles_large_sessions() -> None:
+    sessions = tuple(
+        DigestSessionSource(
+            path=f"logs/sessions/codex/test/{index}.md",
+            agent="codex",
+            session_id=str(index),
+            updated="2026-04-20T10:00:00Z",
+            content="x" * size,
+        )
+        for index, size in enumerate((100, 120, 500, 90), start=1)
+    )
+
+    batches = batch_daily_sessions(sessions, max_chars=500)
+
+    assert [[session.session_id for session in batch] for batch in batches] == [["1", "2"], ["3"], ["4"]]
+
+
+def test_batch_daily_sessions_can_skip_tiny_sessions() -> None:
+    sessions = tuple(
+        DigestSessionSource(
+            path=f"logs/sessions/codex/test/{index}.md",
+            agent="codex",
+            session_id=str(index),
+            updated="2026-04-20T10:00:00Z",
+            content="x" * size,
+        )
+        for index, size in enumerate((20, 200), start=1)
+    )
+
+    batches = batch_daily_sessions(sessions, max_chars=300, skip_tiny_chars=50)
+
+    assert [[session.session_id for session in batch] for batch in batches] == [["2"]]
+
+
+def test_daily_digest_writer_batches_sessions_then_merges(tmp_path: Path) -> None:
     _write_session(
         tmp_path,
         "logs/sessions/codex/test-device/2026-04-20-session-a.md",
@@ -110,11 +145,12 @@ def test_daily_digest_writer_summarizes_each_session_then_merges(tmp_path: Path)
     result = DailyDigestWriter(tmp_path, generator).write(target_date="2026-04-20")
 
     assert result.written is True
-    assert len(generator.calls) == 3
-    assert [len(call) for call in generator.calls] == [1, 1, 2]
+    assert len(generator.calls) == 2
+    assert [len(call) for call in generator.calls] == [2, 1]
     assert generator.calls[0][0].content == "First full session."
-    assert generator.calls[1][0].content == "Second full session."
-    assert "Session-level digest for logs/sessions/codex/test-device/2026-04-20-session-a.md" in generator.calls[2][0].content
+    assert generator.calls[0][1].content == "Second full session."
+    assert "Batch-level digest for:" in generator.calls[1][0].content
+    assert "logs/sessions/codex/test-device/2026-04-20-session-a.md" in generator.calls[1][0].content
 
 
 def test_daily_digest_writer_writes_generated_digest(tmp_path: Path) -> None:

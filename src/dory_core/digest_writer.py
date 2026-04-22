@@ -92,6 +92,8 @@ class DailyDigestWriter:
     generator: DailyDigestGenerator
     max_session_chars: int | None = None
     max_total_chars: int | None = None
+    batch_max_chars: int = 180_000
+    skip_tiny_chars: int = 0
 
     def write(
         self,
@@ -159,14 +161,14 @@ class DailyDigestWriter:
     def _generate_digest(self, *, target_date: str, sessions: tuple[DigestSessionSource, ...]) -> DailyDigest:
         if len(sessions) <= 1:
             return self.generator.generate(target_date=target_date, sessions=sessions)
-        session_digests = tuple(
-            self.generator.generate(target_date=target_date, sessions=(session,)) for session in sessions
-        )
+        session_digests: list[tuple[tuple[DigestSessionSource, ...], DailyDigest]] = []
+        for batch in batch_daily_sessions(sessions, max_chars=self.batch_max_chars, skip_tiny_chars=self.skip_tiny_chars):
+            session_digests.append((batch, self.generator.generate(target_date=target_date, sessions=batch)))
         return self.generator.generate(
             target_date=target_date,
             sessions=tuple(
-                _session_digest_source(session=session, digest=digest)
-                for session, digest in zip(sessions, session_digests, strict=True)
+                _batch_digest_source(batch=batch, digest=digest)
+                for batch, digest in session_digests
             ),
         )
 
@@ -206,6 +208,41 @@ def collect_daily_sessions(
         if limit is not None and len(sessions) >= limit:
             break
     return tuple(sessions)
+
+
+def batch_daily_sessions(
+    sessions: tuple[DigestSessionSource, ...],
+    *,
+    max_chars: int = 180_000,
+    skip_tiny_chars: int = 0,
+) -> tuple[tuple[DigestSessionSource, ...], ...]:
+    eligible = tuple(session for session in sessions if len(session.content.strip()) >= skip_tiny_chars)
+    if not eligible:
+        return ()
+    if max_chars <= 0:
+        return tuple((session,) for session in eligible)
+
+    batches: list[tuple[DigestSessionSource, ...]] = []
+    current: list[DigestSessionSource] = []
+    current_chars = 0
+    for session in eligible:
+        session_chars = _digest_prompt_session_chars(session)
+        if session_chars > max_chars:
+            if current:
+                batches.append(tuple(current))
+                current = []
+                current_chars = 0
+            batches.append((session,))
+            continue
+        if current and current_chars + session_chars > max_chars:
+            batches.append(tuple(current))
+            current = []
+            current_chars = 0
+        current.append(session)
+        current_chars += session_chars
+    if current:
+        batches.append(tuple(current))
+    return tuple(batches)
 
 
 def render_daily_digest(
@@ -292,9 +329,12 @@ def _build_digest_prompt(*, target_date: str, sessions: tuple[DigestSessionSourc
     return f"Digest date: {target_date}\n\nSession logs:\n\n" + "\n\n---\n\n".join(rendered_sessions)
 
 
-def _session_digest_source(*, session: DigestSessionSource, digest: DailyDigest) -> DigestSessionSource:
+def _batch_digest_source(*, batch: tuple[DigestSessionSource, ...], digest: DailyDigest) -> DigestSessionSource:
+    primary = batch[0]
+    path = primary.path if len(batch) == 1 else f"batch:{primary.updated[:10]}:{primary.session_id}:{len(batch)}-sessions"
     sections = [
-        f"Session-level digest for {session.path}",
+        "Batch-level digest for:",
+        *[f"- {session.path}" for session in batch],
         "",
         "Summary:",
         digest.summary.strip() or "No summary generated.",
@@ -304,12 +344,16 @@ def _session_digest_source(*, session: DigestSessionSource, digest: DailyDigest)
     sections.extend(_render_bullets("Follow-ups", digest.followups))
     sections.extend(_render_bullets("Projects", digest.projects))
     return DigestSessionSource(
-        path=session.path,
-        agent=session.agent,
-        session_id=session.session_id,
-        updated=session.updated,
+        path=path,
+        agent=primary.agent if len({session.agent for session in batch}) == 1 else "mixed",
+        session_id=primary.session_id if len(batch) == 1 else f"{primary.session_id}-batch-{len(batch)}",
+        updated=primary.updated,
         content="\n".join(sections),
     )
+
+
+def _digest_prompt_session_chars(session: DigestSessionSource) -> int:
+    return len(session.content) + len(session.path) + len(session.agent) + len(session.session_id) + len(session.updated) + 64
 
 
 def _coerce_daily_digest(payload: object, *, target_date: str) -> DailyDigest:
