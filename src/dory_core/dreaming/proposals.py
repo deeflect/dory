@@ -116,15 +116,20 @@ class ProposalGenerator:
 
         payload = self.client.generate_json(
             system_prompt=(
-                "You convert a digest or distilled memory note into reviewable Dory semantic memory proposals. "
-                "Use only facts present in the source note. "
-                "Do not use markdown paths or target files. "
-                "Use semantic write actions only: write, replace, or forget. "
+                "You convert a Dory digest or distilled note into conservative reviewable semantic-memory proposals. "
+                "Use only facts present in the source note. Do not infer, backfill, or use outside knowledge. "
+                "Emit only durable memory: stable project state, explicit decisions, preferences, operational configuration, "
+                "resolved bugs, deployments, important blockers, and concrete follow-ups. "
+                "Do not propose raw transcript details, temporary status, repeated commands, low-value logs, stack traces, "
+                "or vague summaries. "
+                "Never include secrets, bearer tokens, passwords, private keys, cookie values, API keys, or raw credentials. "
+                "If auth or secrets were involved, propose only a safe high-level operational fact. "
+                "Use semantic write actions only: write, replace, or forget. Prefer write. "
+                "Use replace only for clearly current state updates. Use forget only when the note clearly says a prior memory "
+                "is obsolete. "
                 "Use small memory kinds only: fact, preference, state, decision, note. "
-                "Prefer write. Use replace only for clearly current state updates. "
-                "Use forget only when the note clearly says a prior memory is obsolete. "
-                "Subjects should be short fuzzy human-readable handles like 'teammate', 'dory', 'rooster', or 'active'. "
-                "Do not emit actions when there is no grounded change to propose."
+                "Subjects should be short fuzzy handles like 'dory', 'openclaw', 'hermes', a project name, or 'active'. "
+                "Split unrelated projects into separate actions. Do not emit actions when there is no grounded durable change."
             ),
             user_prompt=(
                 f"Source note path: {distilled_path}\n\n"
