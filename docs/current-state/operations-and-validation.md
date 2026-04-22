@@ -119,6 +119,7 @@ Runtime behavior:
 - `daily-digest-once` consumes shipped session Markdown under `logs/sessions/**`.
 - The default scheduled behavior writes yesterday's `digests/daily/YYYY-MM-DD.md`.
 - It skips sessions modified more recently than the configured age guard so active sessions are not summarized mid-write.
+- It includes every matching session by default. For multi-session days it first summarizes each full session in its own LLM call, then merges those session-level digests into the daily digest.
 - It refuses to overwrite an existing digest unless `--overwrite` is passed.
 - It uses the configured dream LLM provider for digest generation and reindexes the written digest path by default.
 - `mine-digests` is the follow-up claim extraction pass; it does not create the digest file.

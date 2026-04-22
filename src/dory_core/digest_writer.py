@@ -90,8 +90,8 @@ OpenRouterDailyDigestGenerator = LLMDailyDigestGenerator
 class DailyDigestWriter:
     corpus_root: Path
     generator: DailyDigestGenerator
-    max_session_chars: int = 6000
-    max_total_chars: int = 50000
+    max_session_chars: int | None = None
+    max_total_chars: int | None = None
 
     def write(
         self,
@@ -134,7 +134,7 @@ class DailyDigestWriter:
                 skipped_reason="no session logs found for date",
             )
 
-        digest = self.generator.generate(target_date=target_date, sessions=sessions)
+        digest = self._generate_digest(target_date=target_date, sessions=sessions)
         content = render_daily_digest(target_date=target_date, digest=digest, sessions=sessions)
         if dry_run:
             return DailyDigestResult(
@@ -156,14 +156,28 @@ class DailyDigestWriter:
             written=True,
         )
 
+    def _generate_digest(self, *, target_date: str, sessions: tuple[DigestSessionSource, ...]) -> DailyDigest:
+        if len(sessions) <= 1:
+            return self.generator.generate(target_date=target_date, sessions=sessions)
+        session_digests = tuple(
+            self.generator.generate(target_date=target_date, sessions=(session,)) for session in sessions
+        )
+        return self.generator.generate(
+            target_date=target_date,
+            sessions=tuple(
+                _session_digest_source(session=session, digest=digest)
+                for session, digest in zip(sessions, session_digests, strict=True)
+            ),
+        )
+
 
 def collect_daily_sessions(
     corpus_root: Path,
     *,
     target_date: str,
     min_session_age_seconds: float = 0,
-    max_session_chars: int = 6000,
-    max_total_chars: int = 50000,
+    max_session_chars: int | None = None,
+    max_total_chars: int | None = None,
     limit: int | None = None,
 ) -> tuple[DigestSessionSource, ...]:
     sessions_root = corpus_root / "logs" / "sessions"
@@ -185,7 +199,7 @@ def collect_daily_sessions(
         )
         if source is None or _date_from_session(source) != target_date:
             continue
-        if total_chars + len(source.content) > max_total_chars and sessions:
+        if max_total_chars is not None and total_chars + len(source.content) > max_total_chars and sessions:
             break
         sessions.append(source)
         total_chars += len(source.content)
@@ -237,7 +251,7 @@ def previous_day(reference: date | None = None) -> str:
     return date.fromordinal(current.toordinal() - 1).isoformat()
 
 
-def _load_session_source(*, corpus_root: Path, path: Path, max_chars: int) -> DigestSessionSource | None:
+def _load_session_source(*, corpus_root: Path, path: Path, max_chars: int | None) -> DigestSessionSource | None:
     text = path.read_text(encoding="utf-8")
     try:
         document = load_markdown_document(text)
@@ -276,6 +290,26 @@ def _build_digest_prompt(*, target_date: str, sessions: tuple[DigestSessionSourc
             )
         )
     return f"Digest date: {target_date}\n\nSession logs:\n\n" + "\n\n---\n\n".join(rendered_sessions)
+
+
+def _session_digest_source(*, session: DigestSessionSource, digest: DailyDigest) -> DigestSessionSource:
+    sections = [
+        f"Session-level digest for {session.path}",
+        "",
+        "Summary:",
+        digest.summary.strip() or "No summary generated.",
+    ]
+    sections.extend(_render_bullets("Key Outcomes", digest.key_outcomes))
+    sections.extend(_render_bullets("Decisions", digest.decisions))
+    sections.extend(_render_bullets("Follow-ups", digest.followups))
+    sections.extend(_render_bullets("Projects", digest.projects))
+    return DigestSessionSource(
+        path=session.path,
+        agent=session.agent,
+        session_id=session.session_id,
+        updated=session.updated,
+        content="\n".join(sections),
+    )
 
 
 def _coerce_daily_digest(payload: object, *, target_date: str) -> DailyDigest:
@@ -321,8 +355,8 @@ def _infer_agent_from_path(path: str) -> str:
     return "unknown"
 
 
-def _truncate_session_content(content: str, *, max_chars: int) -> str:
-    if max_chars <= 0 or len(content) <= max_chars:
+def _truncate_session_content(content: str, *, max_chars: int | None) -> str:
+    if max_chars is None or max_chars <= 0 or len(content) <= max_chars:
         return content
     return content[:max_chars].rstrip() + "\n\n[session truncated for daily digest input]"
 
