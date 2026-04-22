@@ -51,7 +51,8 @@ def test_rerank_applies_reranker_output(tmp_path: Path, fake_embedder) -> None:
         ),
     ]
 
-    reranked = engine._rerank(rows, "HomeServer")
+    warnings: list[str] = []
+    reranked = engine.rerank_orchestrator.rerank(rows, query="HomeServer", warnings=warnings)
 
     assert [row.chunk_id for row in reranked] == ["a", "b"]
     assert reranked[0].path == "core/homeserver.md"
@@ -81,7 +82,9 @@ def test_rerank_noops_when_no_reranker(tmp_path: Path, fake_embedder) -> None:
         ),
     ]
 
-    assert engine._rerank(rows, "q") == rows
+    warnings: list[str] = []
+    assert engine.rerank_orchestrator.rerank(rows, query="q", warnings=warnings) == rows
+    assert warnings == []
 
 
 def test_rerank_falls_through_when_result_is_none(tmp_path: Path, fake_embedder) -> None:
@@ -111,8 +114,9 @@ def test_rerank_falls_through_when_result_is_none(tmp_path: Path, fake_embedder)
         ),
     ]
 
-    assert engine._rerank(rows, "q") == rows
-    assert any("Rerank returned no usable ranking" in w for w in engine._warnings)
+    warnings: list[str] = []
+    assert engine.rerank_orchestrator.rerank(rows, query="q", warnings=warnings) == rows
+    assert any("Rerank returned no usable ranking" in w for w in warnings)
 
 
 def test_rerank_warns_and_falls_through_on_exception(tmp_path: Path, fake_embedder) -> None:
@@ -142,8 +146,9 @@ def test_rerank_warns_and_falls_through_on_exception(tmp_path: Path, fake_embedd
         ),
     ]
 
-    assert engine._rerank(rows, "q") == rows
-    assert any("Rerank failed" in w for w in engine._warnings)
+    warnings: list[str] = []
+    assert engine.rerank_orchestrator.rerank(rows, query="q", warnings=warnings) == rows
+    assert any("Rerank failed" in w for w in warnings)
 
 
 def test_rerank_limited_only_sends_top_candidates(tmp_path: Path, fake_embedder) -> None:
@@ -179,8 +184,9 @@ def test_rerank_limited_only_sends_top_candidates(tmp_path: Path, fake_embedder)
         ),
     ]
 
-    reranked = engine._rerank_limited(rows, "q")
+    warnings: list[str] = []
+    reranked = engine.rerank_orchestrator.rerank(rows, query="q", warnings=warnings)
 
     assert [candidate.chunk_id for candidate in reranker.last_candidates] == ["a", "b"]
     assert [row.chunk_id for row in reranked] == ["b", "a", "c"]
-    assert any("Rerank considered the top 2 candidates" in warning for warning in engine._warnings)
+    assert any("Rerank considered the top 2 candidates" in warning for warning in warnings)

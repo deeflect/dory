@@ -256,7 +256,7 @@ def test_search_uses_planner_session_queries_for_durable_hybrid(monkeypatch, tmp
     )()
 
     monkeypatch.setattr(
-        engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: durable_result
+        engine, "_search_durable", lambda req, started, rerank_enabled, warnings, search_plan=None: durable_result
     )
     monkeypatch.setattr(engine, "_search_session_plane_multi", lambda queries, limit, started: session_result)
 
@@ -297,7 +297,7 @@ def test_search_can_reorder_results_with_result_selector(monkeypatch, tmp_path: 
     )()
 
     monkeypatch.setattr(
-        engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: durable_result
+        engine, "_search_durable", lambda req, started, rerank_enabled, warnings, search_plan=None: durable_result
     )
     monkeypatch.setattr(engine, "_should_fallback_to_session_plane", lambda req, response: False)
 
@@ -344,7 +344,7 @@ def test_search_reports_selection_warning_when_selector_fails(monkeypatch, tmp_p
     )()
 
     monkeypatch.setattr(
-        engine, "_search_durable", lambda req, started, rerank_enabled, search_plan=None: durable_result
+        engine, "_search_durable", lambda req, started, rerank_enabled, warnings, search_plan=None: durable_result
     )
     monkeypatch.setattr(engine, "_should_fallback_to_session_plane", lambda req, response: False)
 
@@ -400,7 +400,7 @@ def test_hybrid_uses_expanded_queries_for_vector_recall(monkeypatch, tmp_path: P
         ],
     )
 
-    ranked = engine._hybrid("What's the pricing plan for Clawzy?", 2)
+    ranked = engine._hybrid("What's the pricing plan for Clawzy?", 2, warnings=[])
 
     assert "projects/clawsy/state.md" in {row.path for row in ranked}
     assert seen_vector_queries == ["What's the pricing plan for Clawzy?", "Clawsy pricing Hetzner"]
@@ -444,7 +444,7 @@ def test_hybrid_skips_expansion_for_current_state_queries(monkeypatch, tmp_path:
         ],
     )
 
-    ranked = engine._hybrid("What model is borb's default right now?", 2)
+    ranked = engine._hybrid("What model is borb's default right now?", 2, warnings=[])
 
     assert ranked[0].path == "core/env.md"
     assert seen_queries == ["What model is borb's default right now?"]
@@ -505,7 +505,7 @@ def test_search_reorders_results_with_result_selector(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(
         engine,
         "_search_durable",
-        lambda req, started, rerank_enabled, search_plan=None: type(
+        lambda req, started, rerank_enabled, warnings, search_plan=None: type(
             "Resp",
             (),
             {
@@ -548,7 +548,7 @@ def test_search_reports_warning_when_result_selector_fails(monkeypatch, tmp_path
     monkeypatch.setattr(
         engine,
         "_search_durable",
-        lambda req, started, rerank_enabled, search_plan=None: type(
+        lambda req, started, rerank_enabled, warnings, search_plan=None: type(
             "Resp",
             (),
             {
@@ -620,7 +620,7 @@ def test_hybrid_prefers_canonical_project_state_over_support_notes(monkeypatch, 
         ],
     )
 
-    ranked = engine._hybrid("What stack and API did we pick for Crawstr?", 2)
+    ranked = engine._hybrid("What stack and API did we pick for Crawstr?", 2, warnings=[])
 
     assert ranked[0].path == "projects/crawstr/state.md"
 
@@ -658,7 +658,7 @@ def test_hybrid_prefers_canonical_decision_over_extracted_variant(monkeypatch, t
         ],
     )
 
-    ranked = engine._hybrid("What did we decide about Dory session extraction?", 2)
+    ranked = engine._hybrid("What did we decide about Dory session extraction?", 2, warnings=[])
 
     assert ranked[0].path == "decisions/2026-04-07-session-decisions-extracted.md"
 
@@ -696,7 +696,7 @@ def test_hybrid_recovers_close_identifier_renames(monkeypatch, tmp_path: Path) -
         ],
     )
 
-    ranked = engine._hybrid("What's the pricing plan for Clawzy and what VPS is it meant to run on?", 2)
+    ranked = engine._hybrid("What's the pricing plan for Clawzy and what VPS is it meant to run on?", 2, warnings=[])
 
     assert ranked[0].path == "projects/clawsy/state.md"
 
@@ -734,6 +734,6 @@ def test_hybrid_prefers_temporal_daily_digest_over_general_soul_docs(monkeypatch
         ],
     )
 
-    ranked = engine._hybrid("When did we clean up SOUL.md and the other brain files?", 2)
+    ranked = engine._hybrid("When did we clean up SOUL.md and the other brain files?", 2, warnings=[])
 
     assert ranked[0].path == "logs/daily/2026-02-09-digest.md"
