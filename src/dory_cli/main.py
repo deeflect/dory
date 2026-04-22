@@ -94,6 +94,7 @@ from dory_core.ops import run_compiled_wiki_refresh, run_wiki_index_refresh
 from dory_core.purge import PurgeEngine
 from dory_core.search import SearchEngine
 from dory_core.semantic_write import SemanticWriteEngine
+from dory_core.session_sync import plan_session_sync, sync_session_files
 from dory_core.status import build_status, format_status
 from dory_core.types import (
     ActiveMemoryReq,
@@ -874,6 +875,16 @@ def _format_plan(plan: ReconcilePlan) -> str:
     return "\n".join(lines)
 
 
+def _format_session_plan(session_plan: object) -> str:
+    return (
+        "Session plane:\n"
+        f"  files:     {session_plan.session_files}\n"
+        f"  indexed:   {session_plan.session_docs_indexed}\n"
+        f"  missing:   {session_plan.missing_docs}\n"
+        f"  stale:     {session_plan.stale_docs}"
+    )
+
+
 @app.command()
 def reindex(
     ctx: typer.Context,
@@ -901,8 +912,12 @@ def reindex(
 
     if plan:
         reconcile_plan = plan_reconcile(config.corpus_root, config.index_root, embedder)
+        session_plan = plan_session_sync(config.corpus_root, config.index_root / "session_plane.db")
         typer.echo(_format_plan(reconcile_plan), err=True)
-        typer.echo(json.dumps(asdict(reconcile_plan), indent=2, sort_keys=True))
+        typer.echo(_format_session_plan(session_plan), err=True)
+        payload = asdict(reconcile_plan)
+        payload["session_plane"] = asdict(session_plan)
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
         return
 
     if force:
@@ -924,7 +939,11 @@ def reindex(
                 embedder,
                 progress=progress_callback,
             )
-            typer.echo(json.dumps(asdict(result), indent=2, sort_keys=True))
+            payload = asdict(result)
+            payload["session_sync"] = asdict(
+                sync_session_files(config.corpus_root, config.index_root / "session_plane.db")
+            )
+            typer.echo(json.dumps(payload, indent=2, sort_keys=True))
             return
 
         reconcile_result = reconcile_corpus(
@@ -936,7 +955,9 @@ def reindex(
         )
     except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
         _fail_with_runtime_error(str(err))
-    typer.echo(json.dumps(asdict(reconcile_result), indent=2, sort_keys=True))
+    payload = asdict(reconcile_result)
+    payload["session_sync"] = asdict(sync_session_files(config.corpus_root, config.index_root / "session_plane.db"))
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
 
 
 @app.command()

@@ -17,8 +17,10 @@ from dory_core.index.sqlite_store import SqliteStore
 from dory_core.index.sqlite_vector_store import SqliteVectorStore
 from dory_core.link import load_known_entities, sync_document_edges
 from dory_core.markdown_store import MarkdownDocument, MarkdownStore
+from dory_core.session_sync import SESSION_LOG_PREFIX, is_session_path
 
 _logger = logging.getLogger(__name__)
+_DURABLE_EXCLUDE_PREFIXES = (SESSION_LOG_PREFIX,)
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,7 +124,7 @@ def reindex_corpus(
 ) -> ReindexResult:
     tracker = _ProgressTracker()
     _emit_progress(progress, tracker, phase="scan", processed=0, total=0, message=f"scanning {root}")
-    scan = MarkdownStore().scan(root)
+    scan = MarkdownStore().scan(root, exclude_prefixes=_DURABLE_EXCLUDE_PREFIXES)
     total_docs = len(scan.documents)
     _emit_progress(
         progress,
@@ -251,7 +253,7 @@ def plan_reconcile(
     Does not mutate the index. Safe to call as a dry-run.
     """
 
-    scan = MarkdownStore().scan(root)
+    scan = MarkdownStore().scan(root, exclude_prefixes=_DURABLE_EXCLUDE_PREFIXES)
     disk_hashes = {str(doc.path.as_posix()): doc.hash for doc in scan.documents}
 
     sqlite_store = SqliteStore(index_root / "dory.db")
@@ -521,6 +523,8 @@ def _emit_progress(
 
 
 def _load_single_document(root: Path, relative_path: Path) -> MarkdownDocument | None:
+    if is_session_path(relative_path):
+        return None
     target = root / relative_path
     if not target.exists():
         return None

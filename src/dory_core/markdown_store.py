@@ -26,26 +26,29 @@ class MarkdownScanResult:
 
 
 class MarkdownStore:
-    def walk(self, root: Path) -> list[MarkdownDocument]:
-        return self.scan(root).documents
+    def walk(self, root: Path, *, exclude_prefixes: tuple[str, ...] = ()) -> list[MarkdownDocument]:
+        return self.scan(root, exclude_prefixes=exclude_prefixes).documents
 
-    def scan(self, root: Path) -> MarkdownScanResult:
+    def scan(self, root: Path, *, exclude_prefixes: tuple[str, ...] = ()) -> MarkdownScanResult:
         documents: list[MarkdownDocument] = []
         skipped_paths: list[str] = []
         if not root.exists():
             return MarkdownScanResult()
 
         for path in sorted(root.rglob("*.md")):
+            relative_path = path.relative_to(root)
+            if _is_excluded(relative_path, exclude_prefixes):
+                continue
             text = path.read_text(encoding="utf-8")
             try:
                 parsed = load_markdown_document(text)
             except ValueError:
-                skipped_paths.append(str(path.relative_to(root)))
+                skipped_paths.append(str(relative_path))
                 continue
             stat = path.stat()
             documents.append(
                 MarkdownDocument(
-                    path=path.relative_to(root),
+                    path=relative_path,
                     frontmatter=parsed.frontmatter,
                     content=text,
                     hash=f"sha256:{sha256(text.encode('utf-8')).hexdigest()}",
@@ -56,3 +59,8 @@ class MarkdownStore:
             )
 
         return MarkdownScanResult(documents=documents, skipped_paths=skipped_paths)
+
+
+def _is_excluded(path: Path, prefixes: tuple[str, ...]) -> bool:
+    normalized = path.as_posix()
+    return any(normalized.startswith(prefix) for prefix in prefixes)

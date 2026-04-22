@@ -22,7 +22,7 @@ def test_reindex_skips_markdown_without_frontmatter(
 
     result = reindex_corpus(corpus_root, index_root, fake_embedder)
 
-    assert result.files_indexed == 7
+    assert result.files_indexed == 6
     assert result.skipped_files == 1
     assert result.skipped_paths == ["README.md"]
 
@@ -53,6 +53,6 @@ def test_reindex_skips_markdown_with_invalid_frontmatter(
 
     result = reindex_corpus(corpus_root, index_root, fake_embedder)
 
-    assert result.files_indexed == 7
+    assert result.files_indexed == 6
     assert result.skipped_files == 1
     assert result.skipped_paths == ["broken.md"]

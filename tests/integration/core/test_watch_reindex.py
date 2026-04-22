@@ -5,6 +5,8 @@ from pathlib import Path
 from watchdog.events import FileDeletedEvent, FileModifiedEvent, FileMovedEvent
 
 from dory_core.index.reindex import ReindexResult
+from dory_core.session_plane import SessionEvidencePlane, SessionSearchQuery
+from dory_core.session_sync import sync_session_files
 from dory_core.watch import MarkdownChangeHandler, is_markdown_change
 
 
@@ -146,3 +148,36 @@ def test_watch_handler_reindexes_moved_paths(
 
     assert result is not None
     assert calls == [["core/old.md", "core/new.md"]]
+
+
+def test_session_file_sync_uses_session_plane_not_durable_reindex(tmp_path: Path) -> None:
+    root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    target = root / "logs" / "sessions" / "codex" / "mini" / "2026-04-22-s1.md"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        """---
+title: Session
+type: session
+agent: codex
+device: mini
+session_id: s1
+updated: 2026-04-22T12:00:00Z
+---
+
+Dory watcher session sync.
+""",
+        encoding="utf-8",
+    )
+
+    result = sync_session_files(
+        root,
+        index_root / "session_plane.db",
+        ["logs/sessions/codex/mini/2026-04-22-s1.md"],
+    )
+
+    assert result.docs_indexed == 1
+    response = SessionEvidencePlane(index_root / "session_plane.db").search(
+        SessionSearchQuery(query="watcher session")
+    )
+    assert response.count == 1

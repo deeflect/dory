@@ -25,6 +25,7 @@ from dory_core.maintenance import MaintenanceReportWriter, OpenRouterMaintenance
 from dory_core.maintenance import MemoryHealthDashboard
 from dory_core.frontmatter import load_markdown_document
 from dory_core.wiki_indexes import WikiIndexBuilder
+from dory_core.session_sync import sync_session_files
 from dory_core.watch import BufferedMarkdownChangeHandler, WatchCoalescer, is_session_markdown
 
 
@@ -300,22 +301,34 @@ class OpsWatchRunner:
             return None
         changed_paths = self.coalescer.drain()
         durable_candidates: list[str] = []
+        session_candidates: list[str] = []
         for path in changed_paths:
             candidate = Path(path)
-            if candidate.suffix.lower() != ".md" or is_session_markdown(candidate, root=self.corpus_root):
+            if candidate.suffix.lower() != ".md":
                 continue
             try:
-                durable_candidates.append(str(candidate.resolve().relative_to(self.corpus_root.resolve())))
+                relative_candidate = str(candidate.resolve().relative_to(self.corpus_root.resolve()))
             except ValueError:
                 continue
+            if is_session_markdown(candidate, root=self.corpus_root):
+                session_candidates.append(relative_candidate)
+            else:
+                durable_candidates.append(relative_candidate)
         if durable_candidates:
             reindex_result = reindex_paths(self.corpus_root, self.index_root, self.embedder, durable_candidates)
         else:
             reindex_result = ReindexResult(files_indexed=0, chunks_indexed=0, vectors_indexed=0)
+        session_sync = (
+            sync_session_files(self.corpus_root, self.index_root / "session_plane.db", session_candidates)
+            if session_candidates
+            else None
+        )
         payload: dict[str, object] = {
             "changed_paths": changed_paths,
             "reindex": asdict(reindex_result),
         }
+        if session_sync is not None:
+            payload["session_sync"] = asdict(session_sync)
         if self.dream_runner is not None:
             session_candidates = [
                 str(Path(path).resolve().relative_to(self.corpus_root.resolve()))
