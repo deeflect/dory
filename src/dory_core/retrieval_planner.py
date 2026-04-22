@@ -388,4 +388,4 @@ def _format_path_snippets(items: tuple[tuple[str, str], ...]) -> str:
 def _format_candidate_payload(items: tuple[dict[str, object], ...]) -> str:
     if not items:
         return "[]"
-    return json.dumps(list(items), indent=2, sort_keys=True)
+    return json.dumps(list(items), separators=(",", ":"), sort_keys=True)

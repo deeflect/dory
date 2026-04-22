@@ -43,7 +43,7 @@ from dory_core.dreaming.events import SessionClosedEvent
 from dory_core.dreaming.extract import DistillationWriter, OpenRouterSessionDistiller, resolve_dream_backend
 from dory_core.dreaming.proposals import ProposalGenerator, list_proposals, load_proposal
 from dory_core.embedding import EmbeddingConfigurationError, EmbeddingProviderError, build_runtime_embedder
-from dory_core.index.reindex import reindex_corpus, reindex_paths
+from dory_core.index.reindex import ReindexProgress, reindex_corpus, reindex_paths
 from dory_core.link import LinkService
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
 from dory_core.llm_rerank import build_reranker
@@ -811,16 +811,31 @@ def status(ctx: typer.Context) -> None:
     typer.echo(format_status(build_status(config.corpus_root, config.index_root)))
 
 
+def _print_reindex_progress(progress: ReindexProgress) -> None:
+    total = progress.total if progress.total > 0 else "?"
+    typer.echo(
+        f"[reindex] {progress.phase} {progress.processed}/{total} {progress.message}",
+        err=True,
+    )
+
+
 @app.command()
 def reindex(
     ctx: typer.Context,
     force: bool = typer.Option(False, "--force"),
+    progress: bool = typer.Option(True, "--progress/--no-progress", help="Print reindex progress to stderr."),
 ) -> None:
     config = _get_config(ctx)
     try:
         if force and config.index_root.exists():
             shutil.rmtree(config.index_root)
-        result = reindex_corpus(config.corpus_root, config.index_root, build_runtime_embedder())
+        progress_callback = _print_reindex_progress if progress else None
+        result = reindex_corpus(
+            config.corpus_root,
+            config.index_root,
+            build_runtime_embedder(),
+            progress=progress_callback,
+        )
     except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
         _fail_with_runtime_error(str(err))
     typer.echo(json.dumps(asdict(result), indent=2, sort_keys=True))

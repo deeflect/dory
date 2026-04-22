@@ -66,7 +66,7 @@ def test_tcp_server_lists_tools_and_calls_wake() -> None:
         thread.join(timeout=2.0)
 
     assert responses[0]["result"]["tools"][0]["name"] == "dory_wake"
-    assert '"verb": "wake"' in responses[1]["result"]["content"][0]["text"]
+    assert '"verb":"wake"' in responses[1]["result"]["content"][0]["text"]
 
 
 def test_tcp_server_calls_semantic_memory_write() -> None:
@@ -106,7 +106,7 @@ def test_tcp_server_calls_semantic_memory_write() -> None:
         thread.join(timeout=2.0)
 
     assert response["result"]["content"][0]["type"] == "text"
-    assert '"verb": "memory_write"' in response["result"]["content"][0]["text"]
+    assert '"verb":"memory_write"' in response["result"]["content"][0]["text"]
 
 
 def test_tcp_server_calls_research() -> None:
@@ -147,7 +147,7 @@ def test_tcp_server_calls_research() -> None:
         thread.join(timeout=2.0)
 
     assert response["result"]["content"][0]["type"] == "text"
-    assert '"verb": "research"' in response["result"]["content"][0]["text"]
+    assert '"verb":"research"' in response["result"]["content"][0]["text"]
 
 
 def test_tcp_server_returns_parse_error_and_continues_after_bad_json() -> None:
@@ -184,4 +184,4 @@ def test_tcp_server_returns_parse_error_and_continues_after_bad_json() -> None:
 
     assert responses[0]["error"]["code"] == -32700
     assert responses[0]["id"] is None
-    assert '"verb": "wake"' in responses[1]["result"]["content"][0]["text"]
+    assert '"verb":"wake"' in responses[1]["result"]["content"][0]["text"]

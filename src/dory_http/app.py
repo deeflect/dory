@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass
 from datetime import date
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
@@ -80,6 +80,25 @@ _request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 def current_request_id() -> str | None:
     """Return the request ID bound to the current FastAPI request, if any."""
     return _request_id_var.get()
+
+
+def _raise_api_error(
+    *,
+    status_code: int,
+    code: str,
+    message: str,
+    error_type: str,
+    cause: Exception,
+) -> NoReturn:
+    detail: dict[str, str] = {
+        "code": code,
+        "message": message,
+        "type": error_type,
+    }
+    request_id = current_request_id()
+    if request_id is not None:
+        detail["request_id"] = request_id
+    raise HTTPException(status_code=status_code, detail=detail) from cause
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,13 +297,15 @@ def build_app(
     def get(
         request: Request,
         path: str = Query(...),
-        from_line: int = Query(1, alias="from"),
+        from_line: int | None = Query(None, alias="from"),
+        legacy_from_line: int | None = Query(None, alias="from_line"),
         lines: int | None = Query(None),
     ) -> dict[str, Any]:
         _authorize_request(request, runtime)
+        start_line = from_line if from_line is not None else legacy_from_line if legacy_from_line is not None else 1
         target = _resolve_corpus_path(runtime.corpus_root, path)
         text = target.read_text(encoding="utf-8")
-        sliced = _slice_lines(text, from_line, lines)
+        sliced = _slice_lines(text, start_line, lines)
         frontmatter: dict[str, object] = {}
         try:
             frontmatter = load_markdown_document(text).frontmatter
@@ -292,7 +313,7 @@ def build_app(
             frontmatter = {}
         return {
             "path": path,
-            "from": from_line,
+            "from": start_line,
             "lines_returned": len(sliced.splitlines()) if sliced else 0,
             "total_lines": len(text.splitlines()),
             "frontmatter": frontmatter,
@@ -314,9 +335,21 @@ def build_app(
                 .model_dump(mode="json")
             )
         except DoryValidationError as err:
-            raise HTTPException(status_code=400, detail=str(err)) from err
+            _raise_api_error(
+                status_code=400,
+                code="dory_validation_error",
+                message=str(err),
+                error_type="validation",
+                cause=err,
+            )
         except EmbeddingProviderError as err:
-            raise HTTPException(status_code=503, detail=str(err)) from err
+            _raise_api_error(
+                status_code=503,
+                code="embedding_provider_error",
+                message=str(err),
+                error_type="backend",
+                cause=err,
+            )
 
     @app.post("/v1/purge")
     def purge(req: PurgeReq, request: Request) -> dict[str, Any]:
@@ -332,9 +365,21 @@ def build_app(
                 .model_dump(mode="json")
             )
         except DoryValidationError as err:
-            raise HTTPException(status_code=400, detail=str(err)) from err
+            _raise_api_error(
+                status_code=400,
+                code="dory_validation_error",
+                message=str(err),
+                error_type="validation",
+                cause=err,
+            )
         except EmbeddingProviderError as err:
-            raise HTTPException(status_code=503, detail=str(err)) from err
+            _raise_api_error(
+                status_code=503,
+                code="embedding_provider_error",
+                message=str(err),
+                error_type="backend",
+                cause=err,
+            )
 
     @app.post("/v1/memory-write")
     def memory_write(req: MemoryWriteReq, request: Request) -> dict[str, Any]:
@@ -342,9 +387,21 @@ def build_app(
         try:
             return _build_semantic_write_engine(runtime).write(req).model_dump(mode="json")
         except DoryValidationError as err:
-            raise HTTPException(status_code=400, detail=str(err)) from err
+            _raise_api_error(
+                status_code=400,
+                code="dory_validation_error",
+                message=str(err),
+                error_type="validation",
+                cause=err,
+            )
         except EmbeddingProviderError as err:
-            raise HTTPException(status_code=503, detail=str(err)) from err
+            _raise_api_error(
+                status_code=503,
+                code="embedding_provider_error",
+                message=str(err),
+                error_type="backend",
+                cause=err,
+            )
 
     @app.post("/v1/recall-event")
     def recall_event(req: RecallEventReq, request: Request) -> dict[str, Any]:

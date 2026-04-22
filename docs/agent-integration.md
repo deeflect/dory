@@ -47,7 +47,7 @@ Claude Code, Codex CLI, and opencode are rule and MCP clients. OpenClaw and Herm
 
 Treat wake as framing, not proof that every canonical file was loaded. Search + get is the authoritative read path.
 
-Default search results include path, lines, snippet, `evidence_class`, `confidence`, and stale warnings. Debug-only internals (`score`, `score_normalized`, `rank_score`, and `frontmatter`) require `debug=true`; agents should trust the returned order instead of reading score fields. Prefer canonical/current evidence for current-state answers; treat `inbox`, `raw`, and `session` hits as supporting material unless the user explicitly asked for raw or recent material.
+Default search results include path, lines, snippet, `evidence_class`, `confidence`, and stale warnings. Debug-only internals (`score`, `score_normalized`, `rank_score`, and `frontmatter`) require `debug=true`; agents should trust the returned order instead of reading score fields. Prefer canonical/current evidence for current-state answers; treat `inbox`, `raw`, and `session` hits as supporting material unless the user explicitly asked for raw or recent material. Active memory may keep stale evidence as a fallback, but it prefers fresh durable hits when composing the returned block.
 
 ## Write policy
 
@@ -65,6 +65,8 @@ Dry-run first when the route isn't obvious (`dry_run=true`). Inspect `target_pat
 **Use `dory_write` only when you know the exact path** and have read the current hash with `dory_get`. Kinds: `append`, `create`, `replace`, `forget`. New files need `frontmatter.title` and `frontmatter.type`; use `type: capture` for `inbox/**`. `replace` and `forget` require `expected_hash`; `forget` also requires a `reason`.
 
 `forget` retires memory but keeps the audit trail. Reserve `dory_purge` for exact generated, test, or scratch cleanup. Live purge needs a reason and a matching `expected_hash`.
+
+HTTP write, purge, and semantic-write validation/backend failures return structured error details with `code`, `message`, and `type` fields. Agents should branch on `detail.code` instead of parsing free-form strings.
 
 ## HTTP setup
 

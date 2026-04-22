@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from dory_core.session_shipper import (
@@ -74,6 +75,39 @@ def test_spool_keeps_jobs_when_server_rejects(tmp_path: Path) -> None:
     assert queued.exists()
     assert not result.sent
     assert result.failed
+    assert not result.dead_lettered
+
+
+def test_spool_dead_letters_validation_rejects(tmp_path: Path) -> None:
+    spool = SessionSpool(tmp_path / "spool")
+    transport = FakeTransport(status_code=400)
+    shipper = SessionShipper(
+        base_url="http://dory.local",
+        spool=spool,
+        transport=transport,
+    )
+    queued = shipper.enqueue(
+        SessionShipJob(
+            path="logs/sessions/codex/mini/2026-04-12-s2.md",
+            content="bad",
+            agent="codex",
+            device="mini",
+            session_id="s2",
+            status="invalid",
+            captured_from="codex",
+            updated="2026-04-12T11:00:00Z",
+        )
+    )
+
+    result = shipper.flush_pending()
+
+    assert not queued.exists()
+    assert result.failed == (str(queued),)
+    assert len(result.dead_lettered) == 1
+    dead_letter = Path(result.dead_lettered[0])
+    assert dead_letter.exists()
+    payload = json.loads(dead_letter.read_text(encoding="utf-8"))
+    assert payload["_dory_shipper"]["dead_letter_reason"] == '{"ok": true}'
 
 
 def test_spool_replaces_pending_job_for_same_session(tmp_path: Path) -> None:
@@ -151,6 +185,8 @@ def test_flush_pending_marks_invalid_spool_job_as_failed(tmp_path: Path) -> None
     assert not result.sent
     assert result.failed == (str(bad_job),)
     assert "missing path/target" in result.errors[0]
+    assert not bad_job.exists()
+    assert len(result.dead_lettered) == 1
 
 
 def test_pending_paths_ignores_checkpoint_file(tmp_path: Path) -> None:
@@ -174,6 +210,65 @@ def test_pending_paths_ignores_checkpoint_file(tmp_path: Path) -> None:
 
     assert checkpoint not in pending
     assert pending == (job_path,)
+
+
+def test_flush_pending_records_transient_failure_attempt_metadata(tmp_path: Path) -> None:
+    spool = SessionSpool(tmp_path / "spool")
+    transport = FakeTransport(status_code=503)
+    shipper = SessionShipper(
+        base_url="http://dory.local",
+        spool=spool,
+        transport=transport,
+    )
+    queued = shipper.enqueue(
+        SessionShipJob(
+            path="logs/sessions/openclaw/macbook/2026-04-12-s1.md",
+            content="content",
+            agent="openclaw",
+            device="macbook",
+            session_id="s1",
+            status="active",
+            captured_from="openclaw",
+            updated="2026-04-12T10:00:00Z",
+        )
+    )
+
+    result = shipper.flush_pending()
+
+    assert queued.exists()
+    assert result.failed == (str(queued),)
+    payload = json.loads(queued.read_text(encoding="utf-8"))
+    assert payload["_dory_shipper"]["attempts"] == 1
+    assert payload["_dory_shipper"]["last_error"] == '{"ok": true}'
+
+
+def test_flush_pending_respects_max_flush_jobs(tmp_path: Path) -> None:
+    spool = SessionSpool(tmp_path / "spool")
+    transport = FakeTransport(status_code=200)
+    shipper = SessionShipper(
+        base_url="http://dory.local",
+        spool=spool,
+        transport=transport,
+        max_flush_jobs=1,
+    )
+    for index in range(2):
+        shipper.enqueue(
+            SessionShipJob(
+                path=f"logs/sessions/openclaw/macbook/2026-04-12-s{index}.md",
+                content="content",
+                agent="openclaw",
+                device="macbook",
+                session_id=f"s{index}",
+                status="active",
+                captured_from="openclaw",
+                updated="2026-04-12T10:00:00Z",
+            )
+        )
+
+    result = shipper.flush_pending()
+
+    assert len(result.sent) == 1
+    assert len(spool.pending_paths()) == 1
 
 
 def test_default_shipper_accepts_custom_timeout(tmp_path: Path) -> None:

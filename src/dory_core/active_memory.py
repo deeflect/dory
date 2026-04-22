@@ -181,38 +181,39 @@ class ActiveMemoryEngine:
             corpus="sessions",
             source_policy=source_policy,
         )
-        rendered_wake_block = _wake_block_for_rendering(wake_block, durable_results, session_results)
+        renderable_durable_results = _preferred_active_memory_results(durable_results)
+        rendered_wake_block = _wake_block_for_rendering(wake_block, renderable_durable_results, session_results)
         sources = _dedupe_strings(
             [
                 *(wake_sources if rendered_wake_block else []),
-                *[_result_path(item) for item in durable_results[:4]],
+                *[_result_path(item) for item in renderable_durable_results[:4]],
                 *[_result_path(item) for item in session_results[:3]],
             ]
         )
         composition = self._compose(
-            req, planning_context, wake_block, durable_results, session_results, deadline=deadline
+            req, planning_context, wake_block, renderable_durable_results, session_results, deadline=deadline
         )
-        if _composition_conflicts_with_evidence(composition, durable_results):
+        if _composition_conflicts_with_evidence(composition, renderable_durable_results):
             composition = None
-        synthesized_bullets = _synthesized_bullets(helper, durable_results, session_results, root=self.root)
+        synthesized_bullets = _synthesized_bullets(helper, renderable_durable_results, session_results, root=self.root)
         memory_bullets = (
             list(composition.bullets) if composition is not None and composition.bullets else synthesized_bullets
         )
         summary = (
             composition.summary
             if composition is not None and composition.summary
-            else _build_summary(helper, durable_results, session_results, wake_block, root=self.root)
+            else _build_summary(helper, renderable_durable_results, session_results, wake_block, root=self.root)
         )
         block = _build_block(
             helper,
             rendered_wake_block,
-            durable_results,
+            renderable_durable_results,
             session_results,
             memory_bullets=memory_bullets,
             budget_tokens=req.budget_tokens,
             root=self.root,
         )
-        confidence = _confidence_for_results(durable_results, session_results)
+        confidence = _confidence_for_results(renderable_durable_results, session_results)
         return ActiveMemoryResp(
             kind="memory" if block else "none",
             block=block,
@@ -467,14 +468,27 @@ def _search_candidates(
             if not path:
                 continue
             raw_score = float(getattr(result, "score", 0.0) or 0.0)
+            rank_score = getattr(result, "rank_score", None)
             normalized_score = getattr(result, "score_normalized", None)
-            base_score = float(normalized_score) if isinstance(normalized_score, (int, float)) else raw_score
+            if isinstance(rank_score, (int, float)):
+                base_score = float(rank_score)
+            elif isinstance(normalized_score, (int, float)):
+                base_score = float(normalized_score)
+            else:
+                base_score = raw_score
+            stale_penalty = 0.15 if str(getattr(result, "stale_warning", "") or "").strip() else 0.0
             score = base_score + _active_memory_path_weight(path) - (query_index * 0.06) - (result_index * 0.01)
+            score -= stale_penalty
             existing = scored_results.get(path)
             if existing is None or score > existing[0]:
                 scored_results[path] = (score, result)
     ordered = sorted(scored_results.values(), key=lambda item: (-item[0], _result_path(item[1])))
     return [result for _score, result in ordered[:k]]
+
+
+def _preferred_active_memory_results(results: list[object]) -> list[object]:
+    fresh_results = [result for result in results if not str(getattr(result, "stale_warning", "") or "").strip()]
+    return fresh_results or results
 
 
 def _composition_conflicts_with_evidence(composition: object | None, durable_results: list[object]) -> bool:
@@ -530,9 +544,6 @@ def _is_active_memory_candidate(result: object, *, corpus: str) -> bool:
         return False
     confidence = str(getattr(result, "confidence", "") or "").strip().lower()
     if corpus == "durable" and confidence == "low":
-        return False
-    stale_warning = str(getattr(result, "stale_warning", "") or "").strip()
-    if corpus == "durable" and stale_warning:
         return False
     return True
 

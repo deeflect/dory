@@ -29,6 +29,9 @@ export type MemorySearchResult = {
   score: number;
   snippet: string;
   source: "memory" | "sessions";
+  evidence_class?: string;
+  confidence?: string;
+  stale_warning?: string;
   citation?: string;
 };
 
@@ -172,6 +175,8 @@ type DorySearchItem = {
   score?: number;
   rank_score?: number;
   evidence_class?: string;
+  confidence?: string;
+  stale_warning?: string;
   snippet?: string;
   lines?: number[] | string;
 };
@@ -706,7 +711,7 @@ function createMemorySearchTool(
       return jsonResult({
         results: debug ? results.map(stripSearchInternalFields) : results.map(stripSearchDebugFields),
         provider: "dory-http",
-        mode: "hybrid",
+        mode: shouldQueryMemory ? "hybrid" : "supplements",
       });
     },
   };
@@ -1230,6 +1235,9 @@ function mapSearchResult(item: DorySearchItem, index: number): MemorySearchResul
   const path = String(item.path ?? "");
   const explicitScore = Number(item.rank_score ?? item.score);
   const score = Number.isFinite(explicitScore) ? explicitScore : Math.max(0, 1 - index * 0.001);
+  const evidenceClass = typeof item.evidence_class === "string" ? item.evidence_class : undefined;
+  const confidence = typeof item.confidence === "string" ? item.confidence : undefined;
+  const staleWarning = typeof item.stale_warning === "string" ? item.stale_warning : undefined;
   return {
     path,
     startLine,
@@ -1237,6 +1245,9 @@ function mapSearchResult(item: DorySearchItem, index: number): MemorySearchResul
     score,
     snippet: String(item.snippet ?? ""),
     source: path.startsWith("logs/sessions/") ? "sessions" : "memory",
+    evidence_class: evidenceClass,
+    confidence,
+    stale_warning: staleWarning,
     citation: path ? `${path}:${startLine}` : undefined,
   };
 }

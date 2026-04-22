@@ -72,6 +72,14 @@ export DORY_EMBEDDING_DIMENSIONS=1024
 export DORY_EMBEDDING_BATCH_SIZE=16
 ```
 
+For Docker against a local/LAN OpenAI-compatible server on the host, use the local override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+The override points containers at `http://host.docker.internal:8000/v1`, enables local embeddings and local reranking, and defaults embedding batches to 16.
+
 ## HTTP daemon
 
 ```bash
@@ -241,7 +249,7 @@ Or, if the same machine is both host and client:
 bash scripts/ops/install-dory.sh solo
 ```
 
-The shipper scans known harness stores, scrubs obvious noise and secrets, spools locally when offline, and ships session evidence to the host. Promotion into durable memory happens later through dream and maintenance runs.
+The shipper scans known harness stores, scrubs obvious noise and secrets, spools locally when offline, and ships session evidence to the host. It flushes a bounded number of queued jobs per pass, records retry metadata for transient failures, and moves malformed or validation-rejected jobs to `dead-letter/` under the spool root. Promotion into durable memory happens later through dream and maintenance runs.
 
 Daily digest of shipped session evidence:
 
@@ -283,6 +291,8 @@ uv run dory ops daily-digest-once
 uv run dory ops maintain-once
 uv run dory ops eval-once
 ```
+
+`dory status` includes index health fields such as `index_present`, `index_stale`, `index_missing_files`, `vector_drift`, and `last_reindex_at`. `dory reindex` prints progress to stderr by default; pass `--no-progress` for quiet JSON-only output.
 
 ## Where next
 
