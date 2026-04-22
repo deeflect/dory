@@ -6,7 +6,7 @@ from typing import Protocol
 
 from dory_core.config import DorySettings
 from dory_core.dreaming.events import SessionClosedEvent
-from dory_core.llm.openrouter import OpenRouterClient
+from dory_core.llm.json_client import JSONGenerationClient
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,8 +50,8 @@ class DistillationWriter:
 
 
 @dataclass(frozen=True, slots=True)
-class OpenRouterSessionDistiller:
-    client: OpenRouterClient
+class LLMSessionDistiller:
+    client: JSONGenerationClient
     writer: DistillationWriter
 
     def distill(self, event: SessionClosedEvent, session_text: str) -> Path:
@@ -83,7 +83,14 @@ class OpenRouterSessionDistiller:
 
 
 def resolve_dream_backend(settings: DorySettings) -> str:
+    if settings.dream_llm_provider == "local":
+        return "local"
+    if settings.dream_llm_provider == "auto":
+        return "auto"
     return "ollama" if settings.sovereign_mode else "openrouter"
+
+
+OpenRouterSessionDistiller = LLMSessionDistiller
 
 
 def _render_distilled_document(event: SessionClosedEvent, distilled: DistilledSession) -> str:

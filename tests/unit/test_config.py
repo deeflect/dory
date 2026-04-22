@@ -32,6 +32,7 @@ def test_settings_defaults() -> None:
     assert settings.local_llm_base_url == "http://127.0.0.1:11434/v1"
     assert settings.local_llm_model == "qwen3.5:4b"
     assert settings.local_llm_max_tokens == 512
+    assert settings.dream_llm_provider == "openrouter"
     assert settings.active_memory_llm_stages == "both"
 
 
@@ -120,6 +121,7 @@ def test_settings_accept_local_embedding_and_reranker(monkeypatch) -> None:
 
 def test_settings_accept_local_active_memory_llm(monkeypatch) -> None:
     monkeypatch.setenv("DORY_ACTIVE_MEMORY_LLM_PROVIDER", "local")
+    monkeypatch.setenv("DORY_DREAM_LLM_PROVIDER", "local")
     monkeypatch.setenv("DORY_LOCAL_LLM_BASE_URL", "https://llm.example.test")
     monkeypatch.setenv("DORY_LOCAL_LLM_MODEL", "Qwen3.5-4B-4bit")
     monkeypatch.setenv("DORY_LOCAL_LLM_API_KEY", "test-key")
@@ -129,6 +131,7 @@ def test_settings_accept_local_active_memory_llm(monkeypatch) -> None:
     settings = DorySettings()
 
     assert settings.active_memory_llm_provider == "local"
+    assert settings.dream_llm_provider == "local"
     assert settings.local_llm_base_url == "https://llm.example.test"
     assert settings.local_llm_model == "Qwen3.5-4B-4bit"
     assert settings.local_llm_api_key == "test-key"

@@ -20,6 +20,7 @@ from dory_core.dreaming.recall import RecallPromotionRunner
 from dory_core.embedding import ContentEmbedder
 from dory_core.compiled_wiki import render_compiled_page, render_compiled_page_from_claim_records
 from dory_core.index.reindex import ReindexResult, reindex_corpus, reindex_paths
+from dory_core.llm.json_client import JSONGenerationClient
 from dory_core.llm.openrouter import OpenRouterClient
 from dory_core.maintenance import MaintenanceReportWriter, OpenRouterMaintenanceInspector
 from dory_core.maintenance import MemoryHealthDashboard
@@ -66,10 +67,18 @@ class CompiledWikiRoute:
 
 
 class DreamOnceRunner:
-    def __init__(self, root: Path, client: OpenRouterClient, *, index_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        client: JSONGenerationClient,
+        *,
+        index_root: Path | None = None,
+        backend: str = "openrouter",
+    ) -> None:
         self.root = Path(root)
         self.index_root = Path(index_root) if index_root is not None else self.root / ".dory" / "index"
         self.client = client
+        self.backend = backend
         self.writer = DistillationWriter(self.root)
 
     def collect_candidates(self, *, min_session_age_seconds: float = 0) -> DreamScan:
@@ -114,7 +123,7 @@ class DreamOnceRunner:
         distilled: list[str] = []
         proposed: list[str] = []
         distiller = OpenRouterSessionDistiller(client=self.client, writer=self.writer)
-        generator = ProposalGenerator(root=self.root, backend="openrouter", client=self.client)
+        generator = ProposalGenerator(root=self.root, backend=self.backend, client=self.client)
         recall_distilled = RecallPromotionRunner.create(root=self.root, index_root=self.index_root).run()
         distilled.extend(path for path in recall_distilled if path not in distilled)
 
