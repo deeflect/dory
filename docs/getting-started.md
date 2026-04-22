@@ -259,7 +259,7 @@ Daily digest of shipped session evidence:
 uv run dory --corpus-root data/corpus --index-root .dory/index ops daily-digest-once
 ```
 
-Defaults: writes yesterday's `digests/daily/YYYY-MM-DD.md`, skips sessions touched in the last 30 minutes, won't overwrite an existing digest, reindexes only the written path. Use `--today`, `--date YYYY-MM-DD`, `--dry-run`, or `--overwrite` for manual runs.
+Defaults: writes yesterday's `digests/daily/YYYY-MM-DD.md`, includes every matching session, skips sessions touched in the last 30 minutes, won't overwrite an existing digest, and reindexes only the written path. Multi-session days are processed as one full-session digest call per session, followed by one merge call for the daily digest. Use `--today`, `--date YYYY-MM-DD`, `--dry-run`, `--limit`, or `--overwrite` for manual runs.
 
 ## Browser wiki and Obsidian
 
