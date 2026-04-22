@@ -594,15 +594,7 @@ class SearchEngine:
         if self.result_selector is None or len(response.results) < 2:
             return response
         candidates = tuple(
-            {
-                "path": result.path,
-                "snippet": result.snippet,
-                "score": result.score,
-                "rank_score": result.rank_score,
-                "evidence_class": result.evidence_class,
-                "frontmatter": result.frontmatter,
-                "stale_warning": result.stale_warning,
-            }
+            _selector_candidate_from_result(result)
             for result in response.results[: min(len(response.results), 12)]
         )
         try:
@@ -1527,9 +1519,42 @@ def _reorder_results(
     return ordered
 
 
+def _selector_candidate_from_result(result: SearchResult) -> dict[str, object]:
+    metadata = _selector_metadata(result.frontmatter)
+    candidate: dict[str, object] = {
+        "path": result.path,
+        "snippet": result.snippet,
+        "evidence_class": result.evidence_class,
+    }
+    if result.confidence is not None:
+        candidate["confidence"] = result.confidence
+    if result.stale_warning:
+        candidate["stale"] = True
+    if metadata:
+        candidate["metadata"] = metadata
+    return candidate
+
+
+def _selector_metadata(frontmatter: dict[str, object]) -> dict[str, object]:
+    allowed_keys = ("title", "type", "status", "canonical", "source_kind", "updated", "date")
+    metadata: dict[str, object] = {}
+    for key in allowed_keys:
+        value = frontmatter.get(key)
+        if isinstance(value, str) and value.strip():
+            metadata[key] = value
+        elif isinstance(value, bool):
+            metadata[key] = value
+    return metadata
+
+
 def _with_rank_scores(results: Sequence[SearchResult]) -> list[SearchResult]:
     total = len(results)
     return [
-        result.model_copy(update={"rank_score": _rank_normalized_score(position, total=total)})
+        result.model_copy(
+            update={
+                "rank_score": _rank_normalized_score(position, total=total),
+                "score_normalized": _rank_normalized_score(position, total=total),
+            }
+        )
         for position, result in enumerate(results, start=1)
     ]

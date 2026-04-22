@@ -246,7 +246,9 @@ def build_runtime_embedder(settings: object | None = None) -> GeminiEmbedder | O
 
     if not resolved_settings.gemini_api_key:
         raise EmbeddingConfigurationError(
-            "Gemini embedding API key is missing. Set DORY_GEMINI_API_KEY, GOOGLE_API_KEY, or GEMINI_API_KEY."
+            "Gemini embedding API key is missing. Set DORY_GEMINI_API_KEY, GOOGLE_API_KEY, or GEMINI_API_KEY. "
+            "For offline/local embeddings, set DORY_EMBEDDING_PROVIDER=local, DORY_LOCAL_EMBEDDING_BASE_URL, "
+            "DORY_LOCAL_EMBEDDING_MODEL, and DORY_EMBEDDING_DIMENSIONS."
         )
 
     return GeminiEmbedder(

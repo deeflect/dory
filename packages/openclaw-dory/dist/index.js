@@ -391,7 +391,7 @@ function createMemorySearchTool(options, ctx) {
             return jsonResult({
                 results: debug ? results.map(stripSearchInternalFields) : results.map(stripSearchDebugFields),
                 provider: "dory-http",
-                mode: "hybrid",
+                mode: shouldQueryMemory ? "hybrid" : "supplements",
             });
         },
     };
@@ -836,6 +836,9 @@ function mapSearchResult(item, index) {
     const path = String(item.path ?? "");
     const explicitScore = Number(item.rank_score ?? item.score);
     const score = Number.isFinite(explicitScore) ? explicitScore : Math.max(0, 1 - index * 0.001);
+    const evidenceClass = typeof item.evidence_class === "string" ? item.evidence_class : undefined;
+    const confidence = typeof item.confidence === "string" ? item.confidence : undefined;
+    const staleWarning = typeof item.stale_warning === "string" ? item.stale_warning : undefined;
     return {
         path,
         startLine,
@@ -843,6 +846,9 @@ function mapSearchResult(item, index) {
         score,
         snippet: String(item.snippet ?? ""),
         source: path.startsWith("logs/sessions/") ? "sessions" : "memory",
+        evidence_class: evidenceClass,
+        confidence,
+        stale_warning: staleWarning,
         citation: path ? `${path}:${startLine}` : undefined,
     };
 }

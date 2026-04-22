@@ -137,9 +137,10 @@ Notes:
 - Native MCP schemas expose the finalized tool fields: search mode aliases, per-request rerank control, debug-only search internals, wake profiles, active-memory limits, dry-run write guards, purge guards.
 - Search hides `score`, `score_normalized`, `rank_score`, and `frontmatter` by default. Use `debug=true` only for retrieval diagnostics.
 - `dory_write` is the exact-path write surface; `dory_memory_write` is semantic.
-- `dory_get` mirrors the HTTP metadata payload (`from`, `lines_returned`, `total_lines`, `frontmatter`, `hash`, `content`).
+- `dory_get` mirrors the HTTP metadata payload (`from`, `lines_returned`, `total_lines`, `frontmatter`, `hash`, `content`) and accepts both native `from` and legacy `from_line`.
 - `dory_get` reads exact paths inside the configured Dory corpus. Repo paths cited as external implementation evidence are not guaranteed to be retrievable unless they are also present in that corpus.
 - Native `dory_search` and `dory_active_memory` share retrieval/runtime behavior with CLI and HTTP because they call the same `SearchEngine` and `ActiveMemoryEngine`. LLM-assisted query planning/reranking is opt-in.
+- Mutating HTTP errors use structured `detail.code`, `detail.message`, and `detail.type` fields for agent-friendly recovery.
 - No authentication is enforced on MCP connections (HTTP has bearer auth; MCP doesn't).
 
 ## Claude Code bridge
@@ -166,6 +167,7 @@ Implemented bridge tools (10):
 Known issues:
 
 - Bridge fetches live tool schemas from `/v1/tools` and falls back to bundled schema if the server can't provide them.
+- Bridge and native MCP tool results use compact JSON to reduce tool-result tokens.
 - Already-open agent sessions may need restart after schema changes — MCP hosts can cache tool schemas for the running process.
 - Bridge forwards `DORY_HTTP_TOKEN` / `DORY_CLIENT_AUTH_TOKEN` as `Authorization: Bearer ...`.
 - Bridge returns structured HTTP/transport error envelopes from `_perform_request()` instead of flattening to naked strings.

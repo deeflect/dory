@@ -148,7 +148,7 @@ class RuntimeCore:
     def get(self, req: dict[str, Any]) -> dict[str, Any]:
         path = _resolve_corpus_path(self.corpus_root, str(req["path"]))
         text = path.read_text(encoding="utf-8")
-        start_line = int(req.get("from", 1))
+        start_line = int(req.get("from", req.get("from_line", 1)))
         limit = req.get("lines")
         sliced = _slice_lines(text, start_line, None if limit is None else int(limit))
         try:
@@ -407,9 +407,9 @@ def main(argv: list[str] | None = None) -> None:
 
 def _render_result(result: Any) -> str:
     if hasattr(result, "model_dump_json"):
-        return result.model_dump_json(indent=2)
+        return result.model_dump_json()
     if isinstance(result, (dict, list)):
-        return json.dumps(result, indent=2, sort_keys=True)
+        return json.dumps(result, separators=(",", ":"), sort_keys=True)
     return str(result)
 
 

@@ -86,7 +86,12 @@ class SessionSpool:
         )
 
     def load(self, path: Path) -> SessionShipJob:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as err:
+            raise SessionSpoolJobError(f"spool job contains invalid JSON: {path}") from err
+        if not isinstance(payload, dict):
+            raise SessionSpoolJobError(f"spool job must be a JSON object: {path}")
         target_path = payload.get("path") or payload.get("target")
         if not isinstance(target_path, str) or not target_path.strip():
             raise SessionSpoolJobError(f"spool job missing path/target: {path}")
@@ -104,6 +109,54 @@ class SessionSpool:
     def delete(self, path: Path) -> None:
         path.unlink(missing_ok=True)
 
+    def record_attempt_failure(self, path: Path, error_message: str) -> None:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        if not isinstance(payload, dict):
+            return
+        metadata = payload.get("_dory_shipper")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        attempts = int(metadata.get("attempts", 0) or 0) + 1
+        metadata.update(
+            {
+                "attempts": attempts,
+                "last_error": error_message[:500],
+                "last_attempted_at": datetime.now(tz=UTC).isoformat(),
+            }
+        )
+        payload["_dory_shipper"] = metadata
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    def dead_letter(self, path: Path, reason: str) -> Path:
+        dead_root = self.root / "dead-letter"
+        dead_root.mkdir(parents=True, exist_ok=True)
+        target = dead_root / path.name
+        if target.exists():
+            target = dead_root / f"{path.stem}-{uuid.uuid4().hex}{path.suffix}"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            payload = None
+        if isinstance(payload, dict):
+            metadata = payload.get("_dory_shipper")
+            if not isinstance(metadata, dict):
+                metadata = {}
+            metadata.update(
+                {
+                    "dead_lettered_at": datetime.now(tz=UTC).isoformat(),
+                    "dead_letter_reason": reason[:500],
+                }
+            )
+            payload["_dory_shipper"] = metadata
+            target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        else:
+            target.write_text(path.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+        self.delete(path)
+        return target
+
     def _delete_replaced_jobs(self, job: SessionShipJob) -> None:
         for path in self.pending_paths():
             try:
@@ -119,6 +172,7 @@ class SessionShipResult:
     sent: tuple[str, ...]
     failed: tuple[str, ...]
     errors: tuple[str, ...]
+    dead_lettered: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +182,7 @@ class SessionShipper:
     transport: SessionTransport
     ingest_path: str = "/v1/session-ingest"
     timeout_seconds: float = 10.0
+    max_flush_jobs: int = 100
 
     def enqueue(self, job: SessionShipJob) -> Path:
         return self.spool.enqueue(job)
@@ -136,13 +191,15 @@ class SessionShipper:
         sent: list[str] = []
         failed: list[str] = []
         errors: list[str] = []
+        dead_lettered: list[str] = []
 
-        for path in self.spool.pending_paths():
+        for path in self.spool.pending_paths()[: max(0, self.max_flush_jobs)]:
             try:
                 job = self.spool.load(path)
             except SessionSpoolJobError as exc:
                 failed.append(str(path))
                 errors.append(str(exc))
+                dead_lettered.append(str(self.spool.dead_letter(path, str(exc))))
                 continue
             try:
                 response = self.transport.post_json(
@@ -152,18 +209,30 @@ class SessionShipper:
                 )
             except Exception as exc:  # pragma: no cover - transport failures are validated via tests
                 failed.append(str(path))
-                errors.append(str(exc))
+                error_message = str(exc)
+                errors.append(error_message)
+                self.spool.record_attempt_failure(path, error_message)
                 continue
 
             if response.status_code >= 400:
                 failed.append(str(path))
-                errors.append(response.body[:500])
+                error_message = response.body[:500]
+                errors.append(error_message)
+                if _is_permanent_ingest_failure(response.status_code):
+                    dead_lettered.append(str(self.spool.dead_letter(path, error_message)))
+                else:
+                    self.spool.record_attempt_failure(path, error_message)
                 continue
 
             self.spool.delete(path)
             sent.append(str(path))
 
-        return SessionShipResult(sent=tuple(sent), failed=tuple(failed), errors=tuple(errors))
+        return SessionShipResult(
+            sent=tuple(sent),
+            failed=tuple(failed),
+            errors=tuple(errors),
+            dead_lettered=tuple(dead_lettered),
+        )
 
     def ship(self, job: SessionShipJob) -> SessionShipResult:
         self.enqueue(job)
@@ -179,12 +248,14 @@ def build_default_shipper(
     spool_root: Path,
     token: str | None = None,
     timeout_seconds: float = 10.0,
+    max_flush_jobs: int = 100,
 ) -> SessionShipper:
     return SessionShipper(
         base_url=base_url,
         spool=SessionSpool(Path(spool_root)),
         transport=UrllibSessionTransport(token=token),
         timeout_seconds=timeout_seconds,
+        max_flush_jobs=max_flush_jobs,
     )
 
 
@@ -199,3 +270,7 @@ def _sanitize_component(value: str) -> str:
     cleaned = [character if character.isalnum() or character in {"-", "_"} else "_" for character in value]
     candidate = "".join(cleaned).strip("_")
     return candidate or "session"
+
+
+def _is_permanent_ingest_failure(status_code: int) -> bool:
+    return status_code in {400, 422}

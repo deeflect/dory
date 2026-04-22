@@ -274,4 +274,7 @@ def test_http_memory_write_returns_400_for_validation_errors(
     )
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "semantic write failed"
+    detail = response.json()["detail"]
+    assert detail["code"] == "dory_validation_error"
+    assert detail["message"] == "semantic write failed"
+    assert detail["type"] == "validation"

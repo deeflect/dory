@@ -134,7 +134,7 @@ def test_bridge_syncs_local_sessions_before_wake(monkeypatch) -> None:
         "include_recent_sessions": 1,
     }
     assert '"session_sync"' in result
-    assert '"sent": 1' in result
+    assert '"sent":1' in result
 
 
 def test_bridge_session_sync_can_be_disabled(monkeypatch) -> None:
@@ -247,7 +247,7 @@ def test_bridge_routes_get_with_native_from_parameter(monkeypatch) -> None:
     result = bridge.handle_tool_call("dory_get", {"path": "core/user.md", "from": 7, "lines": 3})
 
     assert captured["endpoint"] == "/v1/get?path=core%2Fuser.md&from=7&lines=3"
-    assert '"from": 7' in result
+    assert '"from":7' in result
 
 
 def test_bridge_retains_legacy_write_route(monkeypatch) -> None:

@@ -98,8 +98,8 @@ Runtime behavior:
 
 Backend selection:
 
-- `openrouter` by default
-- `ollama` when sovereign mode is enabled
+- Dream distillation/proposal generation currently requires the OpenRouter-compatible dream client path.
+- `sovereign_mode` only changes the stored proposal backend label today; it does not make dream execution local by itself.
 
 ## Daily Digests
 

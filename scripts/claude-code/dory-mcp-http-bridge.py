@@ -182,7 +182,7 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> str:
         result = {"ok": False, "error": {"type": "protocol_error", "message": "non-dict response"}}
     if pre_call_result is not None:
         result["session_sync"] = pre_call_result
-    return json.dumps(result, indent=2)
+    return json.dumps(result, separators=(",", ":"), sort_keys=True)
 
 
 def _get_query_params(name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -397,7 +397,8 @@ def main() -> None:
                             "message": str(err),
                         },
                     },
-                    indent=2,
+                    separators=(",", ":"),
+                    sort_keys=True,
                 )
             send(
                 {

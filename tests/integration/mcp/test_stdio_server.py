@@ -58,7 +58,7 @@ def test_stdio_server_lists_tools_and_calls_wake() -> None:
     responses = [json.loads(line) for line in stdout.getvalue().splitlines()]
     assert responses[0]["result"]["tools"][0]["name"] == "dory_wake"
     assert responses[1]["result"]["content"][0]["type"] == "text"
-    assert '"verb": "wake"' in responses[1]["result"]["content"][0]["text"]
+    assert '"verb":"wake"' in responses[1]["result"]["content"][0]["text"]
 
 
 def test_stdio_server_calls_semantic_memory_write() -> None:
@@ -91,7 +91,7 @@ def test_stdio_server_calls_semantic_memory_write() -> None:
 
     response = json.loads(stdout.getvalue().strip())
     assert response["result"]["content"][0]["type"] == "text"
-    assert '"verb": "memory_write"' in response["result"]["content"][0]["text"]
+    assert '"verb":"memory_write"' in response["result"]["content"][0]["text"]
 
 
 def test_stdio_server_calls_research() -> None:
@@ -125,7 +125,7 @@ def test_stdio_server_calls_research() -> None:
 
     response = json.loads(stdout.getvalue().strip())
     assert response["result"]["content"][0]["type"] == "text"
-    assert '"verb": "research"' in response["result"]["content"][0]["text"]
+    assert '"verb":"research"' in response["result"]["content"][0]["text"]
 
 
 def test_stdio_server_returns_error_and_continues_after_unknown_tool() -> None:
@@ -166,7 +166,7 @@ def test_stdio_server_returns_error_and_continues_after_unknown_tool() -> None:
     assert responses[0]["error"]["code"] == -32601
     assert responses[0]["error"]["message"] == "unknown tool: unknown_tool"
     assert responses[1]["result"]["content"][0]["type"] == "text"
-    assert '"verb": "wake"' in responses[1]["result"]["content"][0]["text"]
+    assert '"verb":"wake"' in responses[1]["result"]["content"][0]["text"]
 
 
 def test_stdio_server_returns_parse_error_and_continues_after_bad_json() -> None:
@@ -193,7 +193,7 @@ def test_stdio_server_returns_parse_error_and_continues_after_bad_json() -> None
     assert responses[0]["error"]["code"] == -32700
     assert responses[0]["id"] is None
     assert responses[1]["result"]["content"][0]["type"] == "text"
-    assert '"verb": "wake"' in responses[1]["result"]["content"][0]["text"]
+    assert '"verb":"wake"' in responses[1]["result"]["content"][0]["text"]
 
 
 def test_stdio_server_does_not_respond_to_initialized_notification() -> None:

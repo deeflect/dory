@@ -28,6 +28,21 @@ def test_mcp_get_returns_http_parity_fields(tmp_path: Path, fake_embedder) -> No
     assert "Hello world." in payload["content"]
 
 
+def test_mcp_get_accepts_legacy_from_line_alias(tmp_path: Path, fake_embedder) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / "index"
+    (corpus_root / "core").mkdir(parents=True)
+    (corpus_root / "core" / "user.md").write_text(
+        "---\ntitle: User\ntype: core\n---\n# User\n\nHello world.\n",
+        encoding="utf-8",
+    )
+
+    core = RuntimeCore(corpus_root=corpus_root, index_root=index_root, embedder=fake_embedder)
+    payload = core.get({"path": "core/user.md", "from_line": 2, "lines": 1})
+
+    assert payload["from"] == 2
+
+
 def test_mcp_get_rejects_non_positive_line_limit(tmp_path: Path, fake_embedder) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / "index"

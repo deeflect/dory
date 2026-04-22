@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from hashlib import sha256
+import logging
 from pathlib import Path
 import sqlite3
 
@@ -13,6 +16,19 @@ from dory_core.index.sqlite_store import SqliteStore
 from dory_core.index.sqlite_vector_store import SqliteVectorStore
 from dory_core.link import load_known_entities, sync_document_edges
 from dory_core.markdown_store import MarkdownDocument, MarkdownStore
+
+_logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class ReindexProgress:
+    phase: str
+    processed: int
+    total: int
+    message: str = ""
+
+
+ReindexProgressCallback = Callable[[ReindexProgress], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,18 +58,36 @@ class _PreparedRows:
     embedding_cache: dict[str, str]
 
 
-def reindex_corpus(root: Path, index_root: Path, embedder: ContentEmbedder) -> ReindexResult:
+def reindex_corpus(
+    root: Path,
+    index_root: Path,
+    embedder: ContentEmbedder,
+    *,
+    progress: ReindexProgressCallback | None = None,
+) -> ReindexResult:
+    _emit_progress(progress, phase="scan", processed=0, total=0, message=f"scanning {root}")
     scan = MarkdownStore().scan(root)
+    _emit_progress(
+        progress,
+        phase="scan",
+        processed=len(scan.documents),
+        total=len(scan.documents),
+        message=f"discovered {len(scan.documents)} markdown files",
+    )
     runtime = _build_index_runtime(index_root, embedder)
-    prepared = _prepare_rows(scan.documents, runtime=runtime, embedder=embedder)
+    prepared = _prepare_rows(scan.documents, runtime=runtime, embedder=embedder, progress=progress)
+    _emit_progress(progress, phase="sqlite", processed=0, total=1, message="replacing sqlite index")
     runtime.sqlite_store.replace_documents(
         prepared.file_rows,
         prepared.chunk_rows,
         embedding_cache=prepared.embedding_cache,
         meta=_runtime_meta(runtime),
     )
+    _emit_progress(progress, phase="vectors", processed=0, total=1, message="replacing vector index")
     vectors_indexed = runtime.vector_store.replace(prepared.vector_rows)
+    _emit_progress(progress, phase="links", processed=0, total=len(scan.documents), message="resyncing links")
     _replace_all_edges(root=root, db_path=runtime.sqlite_store.db_path, documents=scan.documents)
+    _emit_progress(progress, phase="done", processed=len(scan.documents), total=len(scan.documents), message="reindex complete")
 
     return ReindexResult(
         files_indexed=len(prepared.file_rows),
@@ -69,6 +103,8 @@ def reindex_paths(
     index_root: Path,
     embedder: ContentEmbedder,
     relative_paths: list[str] | tuple[str, ...],
+    *,
+    progress: ReindexProgressCallback | None = None,
 ) -> ReindexResult:
     runtime = _build_index_runtime(index_root, embedder)
     documents = []
@@ -82,8 +118,16 @@ def reindex_paths(
             continue
         documents.append(document)
 
-    prepared = _prepare_rows(documents, runtime=runtime, embedder=embedder)
+    _emit_progress(
+        progress,
+        phase="scan",
+        processed=len(documents),
+        total=len(affected_paths),
+        message=f"loaded {len(documents)} changed paths",
+    )
+    prepared = _prepare_rows(documents, runtime=runtime, embedder=embedder, progress=progress)
     stale_chunk_ids = runtime.sqlite_store.load_chunk_ids_for_paths(affected_paths)
+    _emit_progress(progress, phase="sqlite", processed=0, total=1, message="upserting sqlite index")
     runtime.vector_store.delete_many(stale_chunk_ids)
     runtime.sqlite_store.upsert_documents(
         prepared.file_rows,
@@ -92,13 +136,16 @@ def reindex_paths(
         embedding_cache=prepared.embedding_cache,
         meta=_runtime_meta(runtime),
     )
+    _emit_progress(progress, phase="vectors", processed=0, total=1, message="upserting vectors")
     vectors_indexed = runtime.vector_store.upsert(prepared.vector_rows)
+    _emit_progress(progress, phase="links", processed=0, total=len(documents), message="resyncing links")
     _resync_edges_for_paths(
         root=root,
         db_path=runtime.sqlite_store.db_path,
         documents=documents,
         deleted_paths=skipped_paths,
     )
+    _emit_progress(progress, phase="done", processed=len(documents), total=len(affected_paths), message="path reindex complete")
 
     return ReindexResult(
         files_indexed=len(prepared.file_rows),
@@ -137,6 +184,7 @@ def _prepare_rows(
     *,
     runtime: _IndexRuntime,
     embedder: ContentEmbedder,
+    progress: ReindexProgressCallback | None,
 ) -> _PreparedRows:
     file_rows: list[dict[str, object]] = []
     chunk_rows: list[dict[str, object]] = []
@@ -145,7 +193,16 @@ def _prepare_rows(
     pending_vectors: dict[str, str] = {}
     embedding_cache: dict[str, str] = {}
 
-    for document in documents:
+    total_documents = len(documents)
+    for document_index, document in enumerate(documents, start=1):
+        if document_index == 1 or document_index == total_documents or document_index % 100 == 0:
+            _emit_progress(
+                progress,
+                phase="prepare",
+                processed=document_index,
+                total=total_documents,
+                message=f"prepared {document_index}/{total_documents} files",
+            )
         file_rows.append(
             {
                 "path": str(document.path),
@@ -185,8 +242,16 @@ def _prepare_rows(
 
     pending_items = list(pending_vectors.items())
     batch_size = max(1, int(getattr(embedder, "batch_size", len(pending_items) or 1)))
-    for start in range(0, len(pending_items), batch_size):
+    total_batches = (len(pending_items) + batch_size - 1) // batch_size if pending_items else 0
+    for batch_index, start in enumerate(range(0, len(pending_items), batch_size), start=1):
         batch = pending_items[start : start + batch_size]
+        _emit_progress(
+            progress,
+            phase="embed",
+            processed=batch_index,
+            total=total_batches,
+            message=f"embedding batch {batch_index}/{total_batches} ({len(batch)} chunks)",
+        )
         vectors = embedder.embed([content for _, content in batch])
         for (content_hash, _), vector in zip(batch, vectors, strict=True):
             resolved_vectors[content_hash] = vector
@@ -205,6 +270,20 @@ def _prepare_rows(
         vector_rows=vector_rows,
         embedding_cache=embedding_cache,
     )
+
+
+def _emit_progress(
+    callback: ReindexProgressCallback | None,
+    *,
+    phase: str,
+    processed: int,
+    total: int,
+    message: str,
+) -> None:
+    progress = ReindexProgress(phase=phase, processed=processed, total=total, message=message)
+    _logger.info("reindex %s %s/%s %s", progress.phase, progress.processed, progress.total, progress.message)
+    if callback is not None:
+        callback(progress)
 
 
 def _load_single_document(root: Path, relative_path: Path) -> MarkdownDocument | None:
@@ -234,6 +313,7 @@ def _runtime_meta(runtime: _IndexRuntime) -> dict[str, str]:
     return {
         "embedding_dimensions": runtime.current_embedding_dimensions,
         "embedding_model": runtime.current_embedding_model,
+        "last_reindex_at": datetime.now(UTC).isoformat(),
     }
 
 

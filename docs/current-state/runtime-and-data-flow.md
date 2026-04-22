@@ -110,6 +110,7 @@ Input aliases:
   - fuses rankings via RRF
   - applies priors for canonical/current/source-backed docs
   - returns `evidence_class` and confidence in the default client-facing response; `rank_score`, `score_normalized`, raw `score`, and `frontmatter` are diagnostic fields exposed only with `debug=true`
+  - keeps `rank_score` and `score_normalized` aligned with the final returned order after rerank, selection, or session merge
   - demotes raw inbox, generated, and session-like material unless a scope/exact query asks for it
   - adds lexical and temporal boosts
   - optionally expands queries through OpenRouter (`query_expansion.py`) when `DORY_QUERY_EXPANSION_ENABLED=true`
@@ -118,7 +119,7 @@ Input aliases:
   - expanded queries contribute to both BM25 and vector candidate generation
   - durable/session fallback merge uses rank-plus-coverage scoring instead of raw concatenation
 
-Score inconsistency: BM25-only returns negative scores; hybrid/vector return positive. API consumers shouldn't compare scores across modes.
+Score inconsistency: BM25-only returns negative scores; hybrid/vector return positive. API consumers shouldn't compare raw scores across modes. Use result order in normal mode; use debug scores only for diagnostics.
 
 ### Session recall
 

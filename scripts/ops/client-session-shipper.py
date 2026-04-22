@@ -56,6 +56,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=float(os.environ.get("DORY_CLIENT_SHIPPER_TIMEOUT_SECONDS", "10")),
     )
+    parser.add_argument(
+        "--max-flush-jobs",
+        type=int,
+        default=int(os.environ.get("DORY_CLIENT_MAX_FLUSH_JOBS", "100")),
+        help="Maximum queued jobs to attempt per flush.",
+    )
     parser.add_argument("--no-flush", action="store_true", help="Only enqueue locally.")
     return parser
 
@@ -69,6 +75,7 @@ def main() -> int:
         spool_root=Path(args.spool_root),
         token=args.auth_token,
         timeout_seconds=float(args.timeout_seconds),
+        max_flush_jobs=int(args.max_flush_jobs),
     )
 
     if _is_manual_mode(args):
@@ -178,11 +185,12 @@ def _run_auto_mode(
 
 def _serialize_result(result: SessionShipResult | None) -> dict[str, object]:
     if result is None:
-        return {"sent": [], "failed": [], "errors": []}
+        return {"sent": [], "failed": [], "errors": [], "dead_lettered": []}
     return {
         "sent": list(result.sent),
         "failed": list(result.failed),
         "errors": list(result.errors),
+        "dead_lettered": list(result.dead_lettered),
     }
 
 
