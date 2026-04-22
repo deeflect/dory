@@ -83,26 +83,24 @@ def test_ops_dream_once_writes_distilled_and_proposed(
     assert payload["proposed"] == ["inbox/proposed/codex-2026-04-11.json"]
 
 
-def test_ops_dream_once_limit_caps_session_backlog(cli_runner, monkeypatch, tmp_path: Path) -> None:
+def test_ops_dream_once_defaults_to_digest_sources(cli_runner, monkeypatch, tmp_path: Path) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / ".index"
     sessions_root = corpus_root / "logs" / "sessions" / "codex"
     sessions_root.mkdir(parents=True, exist_ok=True)
-    for day in ("2026-04-11", "2026-04-12"):
-        (sessions_root / f"{day}.md").write_text(
-            f"---\ntitle: Session {day}\ncreated: {day}\ntype: session\nstatus: done\n---\n\nDiscussed Dory operator jobs.\n",
-            encoding="utf-8",
-        )
+    (sessions_root / "2026-04-11.md").write_text(
+        "---\ntitle: Session\ncreated: 2026-04-11\ntype: session\nstatus: done\n---\n\nDiscussed raw session.\n",
+        encoding="utf-8",
+    )
+    digest = corpus_root / "digests" / "daily" / "2026-04-11.md"
+    digest.parent.mkdir(parents=True, exist_ok=True)
+    digest.write_text(
+        "---\ntitle: Daily Digest\ntype: digest-daily\n---\n\nDecided to keep digest-first dreaming.\n",
+        encoding="utf-8",
+    )
 
     client = _QueuedOpenRouterClient(
         [
-            {
-                "summary": "The session focused on operator jobs.",
-                "key_facts": ["Operator jobs should stay reviewable."],
-                "decisions": [],
-                "followups": [],
-                "entities": ["Dory"],
-            },
             {"actions": []},
         ]
     )
@@ -117,16 +115,14 @@ def test_ops_dream_once_limit_caps_session_backlog(cli_runner, monkeypatch, tmp_
             str(index_root),
             "ops",
             "dream-once",
-            "--limit",
-            "1",
         ],
     )
 
     assert result.exit_code == 0, result.output
     payload = json.loads(result.stdout)
-    assert payload["distilled"] == ["inbox/distilled/codex-2026-04-11.md"]
-    assert payload["proposed"] == ["inbox/proposed/codex-2026-04-11.json"]
-    assert not (corpus_root / "inbox" / "distilled" / "codex-2026-04-12.md").exists()
+    assert payload["distilled"] == []
+    assert payload["proposed"] == ["inbox/proposed/2026-04-11.json"]
+    assert not (corpus_root / "inbox" / "distilled" / "codex-2026-04-11.md").exists()
 
 
 def test_ops_dream_once_promotes_recall_candidates(cli_runner, monkeypatch, tmp_path: Path) -> None:

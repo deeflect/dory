@@ -33,6 +33,7 @@ from dory_core.watch import BufferedMarkdownChangeHandler, WatchCoalescer, is_se
 @dataclass(frozen=True, slots=True)
 class DreamScan:
     session_paths: tuple[str, ...]
+    digest_paths: tuple[str, ...]
     distilled_paths: tuple[str, ...]
     proposal_paths: tuple[str, ...]
     recall_paths: tuple[str, ...] = ()
@@ -81,23 +82,29 @@ class DreamOnceRunner:
         self.backend = backend
         self.writer = DistillationWriter(self.root)
 
-    def collect_candidates(self, *, min_session_age_seconds: float = 0) -> DreamScan:
+    def collect_candidates(self, *, include_sessions: bool = False, min_session_age_seconds: float = 0) -> DreamScan:
         session_paths: list[str] = []
+        digest_paths: list[str] = []
         distilled_paths: list[str] = []
         proposal_paths: list[str] = []
         recall_runner = RecallPromotionRunner.create(root=self.root, index_root=self.index_root)
         now = datetime.now(tz=UTC)
-        for session_file in sorted((self.root / "logs" / "sessions").rglob("*.md")):
-            if min_session_age_seconds > 0:
-                modified_at = datetime.fromtimestamp(session_file.stat().st_mtime, tz=UTC)
-                if (now - modified_at).total_seconds() < min_session_age_seconds:
-                    continue
-            session_rel = str(session_file.relative_to(self.root))
-            if not self._distilled_target_for_session(session_rel).exists():
-                session_paths.append(session_rel)
+        if include_sessions:
+            for session_file in sorted((self.root / "logs" / "sessions").rglob("*.md")):
+                if min_session_age_seconds > 0:
+                    modified_at = datetime.fromtimestamp(session_file.stat().st_mtime, tz=UTC)
+                    if (now - modified_at).total_seconds() < min_session_age_seconds:
+                        continue
+                session_rel = str(session_file.relative_to(self.root))
+                if not self._distilled_target_for_session(session_rel).exists():
+                    session_paths.append(session_rel)
+        for digest_file in self._iter_digest_files():
+            digest_rel = str(digest_file.relative_to(self.root))
+            if not self._proposal_target_for_source(digest_file).exists():
+                digest_paths.append(digest_rel)
         for distilled_file in sorted((self.root / "inbox" / "distilled").glob("*.md")):
             distilled_rel = str(distilled_file.relative_to(self.root))
-            if not self._proposal_target_for_distilled(distilled_file).exists():
+            if not self._proposal_target_for_source(distilled_file).exists():
                 distilled_paths.append(distilled_rel)
         recall_paths = tuple(
             str(recall_runner.writer.relative_output_path(candidate))
@@ -106,6 +113,7 @@ class DreamOnceRunner:
         distilled_paths.extend(path for path in recall_paths if path not in distilled_paths)
         return DreamScan(
             session_paths=tuple(session_paths),
+            digest_paths=tuple(digest_paths),
             distilled_paths=tuple(distilled_paths),
             proposal_paths=tuple(proposal_paths),
             recall_paths=tuple(recall_paths),
@@ -118,8 +126,11 @@ class DreamOnceRunner:
         limit: int | None = None,
         min_session_age_seconds: float = 0,
     ) -> DreamOnceResult:
-        scan = self.collect_candidates(min_session_age_seconds=min_session_age_seconds)
-        requested_sessions = set(session_paths or scan.session_paths)
+        requested_sessions = set(session_paths or ())
+        scan = self.collect_candidates(
+            include_sessions=bool(requested_sessions),
+            min_session_age_seconds=min_session_age_seconds,
+        )
         distilled: list[str] = []
         proposed: list[str] = []
         distiller = OpenRouterSessionDistiller(client=self.client, writer=self.writer)
@@ -143,7 +154,8 @@ class DreamOnceRunner:
             distilled.append(str(target.relative_to(self.root)))
             processed_sessions += 1
 
-        proposal_candidates = list(scan.distilled_paths)
+        proposal_candidates = list(scan.digest_paths)
+        proposal_candidates.extend(path for path in scan.distilled_paths if path not in proposal_candidates)
         proposal_candidates.extend(path for path in recall_distilled if path not in proposal_candidates)
         proposal_candidates.extend(distilled)
         deduped_candidates: list[str] = []
@@ -175,8 +187,13 @@ class DreamOnceRunner:
         event = SessionClosedEvent.now(agent=agent, session_path=session_rel)
         return self.root / event.output_path
 
-    def _proposal_target_for_distilled(self, distilled_file: Path) -> Path:
-        return self.root / "inbox" / "proposed" / f"{distilled_file.stem}.json"
+    def _proposal_target_for_source(self, source_file: Path) -> Path:
+        return self.root / "inbox" / "proposed" / f"{source_file.stem}.json"
+
+    def _iter_digest_files(self) -> Iterable[Path]:
+        for digest_root in (self.root / "digests" / "daily", self.root / "digests" / "weekly"):
+            if digest_root.exists():
+                yield from sorted(digest_root.glob("*.md"))
 
 
 class MaintenanceOnceRunner:
@@ -339,13 +356,13 @@ class OpsWatchRunner:
         if session_sync is not None:
             payload["session_sync"] = asdict(session_sync)
         if self.dream_runner is not None:
-            session_candidates = [
+            digest_candidates = [
                 str(Path(path).resolve().relative_to(self.corpus_root.resolve()))
                 for path in changed_paths
-                if is_session_markdown(Path(path), root=self.corpus_root)
+                if self._is_digest_markdown(Path(path))
             ]
-            if session_candidates:
-                payload["dream"] = asdict(self.dream_runner.run(session_candidates))
+            if digest_candidates:
+                payload["dream"] = asdict(self.dream_runner.run())
         return payload
 
     def serve_forever(self, *, poll_interval: float = 0.25) -> None:
@@ -361,6 +378,14 @@ class OpsWatchRunner:
         finally:
             observer.stop()
             observer.join()
+
+    def _is_digest_markdown(self, path: Path) -> bool:
+        try:
+            relative = path.resolve().relative_to(self.corpus_root.resolve())
+        except ValueError:
+            return False
+        parts = relative.parts
+        return len(parts) >= 3 and parts[0] == "digests" and parts[1] in {"daily", "weekly"} and path.suffix == ".md"
 
 
 def serialize_result(payload: object) -> str:
