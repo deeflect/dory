@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import shutil
 import sys
+from collections.abc import Callable
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
@@ -43,7 +43,14 @@ from dory_core.dreaming.events import SessionClosedEvent
 from dory_core.dreaming.extract import DistillationWriter, OpenRouterSessionDistiller, resolve_dream_backend
 from dory_core.dreaming.proposals import ProposalGenerator, list_proposals, load_proposal
 from dory_core.embedding import EmbeddingConfigurationError, EmbeddingProviderError, build_runtime_embedder
-from dory_core.index.reindex import ReindexProgress, reindex_corpus, reindex_paths
+from dory_core.index.reindex import (
+    ReconcilePlan,
+    ReindexProgress,
+    plan_reconcile,
+    reconcile_corpus,
+    reindex_corpus,
+    reindex_paths,
+)
 from dory_core.link import LinkService
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
 from dory_core.llm_rerank import build_reranker
@@ -811,34 +818,125 @@ def status(ctx: typer.Context) -> None:
     typer.echo(format_status(build_status(config.corpus_root, config.index_root)))
 
 
-def _print_reindex_progress(progress: ReindexProgress) -> None:
-    total = progress.total if progress.total > 0 else "?"
-    typer.echo(
-        f"[reindex] {progress.phase} {progress.processed}/{total} {progress.message}",
-        err=True,
-    )
+def _format_duration(seconds: float | None) -> str:
+    if seconds is None or seconds <= 0:
+        return "--"
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    minutes, secs = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m{secs:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m"
+
+
+def _make_progress_printer(*, tty: bool) -> Callable[[ReindexProgress], None]:
+    last_phase: dict[str, str] = {"value": ""}
+
+    def render(progress: ReindexProgress) -> None:
+        total = progress.total if progress.total > 0 else "?"
+        percent = ""
+        if progress.total > 0:
+            percent = f" ({progress.processed * 100 // progress.total}%)"
+        rate = f" {progress.rate:.1f}/s" if progress.rate else ""
+        eta = f" eta {_format_duration(progress.eta_s)}" if progress.eta_s else ""
+        elapsed = f" [{_format_duration(progress.elapsed_s)}]"
+        line = (
+            f"[reindex] {progress.phase} {progress.processed}/{total}{percent}"
+            f"{rate}{eta}{elapsed} {progress.message}"
+        )
+        stream = sys.stderr
+        if tty and progress.phase not in {"done", "plan"}:
+            if last_phase["value"] and last_phase["value"] != progress.phase:
+                stream.write("\n")
+            stream.write("\r\x1b[2K" + line)
+            stream.flush()
+        else:
+            if tty and last_phase["value"] and last_phase["value"] != progress.phase:
+                stream.write("\n")
+            stream.write(line + "\n")
+            stream.flush()
+        last_phase["value"] = progress.phase
+
+    return render
+
+
+def _format_plan(plan: ReconcilePlan) -> str:
+    lines = [
+        "Reconcile plan:",
+        f"  new:       {len(plan.new_paths)}",
+        f"  changed:   {len(plan.changed_paths)}",
+        f"  orphans:   {len(plan.orphan_paths)}",
+        f"  unchanged: {plan.unchanged_count}",
+    ]
+    if plan.embedding_model_changed:
+        lines.append("  model:     embedding model changed — full rebuild required")
+    return "\n".join(lines)
 
 
 @app.command()
 def reindex(
     ctx: typer.Context,
-    force: bool = typer.Option(False, "--force"),
-    progress: bool = typer.Option(True, "--progress/--no-progress", help="Print reindex progress to stderr."),
+    plan: bool = typer.Option(
+        False, "--plan", help="Print the reconcile plan without touching the index."
+    ),
+    rebuild: bool = typer.Option(
+        False, "--rebuild", help="Force a full rebuild (preserves the DB file but replaces every row)."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Deprecated alias for --rebuild."
+    ),
+    batch_size: int = typer.Option(
+        200, "--batch-size", min=1, help="Files per reconcile batch (smaller = finer resume granularity)."
+    ),
+    progress: bool = typer.Option(
+        True, "--progress/--no-progress", help="Print reindex progress to stderr."
+    ),
 ) -> None:
     config = _get_config(ctx)
     try:
-        if force and config.index_root.exists():
-            shutil.rmtree(config.index_root)
-        progress_callback = _print_reindex_progress if progress else None
-        result = reindex_corpus(
+        embedder = build_runtime_embedder()
+    except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
+        _fail_with_runtime_error(str(err))
+
+    if plan:
+        reconcile_plan = plan_reconcile(config.corpus_root, config.index_root, embedder)
+        typer.echo(_format_plan(reconcile_plan), err=True)
+        typer.echo(json.dumps(asdict(reconcile_plan), indent=2, sort_keys=True))
+        return
+
+    if force:
+        typer.echo(
+            "[reindex] --force is deprecated; use --rebuild (no directory wipe needed).",
+            err=True,
+        )
+        rebuild = True
+
+    progress_callback = (
+        _make_progress_printer(tty=sys.stderr.isatty()) if progress else None
+    )
+
+    try:
+        if rebuild:
+            result = reindex_corpus(
+                config.corpus_root,
+                config.index_root,
+                embedder,
+                progress=progress_callback,
+            )
+            typer.echo(json.dumps(asdict(result), indent=2, sort_keys=True))
+            return
+
+        reconcile_result = reconcile_corpus(
             config.corpus_root,
             config.index_root,
-            build_runtime_embedder(),
+            embedder,
+            batch_size=batch_size,
             progress=progress_callback,
         )
     except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
         _fail_with_runtime_error(str(err))
-    typer.echo(json.dumps(asdict(result), indent=2, sort_keys=True))
+    typer.echo(json.dumps(asdict(reconcile_result), indent=2, sort_keys=True))
 
 
 @app.command()

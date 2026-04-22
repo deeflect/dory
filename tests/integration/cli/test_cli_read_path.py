@@ -88,9 +88,6 @@ def test_cli_status_reports_index_counts(cli_runner, indexed_fixture_env) -> Non
 
 
 def test_cli_reindex_reports_summary(cli_runner, indexed_fixture_env) -> None:
-    stale_marker = indexed_fixture_env["index_root"] / "stale.txt"
-    stale_marker.write_text("stale", encoding="utf-8")
-
     result = cli_runner.invoke(
         app,
         [
@@ -99,7 +96,7 @@ def test_cli_reindex_reports_summary(cli_runner, indexed_fixture_env) -> None:
             "--index-root",
             str(indexed_fixture_env["index_root"]),
             "reindex",
-            "--force",
+            "--rebuild",
         ],
     )
 
@@ -108,4 +105,45 @@ def test_cli_reindex_reports_summary(cli_runner, indexed_fixture_env) -> None:
     assert payload["files_indexed"] == 7
     assert payload["chunks_indexed"] >= 7
     assert payload["vectors_indexed"] == payload["chunks_indexed"]
-    assert not stale_marker.exists()
+
+
+def test_cli_reindex_default_is_reconcile_no_op(cli_runner, indexed_fixture_env) -> None:
+    result = cli_runner.invoke(
+        app,
+        [
+            "--corpus-root",
+            str(indexed_fixture_env["corpus_root"]),
+            "--index-root",
+            str(indexed_fixture_env["index_root"]),
+            "reindex",
+            "--no-progress",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["plan"]["unchanged_count"] == 7
+    assert payload["plan"]["new_paths"] == []
+    assert payload["plan"]["changed_paths"] == []
+    assert payload["plan"]["orphan_paths"] == []
+    assert payload["files_indexed"] == 0
+    assert payload["orphans_removed"] == 0
+
+
+def test_cli_reindex_plan_is_dry_run(cli_runner, indexed_fixture_env) -> None:
+    result = cli_runner.invoke(
+        app,
+        [
+            "--corpus-root",
+            str(indexed_fixture_env["corpus_root"]),
+            "--index-root",
+            str(indexed_fixture_env["index_root"]),
+            "reindex",
+            "--plan",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert "unchanged_count" in payload
+    assert payload["unchanged_count"] == 7

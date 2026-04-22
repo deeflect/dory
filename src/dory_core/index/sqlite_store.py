@@ -160,6 +160,11 @@ class SqliteStore:
                 )
             connection.commit()
 
+    def load_file_hashes(self) -> dict[str, str]:
+        with sqlite3.connect(self.db_path) as connection:
+            rows = connection.execute("SELECT path, hash FROM files").fetchall()
+            return {str(path): str(file_hash) for path, file_hash in rows}
+
     def load_embedding_cache(self) -> dict[str, str]:
         with sqlite3.connect(self.db_path) as connection:
             rows = connection.execute(
