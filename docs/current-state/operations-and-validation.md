@@ -90,8 +90,9 @@ Batch surface:
 
 Runtime behavior:
 
-- Distills session logs into `inbox/distilled/`.
-- Generates semantic write proposals into `inbox/proposed/`.
+- `daily-digest-once` summarizes raw session logs into durable daily digest files.
+- `dream-once` reads daily/weekly digest files and generates semantic write proposals into `inbox/proposed/`.
+- Raw session distillation is only the explicit legacy/manual `--session` path.
 - Promotes repeated recall hits into distilled notes.
 - Proposal application routes through semantic writes, not raw markdown target selection.
 - `dream-once` materializes recall-promotion distilled notes before proposal generation.

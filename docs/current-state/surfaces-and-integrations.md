@@ -50,7 +50,7 @@ Nested command groups:
   - `wiki-health` — `--write-report`
   - `backfill-privacy-metadata` — `--path` (repeatable), `--refresh`, `--apply`
 - `ops`
-  - `dream-once` — `--session` (repeatable)
+  - `dream-once` — `--session` (repeatable explicit legacy path; default input is digests/recall)
   - `daily-digest-once` — `--date`, `--today`, `--overwrite`, `--dry-run`, `--min-age-minutes`, `--limit`, `--reindex/--no-reindex`
   - `maintain-once` — `--path` (repeatable)
   - `wiki-health` — `--write-report`

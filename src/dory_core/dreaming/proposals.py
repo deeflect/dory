@@ -116,8 +116,8 @@ class ProposalGenerator:
 
         payload = self.client.generate_json(
             system_prompt=(
-                "You convert a distilled memory note into reviewable Dory semantic memory proposals. "
-                "Use only facts present in the distilled note. "
+                "You convert a digest or distilled memory note into reviewable Dory semantic memory proposals. "
+                "Use only facts present in the source note. "
                 "Do not use markdown paths or target files. "
                 "Use semantic write actions only: write, replace, or forget. "
                 "Use small memory kinds only: fact, preference, state, decision, note. "
@@ -127,8 +127,8 @@ class ProposalGenerator:
                 "Do not emit actions when there is no grounded change to propose."
             ),
             user_prompt=(
-                f"Distilled note path: {distilled_path}\n\n"
-                "Create a conservative set of Dory semantic memory proposal actions from this note:\n\n"
+                f"Source note path: {distilled_path}\n\n"
+                "Create a conservative set of Dory semantic memory proposal actions from this source note:\n\n"
                 f"{summary}"
             ),
             schema_name="proposal_actions",

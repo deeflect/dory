@@ -1163,7 +1163,11 @@ def maintain_backfill_privacy_metadata(
 @ops_app.command("dream-once")
 def ops_dream_once(
     ctx: typer.Context,
-    session: list[str] = typer.Option([], "--session", help="Limit to specific session paths"),
+    session: list[str] = typer.Option(
+        [],
+        "--session",
+        help="Explicit legacy path: distill these raw session paths before proposing. Defaults to digest/recall sources.",
+    ),
     limit: int | None = typer.Option(
         None,
         "--limit",

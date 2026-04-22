@@ -26,31 +26,36 @@ def test_watch_coalescer_waits_for_debounce() -> None:
     assert coalescer.drain() == ["a.md", "b.md"]
 
 
-def test_dream_once_collects_only_unprocessed_sessions(tmp_path: Path) -> None:
+def test_dream_once_collects_unprocessed_digests_by_default(tmp_path: Path) -> None:
     session = tmp_path / "logs" / "sessions" / "codex" / "2026-04-11.md"
     session.parent.mkdir(parents=True, exist_ok=True)
     session.write_text("session body\n", encoding="utf-8")
-    distilled = tmp_path / "inbox" / "distilled" / "codex-2026-04-10.md"
-    distilled.parent.mkdir(parents=True, exist_ok=True)
-    distilled.write_text("old distilled\n", encoding="utf-8")
-    proposal = tmp_path / "inbox" / "proposed" / "codex-2026-04-10.json"
+    digest = tmp_path / "digests" / "daily" / "2026-04-11.md"
+    digest.parent.mkdir(parents=True, exist_ok=True)
+    digest.write_text("daily digest\n", encoding="utf-8")
+    old_digest = tmp_path / "digests" / "daily" / "2026-04-10.md"
+    old_digest.write_text("old digest\n", encoding="utf-8")
+    proposal = tmp_path / "inbox" / "proposed" / "2026-04-10.json"
     proposal.parent.mkdir(parents=True, exist_ok=True)
     proposal.write_text("{}\n", encoding="utf-8")
 
     scan = DreamOnceRunner(tmp_path, _FakeClient()).collect_candidates()
 
-    assert scan.session_paths == ("logs/sessions/codex/2026-04-11.md",)
+    assert scan.session_paths == ()
+    assert scan.digest_paths == ("digests/daily/2026-04-11.md",)
     assert scan.distilled_paths == ()
 
 
-def test_dream_once_collects_nested_device_session_paths(tmp_path: Path) -> None:
+def test_dream_once_collects_session_paths_only_when_requested(tmp_path: Path) -> None:
     session = tmp_path / "logs" / "sessions" / "claude" / "macbook" / "2026-04-12-s1.md"
     session.parent.mkdir(parents=True, exist_ok=True)
     session.write_text("session body\n", encoding="utf-8")
 
-    scan = DreamOnceRunner(tmp_path, _FakeClient()).collect_candidates()
+    default_scan = DreamOnceRunner(tmp_path, _FakeClient()).collect_candidates()
+    session_scan = DreamOnceRunner(tmp_path, _FakeClient()).collect_candidates(include_sessions=True)
 
-    assert scan.session_paths == ("logs/sessions/claude/macbook/2026-04-12-s1.md",)
+    assert default_scan.session_paths == ()
+    assert session_scan.session_paths == ("logs/sessions/claude/macbook/2026-04-12-s1.md",)
 
 
 def test_dream_once_can_skip_recent_session_paths(tmp_path: Path) -> None:
@@ -58,7 +63,10 @@ def test_dream_once_can_skip_recent_session_paths(tmp_path: Path) -> None:
     session.parent.mkdir(parents=True, exist_ok=True)
     session.write_text("session body\n", encoding="utf-8")
 
-    scan = DreamOnceRunner(tmp_path, _FakeClient()).collect_candidates(min_session_age_seconds=1800)
+    scan = DreamOnceRunner(tmp_path, _FakeClient()).collect_candidates(
+        include_sessions=True,
+        min_session_age_seconds=1800,
+    )
 
     assert scan.session_paths == ()
 
