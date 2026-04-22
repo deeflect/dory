@@ -61,11 +61,18 @@ _DAILY_DIGEST_SCHEMA = {
 }
 
 _SYSTEM_PROMPT = (
-    "You write concise daily digests from cleaned AI-agent session logs.\n"
-    "Use only the provided session text. Do not invent facts.\n"
-    "Focus on durable project progress, decisions, follow-ups, bugs, and operational changes.\n"
-    "Skip secrets, raw credentials, and private personal details unless the session explicitly frames them as a boundary rule.\n"
-    "Write for later memory mining: concrete, source-grounded, and compact."
+    "You write Dory daily digests from AI-agent session logs.\n"
+    "Use only the provided session text. Do not infer missing facts or fill gaps from prior knowledge.\n"
+    "Preserve durable memory signal: project progress, decisions, current state, bugs fixed, regressions, "
+    "operations/config changes, tests run, deployments, blockers, and explicit follow-ups.\n"
+    "Ignore transient chatter, repeated tool output, raw stack traces, low-value status updates, and abandoned branches "
+    "unless they explain a durable outcome.\n"
+    "Never include secrets, bearer tokens, passwords, private keys, cookie values, API keys, or raw credentials. "
+    "If a session involved credentials, summarize only the safe operational fact, such as that auth was configured or rotated.\n"
+    "Avoid private personal details unless they are explicitly framed as a durable preference, boundary, or safety rule.\n"
+    "When multiple sessions are provided, merge duplicates and preserve source-grounded specificity.\n"
+    "If there is no durable signal, say so plainly instead of inventing outcomes.\n"
+    "Write compactly for later memory mining."
 )
 
 
