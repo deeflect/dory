@@ -1,5 +1,6 @@
 services:
   doryd:
+    image: dory-doryd
     build:
       context: .
       # Some private-host/router DNS setups resolve on the host but not inside
@@ -60,3 +61,42 @@ services:
     labels:
       dory.mcp.port: "8765"
       dory.http.port: "8766"
+
+  dory-watch:
+    image: dory-doryd
+    container_name: dory-watch
+    restart: unless-stopped
+    depends_on:
+      doryd:
+        condition: service_started
+    command:
+      - dory
+      - --corpus-root
+      - /var/lib/dory
+      - --index-root
+      - /var/lib/dory/.index
+      - ops
+      - watch
+      - --no-dream
+    environment:
+      DORY_ROOT: /var/lib/dory
+      DORY_CORPUS_ROOT: /var/lib/dory
+      DORY_INDEX_ROOT: /var/lib/dory/.index
+      DORY_AUTH_TOKENS_PATH: /var/lib/dory/.dory/auth-tokens.json
+      DORY_GEMINI_API_KEY: ${DORY_GEMINI_API_KEY:-${GOOGLE_API_KEY:-${GEMINI_API_KEY:-}}}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      DORY_EMBEDDING_PROVIDER: ${DORY_EMBEDDING_PROVIDER:-gemini}
+      DORY_EMBEDDING_MODEL: ${DORY_EMBEDDING_MODEL:-gemini-embedding-001}
+      DORY_EMBEDDING_DIMENSIONS: ${DORY_EMBEDDING_DIMENSIONS:-768}
+      DORY_EMBEDDING_BATCH_SIZE: ${DORY_EMBEDDING_BATCH_SIZE:-100}
+      DORY_LOCAL_EMBEDDING_BASE_URL: ${DORY_LOCAL_EMBEDDING_BASE_URL:-}
+      DORY_LOCAL_EMBEDDING_MODEL: ${DORY_LOCAL_EMBEDDING_MODEL:-}
+      DORY_LOCAL_EMBEDDING_QUERY_INSTRUCTION: ${DORY_LOCAL_EMBEDDING_QUERY_INSTRUCTION:-}
+      DORY_LOCAL_EMBEDDING_TIMEOUT_SECONDS: ${DORY_LOCAL_EMBEDDING_TIMEOUT_SECONDS:-}
+      DORY_LOCAL_EMBEDDING_API_KEY: ${DORY_LOCAL_EMBEDDING_API_KEY:-${DORY_LOCAL_LLM_API_KEY:-}}
+    dns: ${DORY_DOCKER_DNS_SERVERS:-}
+    extra_hosts:
+      - "${DORY_DOCKER_LLM_HOSTNAME:-host.docker.internal}:${DORY_DOCKER_LLM_HOST_IP:-host-gateway}"
+    volumes:
+      - ${DORY_DATA_ROOT:-./data/corpus}:/var/lib/dory
