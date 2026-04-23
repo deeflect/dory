@@ -89,14 +89,20 @@ class SemanticWriteEngine:
         resolver_client: OpenRouterClient | None = None,
     ) -> None:
         self.root = Path(root)
-        self.writer = WriteEngine(root=self.root, index_root=index_root, embedder=embedder)
+        settings = DorySettings()
+        self.writer = WriteEngine(
+            root=self.root,
+            max_write_bytes=max(settings.max_write_bytes, 256_000),
+            index_root=index_root,
+            embedder=embedder,
+        )
         self.registry = EntityRegistry(self.root / ".dory" / "entity-registry.db")
         self.claim_store = ClaimStore(self.root / ".dory" / "claim-store.db")
         resolved_client = (
             resolver_client
             if resolver_client is not None
             else build_openrouter_client(
-                DorySettings(),
+                settings,
                 purpose="maintenance",
             )
         )
@@ -670,6 +676,8 @@ def build_semantic_write_plan(
 ) -> SemanticWritePlan:
     resolver = resolver or SubjectResolver(root)
     match = resolver.resolve(req.subject, scope=req.scope)
+    if match is None or _should_create_new_explicit_dream_subject(match, req):
+        match = _new_subject_match_from_explicit_scope(req)
     if match is None:
         raise ValueError(f"could not resolve semantic subject: {req.subject}")
 
@@ -697,6 +705,38 @@ def build_semantic_write_plan(
         matched_by=match.matched_by,
         target_exists=(root / target_path).exists(),
     )
+
+
+def _new_subject_match_from_explicit_scope(req: MemoryWriteReq) -> SubjectMatch | None:
+    if req.scope not in {"project", "concept", "decision"}:
+        return None
+    slug = normalize_migration_slug(req.subject)
+    if not slug:
+        return None
+    subject_ref = f"{req.scope}:{slug}"
+    return SubjectMatch(
+        subject_ref=subject_ref,
+        family=req.scope,
+        title=canonical_title_from_subject(subject_ref),
+        target_path=canonical_target_for_subject(subject_ref),
+        matched_by="explicit_scope",
+        confidence="high",
+    )
+
+
+def _should_create_new_explicit_dream_subject(match: SubjectMatch, req: MemoryWriteReq) -> bool:
+    if req.scope not in {"project", "concept", "decision"}:
+        return False
+    source = req.source or ""
+    if "/digests/" not in source and "/inbox/distilled/" not in source:
+        return False
+    slug = normalize_migration_slug(req.subject)
+    if not slug:
+        return False
+    requested_subject_ref = f"{req.scope}:{slug}"
+    if match.subject_ref == requested_subject_ref:
+        return False
+    return match.matched_by in {"alias", "llm"}
 
 
 def _route_target(match: SubjectMatch, req: MemoryWriteReq) -> tuple[str, str, str]:
