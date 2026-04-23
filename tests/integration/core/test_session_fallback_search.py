@@ -32,7 +32,7 @@ def test_recall_mode_uses_session_plane_only(
     assert all(result.path.startswith("logs/sessions/") for result in response.results)
 
 
-def test_hybrid_search_falls_back_to_session_plane_for_recent_work_queries(
+def test_durable_hybrid_search_does_not_fallback_to_session_plane(
     tmp_path: Path,
     sample_corpus_root: Path,
     fake_embedder,
@@ -51,6 +51,29 @@ def test_hybrid_search_falls_back_to_session_plane_for_recent_work_queries(
 
     engine = SearchEngine(index_root, fake_embedder)
     response = engine.search(SearchReq(query="recent Rooster active focus session", mode="hybrid", k=5))
+
+    assert all(not result.path.startswith("logs/sessions/") for result in response.results)
+
+
+def test_hybrid_all_search_can_include_session_plane_for_recent_work_queries(
+    tmp_path: Path,
+    sample_corpus_root: Path,
+    fake_embedder,
+) -> None:
+    index_root = tmp_path / "index"
+    reindex_corpus(sample_corpus_root, index_root, fake_embedder)
+    SessionEvidencePlane(index_root / "session_plane.db").upsert_session_chunk(
+        path="logs/sessions/codex/mac/2026-04-12-s2.md",
+        content="Rooster is the active focus this week.",
+        updated="2026-04-12T10:00:00Z",
+        agent="codex",
+        device="mac",
+        session_id="s2",
+        status="active",
+    )
+
+    engine = SearchEngine(index_root, fake_embedder)
+    response = engine.search(SearchReq(query="recent Rooster active focus session", mode="hybrid", corpus="all", k=5))
 
     assert any(result.path.startswith("logs/sessions/") for result in response.results)
 

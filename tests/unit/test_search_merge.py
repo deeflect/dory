@@ -212,7 +212,7 @@ def test_hybrid_uses_retrieval_planner_queries_when_present(monkeypatch, tmp_pat
     assert seen_queries == ["What's the pricing plan for Clawzy?", "Clawsy pricing Hetzner"]
 
 
-def test_search_uses_planner_session_queries_for_durable_hybrid(monkeypatch, tmp_path: Path) -> None:
+def test_durable_search_ignores_planner_session_queries(monkeypatch, tmp_path: Path) -> None:
     engine = SearchEngine(tmp_path, _FakeEmbedder(), retrieval_planner=_SessionAwarePlanner())
     durable_result = type(
         "Resp",
@@ -234,35 +234,19 @@ def test_search_uses_planner_session_queries_for_durable_hybrid(monkeypatch, tmp
             "warnings": [],
         },
     )()
-    session_result = type(
-        "Resp",
-        (),
-        {
-            "query": "rooster follow-up",
-            "count": 1,
-            "results": [
-                SearchResult(
-                    path="logs/sessions/claude/macbook/2026-04-12-s1.md",
-                    lines="1-1",
-                    snippet="Pricing follow-up is still open.",
-                    score=0.71,
-                    frontmatter={},
-                    stale_warning=None,
-                )
-            ],
-            "took_ms": 6,
-            "warnings": [],
-        },
-    )()
 
     monkeypatch.setattr(
         engine, "_search_durable", lambda req, started, rerank_enabled, warnings, search_plan=None: durable_result
     )
-    monkeypatch.setattr(engine, "_search_session_plane_multi", lambda queries, limit, started: session_result)
+
+    def fail_session_search(queries, limit, started):
+        raise AssertionError("durable search must not query the session plane")
+
+    monkeypatch.setattr(engine, "_search_session_plane_multi", fail_session_search)
 
     response = engine.search(SearchReq(query="what are we working on today", mode="hybrid", corpus="durable", k=5))
 
-    assert any(result.path.startswith("logs/sessions/") for result in response.results)
+    assert [result.path for result in response.results] == ["core/active.md"]
 
 
 def test_search_can_reorder_results_with_result_selector(monkeypatch, tmp_path: Path) -> None:
@@ -299,7 +283,6 @@ def test_search_can_reorder_results_with_result_selector(monkeypatch, tmp_path: 
     monkeypatch.setattr(
         engine, "_search_durable", lambda req, started, rerank_enabled, warnings, search_plan=None: durable_result
     )
-    monkeypatch.setattr(engine, "_should_fallback_to_session_plane", lambda req, response: False)
 
     response = engine.search(
         SearchReq(query="What's the pricing plan for Clawzy?", mode="hybrid", corpus="durable", k=2)
@@ -346,7 +329,6 @@ def test_search_reports_selection_warning_when_selector_fails(monkeypatch, tmp_p
     monkeypatch.setattr(
         engine, "_search_durable", lambda req, started, rerank_enabled, warnings, search_plan=None: durable_result
     )
-    monkeypatch.setattr(engine, "_should_fallback_to_session_plane", lambda req, response: False)
 
     response = engine.search(
         SearchReq(query="What's the pricing plan for Clawzy?", mode="hybrid", corpus="durable", k=2)

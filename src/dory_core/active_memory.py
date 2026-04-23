@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,6 +8,7 @@ from time import monotonic
 from typing import Literal, Protocol
 
 from dory_core.retrieval_planner import (
+    ActiveMemoryComposition,
     ActiveMemoryComposer,
     ActiveMemoryPlanningContext,
     ActiveMemoryPlanner,
@@ -24,6 +26,7 @@ from dory_core.types import (
     WakeResp,
 )
 
+_logger = logging.getLogger(__name__)
 _COMPOSER_SNIPPET_CHARS = 360
 _SESSION_COMPOSER_SNIPPET_CHARS = 180
 _RENDER_SNIPPET_CHARS = 300
@@ -124,63 +127,11 @@ class ActiveMemoryEngine:
         started = monotonic()
         deadline = _Deadline.from_timeout_ms(req.timeout_ms)
         source_policy = _source_policy_for_request(req)
-        helper = _load_wiki_helper_context(self.root) if source_policy.use_helper_context else _empty_wiki_helper_context()
-        helper = _topic_scoped_helper_context(helper, prompt=req.prompt, source_policy=source_policy)
-        wake_block = ""
-        wake_sources: list[str] = []
-        if req.include_wake:
-            wake = self.wake_builder.build(
-                WakeReq(
-                    budget_tokens=min(req.budget_tokens, 600),
-                    agent=req.agent,
-                    profile=source_policy.wake_profile,
-                    include_recent_sessions=3 if source_policy.include_session_context else 0,
-                    include_pinned_decisions=source_policy.include_pinned_decisions,
-                )
-            )
-            wake_block = wake.block
-            wake_sources = wake.sources
-        planning_context = ActiveMemoryPlanningContext(
-            current_focus=helper.current_focus,
-            recent_pages=helper.recent_pages,
-            active_threads=helper.active_threads,
-            index_hints=helper.index_hints,
-        )
+        helper = self._helper_context(req, source_policy)
+        wake_block, wake_sources = self._wake_context(req, source_policy)
+        planning_context = _planning_context_from_helper(helper)
         plan = self._plan(req, planning_context, deadline=deadline)
-        durable_results = _search_candidates(
-            self.search_engine,
-            queries=plan.durable_queries,
-            k=plan.durable_limit,
-            mode="hybrid",
-            corpus="durable",
-            include_content=True,
-            rerank="true" if req.rerank == "auto" else req.rerank,
-            deadline=deadline,
-        )
-        durable_results = _filter_active_memory_results(
-            durable_results,
-            corpus="durable",
-            source_policy=source_policy,
-        )
-        session_results = (
-            _search_candidates(
-                self.search_engine,
-                queries=plan.session_queries,
-                k=plan.session_limit,
-                mode="recall",
-                corpus="sessions",
-                include_content=False,
-                rerank="false",
-                deadline=deadline,
-            )
-            if source_policy.include_session_context and plan.include_sessions and plan.session_limit > 0
-            else []
-        )
-        session_results = _filter_active_memory_results(
-            session_results,
-            corpus="sessions",
-            source_policy=source_policy,
-        )
+        durable_results, session_results = self._retrieve_evidence(req, plan, source_policy, deadline=deadline)
         renderable_durable_results = _preferred_active_memory_results(durable_results)
         rendered_wake_block = _wake_block_for_rendering(wake_block, renderable_durable_results, session_results)
         sources = _dedupe_strings(
@@ -190,11 +141,14 @@ class ActiveMemoryEngine:
                 *[_result_path(item) for item in session_results[:3]],
             ]
         )
-        composition = self._compose(
-            req, planning_context, wake_block, renderable_durable_results, session_results, deadline=deadline
+        composition = self._trusted_composition(
+            req,
+            planning_context,
+            wake_block,
+            renderable_durable_results,
+            session_results,
+            deadline=deadline,
         )
-        if _composition_conflicts_with_evidence(composition, renderable_durable_results):
-            composition = None
         synthesized_bullets = _synthesized_bullets(helper, renderable_durable_results, session_results, root=self.root)
         memory_bullets = (
             list(composition.bullets) if composition is not None and composition.bullets else synthesized_bullets
@@ -224,6 +178,88 @@ class ActiveMemoryEngine:
             sources=sources,
         )
 
+    def _helper_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> "WikiHelperContext":
+        helper = _load_wiki_helper_context(self.root) if source_policy.use_helper_context else _empty_wiki_helper_context()
+        return _topic_scoped_helper_context(helper, prompt=req.prompt, source_policy=source_policy)
+
+    def _wake_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> tuple[str, list[str]]:
+        if not req.include_wake:
+            return "", []
+        wake = self.wake_builder.build(
+            WakeReq(
+                budget_tokens=min(req.budget_tokens, 600),
+                agent=req.agent,
+                profile=source_policy.wake_profile,
+                include_recent_sessions=3 if source_policy.include_session_context else 0,
+                include_pinned_decisions=source_policy.include_pinned_decisions,
+            )
+        )
+        return wake.block, wake.sources
+
+    def _retrieve_evidence(
+        self,
+        req: ActiveMemoryReq,
+        plan: ActiveMemoryRetrievalPlan,
+        source_policy: SourcePolicy,
+        *,
+        deadline: "_Deadline",
+    ) -> tuple[list[object], list[object]]:
+        durable_results = _filter_active_memory_results(
+            _search_candidates(
+                self.search_engine,
+                queries=plan.durable_queries,
+                k=plan.durable_limit,
+                mode="hybrid",
+                corpus="durable",
+                include_content=True,
+                rerank="true" if req.rerank == "auto" else req.rerank,
+                deadline=deadline,
+            ),
+            corpus="durable",
+            source_policy=source_policy,
+        )
+        session_results = _filter_active_memory_results(
+            self._retrieve_session_evidence(plan, source_policy, deadline=deadline),
+            corpus="sessions",
+            source_policy=source_policy,
+        )
+        return durable_results, session_results
+
+    def _retrieve_session_evidence(
+        self,
+        plan: ActiveMemoryRetrievalPlan,
+        source_policy: SourcePolicy,
+        *,
+        deadline: "_Deadline",
+    ) -> list[object]:
+        if not source_policy.include_session_context or not plan.include_sessions or plan.session_limit <= 0:
+            return []
+        return _search_candidates(
+            self.search_engine,
+            queries=plan.session_queries,
+            k=plan.session_limit,
+            mode="recall",
+            corpus="sessions",
+            include_content=False,
+            rerank="false",
+            deadline=deadline,
+        )
+
+    def _trusted_composition(
+        self,
+        req: ActiveMemoryReq,
+        context: ActiveMemoryPlanningContext,
+        wake_block: str,
+        durable_results: list[object],
+        session_results: list[object],
+        *,
+        deadline: "_Deadline",
+    ) -> ActiveMemoryComposition | None:
+        composition = self._compose(req, context, wake_block, durable_results, session_results, deadline=deadline)
+        if _composition_conflicts_with_evidence(composition, durable_results):
+            return None
+        return composition
+
     def _plan(
         self,
         req: ActiveMemoryReq,
@@ -236,6 +272,7 @@ class ActiveMemoryEngine:
         try:
             return self.planner.plan_active_memory(prompt=req.prompt, context=context)
         except Exception:
+            _logger.exception("active-memory planner failed; using deterministic fallback plan")
             return fallback_active_memory_plan(prompt=req.prompt)
 
     def _compose(
@@ -247,7 +284,7 @@ class ActiveMemoryEngine:
         session_results: list[object],
         *,
         deadline: "_Deadline",
-    ):
+    ) -> ActiveMemoryComposition | None:
         if not durable_results and not session_results:
             return None
         if self.composer is None or deadline.remaining_ms < _COMPOSER_MIN_REMAINING_MS:
@@ -273,6 +310,7 @@ class ActiveMemoryEngine:
                 ),
             )
         except Exception:
+            _logger.exception("active-memory composer failed; using deterministic synthesis")
             return None
 
 
@@ -436,6 +474,15 @@ class WikiHelperContext:
 class MemoryCandidate:
     text: str
     weight: float
+
+
+def _planning_context_from_helper(helper: WikiHelperContext) -> ActiveMemoryPlanningContext:
+    return ActiveMemoryPlanningContext(
+        current_focus=helper.current_focus,
+        recent_pages=helper.recent_pages,
+        active_threads=helper.active_threads,
+        index_hints=helper.index_hints,
+    )
 
 
 def _search_candidates(

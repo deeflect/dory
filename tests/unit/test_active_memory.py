@@ -657,6 +657,74 @@ def test_active_memory_uses_planner_queries_and_llm_composition(tmp_path: Path) 
     assert search_engine.requests[2].query == "rooster follow-up"
 
 
+def test_active_memory_logs_planner_failure_and_uses_fallback(tmp_path: Path, caplog) -> None:
+    class ExplodingPlanner:
+        def plan_active_memory(
+            self,
+            *,
+            prompt: str,
+            context: ActiveMemoryPlanningContext,
+        ) -> ActiveMemoryRetrievalPlan:
+            del prompt, context
+            raise RuntimeError("planner unavailable")
+
+    search_engine = _StubSearchEngine()
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=search_engine,
+        planner=ExplodingPlanner(),
+    )
+    caplog.set_level("ERROR", logger="dory_core.active_memory")
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what are we working on today",
+            agent="claude",
+            include_wake=False,
+            timeout_ms=5000,
+        )
+    )
+
+    assert result.kind == "memory"
+    assert search_engine.requests[0].query == "what are we working on today"
+    assert "active-memory planner failed; using deterministic fallback plan" in caplog.text
+
+
+def test_active_memory_logs_composer_failure_and_uses_synthesis(tmp_path: Path, caplog) -> None:
+    class ExplodingComposer:
+        def compose_active_memory(
+            self,
+            *,
+            prompt: str,
+            context: ActiveMemoryPlanningContext,
+            wake_summary: str,
+            durable_results: tuple[tuple[str, str], ...],
+            session_results: tuple[tuple[str, str], ...],
+        ) -> ActiveMemoryComposition:
+            del prompt, context, wake_summary, durable_results, session_results
+            raise RuntimeError("composer unavailable")
+
+    search_engine = _StubSearchEngine()
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=search_engine,
+        composer=ExplodingComposer(),
+    )
+    caplog.set_level("ERROR", logger="dory_core.active_memory")
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what are we working on today",
+            agent="claude",
+            include_wake=False,
+            timeout_ms=5000,
+        )
+    )
+
+    assert result.summary.startswith("Rooster is the active focus this week.")
+    assert "active-memory composer failed; using deterministic synthesis" in caplog.text
+
+
 def test_active_memory_rejects_composer_no_active_claim_when_core_active_was_found(tmp_path: Path) -> None:
     class ConflictingComposer:
         def compose_active_memory(

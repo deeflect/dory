@@ -4,6 +4,7 @@ from dory_core.config import DorySettings
 from dory_core.eval_judge import EvalJudgeRequest, OpenRouterEvalJudge
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client, resolve_openrouter_model_metadata
 from dory_core.query_expansion import OpenRouterQueryExpander
+from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
 
 
 def test_build_openrouter_client_uses_api_key_alias(monkeypatch) -> None:
@@ -48,6 +49,26 @@ def test_query_expander_returns_empty_on_non_schema_payload() -> None:
     expanded = expander.expand("Clawzy pricing")
 
     assert expanded == []
+
+
+def test_retrieval_planner_only_includes_session_results_for_all_corpus() -> None:
+    class FakeClient:
+        def generate_json(self, **kwargs):
+            return {
+                "durable_queries": ["Rooster active focus"],
+                "session_queries": ["Rooster follow-up"],
+                "include_session_results": True,
+            }
+
+    planner = OpenRouterRetrievalPlanner(client=FakeClient())  # type: ignore[arg-type]
+
+    durable_plan = planner.plan_search(query="what are we working on today", corpus="durable")
+    all_plan = planner.plan_search(query="what are we working on today", corpus="all")
+
+    assert durable_plan.include_session_results is False
+    assert durable_plan.session_queries == ()
+    assert all_plan.include_session_results is True
+    assert all_plan.session_queries == ("what are we working on today", "Rooster follow-up")
 
 
 def test_eval_judge_returns_structured_decision() -> None:
