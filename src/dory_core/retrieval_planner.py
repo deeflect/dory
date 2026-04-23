@@ -180,7 +180,7 @@ class OpenRouterRetrievalPlanner:
         )
         if not isinstance(payload, dict):
             raise ValueError("search planner returned malformed payload")
-        include_session_results = bool(payload.get("include_session_results")) and corpus != "durable-only"
+        include_session_results = bool(payload.get("include_session_results")) and corpus == "all"
         return SearchRetrievalPlan(
             durable_queries=_normalize_queries(payload.get("durable_queries"), fallback=query),
             session_queries=_normalize_queries(payload.get("session_queries"), fallback=query)

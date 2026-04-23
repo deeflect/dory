@@ -168,6 +168,27 @@ class StructuredSourcePromotion:
     atom: MemoryAtom
 
 
+@dataclass(frozen=True, slots=True)
+class MigrationFinalizationContext:
+    started_at: float
+    legacy_root: Path
+    run_id: str
+    staged: list[Path]
+    written_paths: set[Path]
+    canonical_written: set[Path]
+    canonical_entity_ids_by_path: dict[Path, str]
+    quarantined_count: int
+    contradictions: list[dict[str, str]]
+    aliases: dict[str, str]
+    fallback_warnings: list[MigrationFallbackWarning]
+    claim_store: ClaimStore
+    atoms: list[MemoryAtom]
+    llm_classified_count: int
+    llm_extracted_count: int
+    fallback_classified_count: int
+    fallback_extracted_count: int
+
+
 class MigrationEngine:
     def __init__(self, output_root: Path, *, llm: MigrationLLM | None = None, concurrency: int = 1) -> None:
         self.output_root = Path(output_root)
@@ -526,96 +547,28 @@ class MigrationEngine:
                 )
 
             current_phase = "finalize"
-            audits = self._audit_generated_pages(tuple(canonical_written), fallback_warnings=fallback_warnings)
-            repairs = self._repair_generated_pages(
-                tuple(canonical_written),
-                audits=audits,
-                entity_ids_by_path=canonical_entity_ids_by_path,
-                claim_store=claim_store,
-                fallback_warnings=fallback_warnings,
-            )
-            if repairs:
-                self._apply_page_repairs(repairs)
-                refreshed_audits = self._audit_generated_pages(
-                    tuple(canonical_written),
+            return self._finalize_migration_run(
+                MigrationFinalizationContext(
+                    started_at=started_at,
+                    legacy_root=legacy_root,
+                    run_id=run_id,
+                    staged=staged,
+                    written_paths=written_paths,
+                    canonical_written=canonical_written,
+                    canonical_entity_ids_by_path=canonical_entity_ids_by_path,
+                    quarantined_count=quarantined,
+                    contradictions=contradictions,
+                    aliases=alias_map,
                     fallback_warnings=fallback_warnings,
-                )
-                if refreshed_audits:
-                    audits = refreshed_audits
-            repair_artifact_path = self._write_repair_artifact(run_id=run_id, repairs=repairs) if repairs else None
-            audit_artifact_path = self._write_audit_artifact(run_id=run_id, audits=audits) if audits else None
-            report_path = self._write_report(
-                run_id=run_id,
-                staged_count=len(staged),
-                written_count=len(written_paths),
-                canonical_created_count=len(canonical_written),
-                quarantined_count=quarantined,
-                contradictions=contradictions,
-                audits=audits,
-                repairs=repairs,
-                audit_artifact_path=audit_artifact_path,
-                repair_artifact_path=repair_artifact_path,
-                fallback_warnings=tuple(fallback_warnings),
-            )
-            run_artifact_path = self._write_run_artifact(
-                run_id=run_id,
-                legacy_root=legacy_root,
-                staged_count=len(staged),
-                written_count=len(written_paths),
-                canonical_created_count=len(canonical_written),
-                quarantined_count=quarantined,
-                contradictions=contradictions,
-                aliases=alias_map,
-                audits=audits,
-                repairs=repairs,
-                audit_artifact_path=audit_artifact_path,
-                repair_artifact_path=repair_artifact_path,
-                fallback_warnings=tuple(fallback_warnings),
-            )
-            duration_ms = int((perf_counter() - started_at) * 1000)
-            stats = MigrationStats(
-                llm_classified_count=llm_classified_count,
-                llm_extracted_count=llm_extracted_count,
-                fallback_classified_count=fallback_classified_count,
-                fallback_extracted_count=fallback_extracted_count,
-                atom_count=len(atoms),
-                contradiction_count=len(contradictions),
-                duration_ms=duration_ms,
-            )
-            self._emit_progress(
-                progress,
-                phase="finalize",
-                percent=100,
-                processed=1,
-                total=1,
-                message="Migration complete",
-            )
-            self._emit_event(
-                events,
-                kind="run_completed",
-                phase="finalize",
-                processed=1,
-                total=1,
-                message="Migration complete",
-                llm_classified_count=llm_classified_count,
-                llm_extracted_count=llm_extracted_count,
-                fallback_classified_count=fallback_classified_count,
-                fallback_extracted_count=fallback_extracted_count,
-                atom_count=len(atoms),
-                canonical_created_count=len(canonical_written),
-                written_count=len(written_paths),
-                quarantined_count=quarantined,
-                contradiction_count=len(contradictions),
-            )
-
-            return MigrationRun(
-                staged_count=len(staged),
-                written_count=len(written_paths),
-                canonical_created_count=len(canonical_written),
-                quarantined_count=quarantined,
-                report_path=report_path.as_posix(),
-                run_artifact_path=run_artifact_path.as_posix(),
-                stats=stats,
+                    claim_store=claim_store,
+                    atoms=atoms,
+                    llm_classified_count=llm_classified_count,
+                    llm_extracted_count=llm_extracted_count,
+                    fallback_classified_count=fallback_classified_count,
+                    fallback_extracted_count=fallback_extracted_count,
+                ),
+                progress=progress,
+                events=events,
             )
         except Exception as exc:
             self._emit_event(
@@ -637,6 +590,109 @@ class MigrationEngine:
                 contradiction_count=0,
             )
             raise
+
+    def _finalize_migration_run(
+        self,
+        context: MigrationFinalizationContext,
+        *,
+        progress: Callable[[MigrationProgress], None] | None,
+        events: Callable[[MigrationRunEvent], None] | None,
+    ) -> MigrationRun:
+        audits = self._audit_generated_pages(
+            tuple(context.canonical_written),
+            fallback_warnings=context.fallback_warnings,
+        )
+        repairs = self._repair_generated_pages(
+            tuple(context.canonical_written),
+            audits=audits,
+            entity_ids_by_path=context.canonical_entity_ids_by_path,
+            claim_store=context.claim_store,
+            fallback_warnings=context.fallback_warnings,
+        )
+        if repairs:
+            self._apply_page_repairs(repairs)
+            refreshed_audits = self._audit_generated_pages(
+                tuple(context.canonical_written),
+                fallback_warnings=context.fallback_warnings,
+            )
+            if refreshed_audits:
+                audits = refreshed_audits
+
+        repair_artifact_path = (
+            self._write_repair_artifact(run_id=context.run_id, repairs=repairs) if repairs else None
+        )
+        audit_artifact_path = self._write_audit_artifact(run_id=context.run_id, audits=audits) if audits else None
+        report_path = self._write_report(
+            run_id=context.run_id,
+            staged_count=len(context.staged),
+            written_count=len(context.written_paths),
+            canonical_created_count=len(context.canonical_written),
+            quarantined_count=context.quarantined_count,
+            contradictions=context.contradictions,
+            audits=audits,
+            repairs=repairs,
+            audit_artifact_path=audit_artifact_path,
+            repair_artifact_path=repair_artifact_path,
+            fallback_warnings=tuple(context.fallback_warnings),
+        )
+        run_artifact_path = self._write_run_artifact(
+            run_id=context.run_id,
+            legacy_root=context.legacy_root,
+            staged_count=len(context.staged),
+            written_count=len(context.written_paths),
+            canonical_created_count=len(context.canonical_written),
+            quarantined_count=context.quarantined_count,
+            contradictions=context.contradictions,
+            aliases=context.aliases,
+            audits=audits,
+            repairs=repairs,
+            audit_artifact_path=audit_artifact_path,
+            repair_artifact_path=repair_artifact_path,
+            fallback_warnings=tuple(context.fallback_warnings),
+        )
+        stats = MigrationStats(
+            llm_classified_count=context.llm_classified_count,
+            llm_extracted_count=context.llm_extracted_count,
+            fallback_classified_count=context.fallback_classified_count,
+            fallback_extracted_count=context.fallback_extracted_count,
+            atom_count=len(context.atoms),
+            contradiction_count=len(context.contradictions),
+            duration_ms=int((perf_counter() - context.started_at) * 1000),
+        )
+        self._emit_progress(
+            progress,
+            phase="finalize",
+            percent=100,
+            processed=1,
+            total=1,
+            message="Migration complete",
+        )
+        self._emit_event(
+            events,
+            kind="run_completed",
+            phase="finalize",
+            processed=1,
+            total=1,
+            message="Migration complete",
+            llm_classified_count=context.llm_classified_count,
+            llm_extracted_count=context.llm_extracted_count,
+            fallback_classified_count=context.fallback_classified_count,
+            fallback_extracted_count=context.fallback_extracted_count,
+            atom_count=len(context.atoms),
+            canonical_created_count=len(context.canonical_written),
+            written_count=len(context.written_paths),
+            quarantined_count=context.quarantined_count,
+            contradiction_count=len(context.contradictions),
+        )
+        return MigrationRun(
+            staged_count=len(context.staged),
+            written_count=len(context.written_paths),
+            canonical_created_count=len(context.canonical_written),
+            quarantined_count=context.quarantined_count,
+            report_path=report_path.as_posix(),
+            run_artifact_path=run_artifact_path.as_posix(),
+            stats=stats,
+        )
 
     def _resolve_staged_paths(self, legacy_root: Path, selected_paths: Iterable[Path] | None) -> list[Path]:
         if selected_paths is None:

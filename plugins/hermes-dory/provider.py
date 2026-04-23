@@ -360,143 +360,141 @@ class DoryMemoryProvider(MemoryProvider):
 
     def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs: Any) -> str:
         try:
-            if tool_name == "dory_wake":
-                return json.dumps(
-                    self.wake(
-                        agent=_as_optional_string(args.get("agent")),
-                        budget_tokens=_as_optional_int(args.get("budget_tokens")),
-                        profile=_as_optional_wake_profile(args.get("profile")),
-                        include_recent_sessions=_as_optional_int(args.get("include_recent_sessions")),
-                        include_pinned_decisions=_as_optional_bool(args.get("include_pinned_decisions")),
-                    ),
-                    sort_keys=True,
-                )
-            if tool_name == "dory_active_memory":
-                prompt = _require_string(args, "prompt")
-                return json.dumps(
-                    self.active_memory(
-                        prompt,
-                        agent=_as_optional_string(args.get("agent")),
-                        budget_tokens=_as_optional_int(args.get("budget_tokens")),
-                        cwd=_as_optional_string(args.get("cwd")),
-                        timeout_ms=_as_optional_int(args.get("timeout_ms")),
-                        profile=_as_optional_active_memory_profile(args.get("profile")),
-                        include_wake=_as_optional_bool(args.get("include_wake")),
-                        rerank=_as_optional_rerank_mode(args.get("rerank")),
-                    ),
-                    sort_keys=True,
-                )
-            if tool_name == "dory_research":
-                question = _require_string(args, "question")
-                return json.dumps(
-                    self.research(
-                        question,
-                        kind=_as_optional_research_kind(args.get("kind")) or "report",
-                        corpus=_as_optional_research_corpus(args.get("corpus")) or "all",
-                        limit=_as_optional_int(args.get("limit")),
-                        save=_as_optional_bool(args.get("save"), default=True),
-                    ),
-                    sort_keys=True,
-                )
-            if tool_name == "dory_publish_research":
-                return json.dumps(
-                    self.publish_research(
-                        title=_require_string(args, "title"),
-                        body=_require_string(args, "body"),
-                        question=_as_optional_string(args.get("question")),
-                        sources=_as_optional_string_list(args.get("sources")),
-                        tags=_as_optional_string_list(args.get("tags")),
-                        target=_as_optional_string(args.get("target")),
-                        dry_run=_as_optional_bool(args.get("dry_run"), default=True),
-                        visibility=_as_optional_research_publish_visibility(args.get("visibility")) or "internal",
-                    ),
-                    sort_keys=True,
-                )
-            if tool_name == "dory_search":
-                query = _require_string(args, "query")
-                return json.dumps(
-                    self.search(
-                        query,
-                        k=_as_optional_int(args.get("k")),
-                        mode=_as_optional_search_mode(args.get("mode")),
-                        corpus=_as_optional_search_corpus(args.get("corpus")),
-                        scope=_as_optional_mapping(args.get("scope")),
-                        include_content=_as_optional_bool(args.get("include_content")),
-                        min_score=_as_optional_float(args.get("min_score")),
-                        rerank=_as_optional_rerank_mode(args.get("rerank")),
-                        debug=_as_optional_bool(args.get("debug")),
-                    ),
-                    sort_keys=True,
-                )
-            if tool_name == "dory_get":
-                path = _require_string(args, "path")
-                return json.dumps(
-                    self.get(
-                        path,
-                        from_line=_as_optional_int(args.get("from"), default=1),
-                        lines=_as_optional_int(args.get("lines")),
-                    ),
-                    sort_keys=True,
-                )
-            if tool_name == "dory_memory_write":
-                return json.dumps(
-                    self.memory_write(
-                        action=_require_string(args, "action"),
-                        kind=_require_string(args, "kind"),
-                        subject=_require_string(args, "subject"),
-                        content=_require_string(args, "content"),
-                        scope=_as_optional_string(args.get("scope")),
-                        confidence=_as_optional_string(args.get("confidence")),
-                        reason=_as_optional_string(args.get("reason")),
-                        source=_as_optional_string(args.get("source")),
-                        soft=_as_optional_bool(args.get("soft"), default=False),
-                        dry_run=_as_optional_bool(args.get("dry_run"), default=False),
-                        force_inbox=_as_optional_bool(args.get("force_inbox"), default=False),
-                        allow_canonical=_as_optional_bool(args.get("allow_canonical"), default=False),
-                    ),
-                    sort_keys=True,
-                )
-            if tool_name == "dory_write":
-                return json.dumps(
-                    self.write(
-                        kind=_require_string(args, "kind"),
-                        target=_require_string(args, "target"),
-                        content=_as_optional_string(args.get("content")) or "",
-                        soft=_as_optional_bool(args.get("soft"), default=False),
-                        dry_run=_as_optional_bool(args.get("dry_run"), default=False),
-                        frontmatter=_as_optional_mapping(args.get("frontmatter")),
-                        agent=_as_optional_string(args.get("agent")),
-                        session_id=_as_optional_string(args.get("session_id")),
-                        expected_hash=_as_optional_string(args.get("expected_hash")),
-                        reason=_as_optional_string(args.get("reason")),
-                    ),
-                    sort_keys=True,
-                )
-            if tool_name == "dory_purge":
-                return json.dumps(
-                    self.purge(
-                        target=_require_string(args, "target"),
-                        expected_hash=_as_optional_string(args.get("expected_hash")),
-                        reason=_as_optional_string(args.get("reason")),
-                        dry_run=_as_optional_bool(args.get("dry_run"), default=True),
-                        allow_canonical=_as_optional_bool(args.get("allow_canonical"), default=False),
-                        include_related_tombstone=_as_optional_bool(
-                            args.get("include_related_tombstone"),
-                            default=False,
-                        ),
-                    ),
-                    sort_keys=True,
-                )
-            if tool_name == "dory_link":
-                payload = dict(args)
-                return json.dumps(self.link(payload), sort_keys=True)
-            if tool_name == "dory_status":
-                return json.dumps(self.status(), sort_keys=True)
+            handler = self._tool_handlers().get(tool_name)
+            if handler is None:
+                return json.dumps({"ok": False, "error": f"unsupported tool: {tool_name}"}, sort_keys=True)
+            return json.dumps(handler(args), sort_keys=True)
         except DoryProviderError as err:
             return json.dumps(_tool_error_payload(err), sort_keys=True)
         except (RuntimeError, ValueError, TypeError) as err:
             return json.dumps({"ok": False, "error": str(err)}, sort_keys=True)
-        return json.dumps({"ok": False, "error": f"unsupported tool: {tool_name}"}, sort_keys=True)
+
+    def _tool_handlers(self):
+        return {
+            "dory_wake": self._handle_wake_tool,
+            "dory_active_memory": self._handle_active_memory_tool,
+            "dory_research": self._handle_research_tool,
+            "dory_publish_research": self._handle_publish_research_tool,
+            "dory_search": self._handle_search_tool,
+            "dory_get": self._handle_get_tool,
+            "dory_memory_write": self._handle_memory_write_tool,
+            "dory_write": self._handle_write_tool,
+            "dory_purge": self._handle_purge_tool,
+            "dory_link": self._handle_link_tool,
+            "dory_status": self._handle_status_tool,
+        }
+
+    def _handle_wake_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.wake(
+            agent=_as_optional_string(args.get("agent")),
+            budget_tokens=_as_optional_int(args.get("budget_tokens")),
+            profile=_as_optional_wake_profile(args.get("profile")),
+            include_recent_sessions=_as_optional_int(args.get("include_recent_sessions")),
+            include_pinned_decisions=_as_optional_bool(args.get("include_pinned_decisions")),
+        )
+
+    def _handle_active_memory_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.active_memory(
+            _require_string(args, "prompt"),
+            agent=_as_optional_string(args.get("agent")),
+            budget_tokens=_as_optional_int(args.get("budget_tokens")),
+            cwd=_as_optional_string(args.get("cwd")),
+            timeout_ms=_as_optional_int(args.get("timeout_ms")),
+            profile=_as_optional_active_memory_profile(args.get("profile")),
+            include_wake=_as_optional_bool(args.get("include_wake")),
+            rerank=_as_optional_rerank_mode(args.get("rerank")),
+        )
+
+    def _handle_research_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.research(
+            _require_string(args, "question"),
+            kind=_as_optional_research_kind(args.get("kind")) or "report",
+            corpus=_as_optional_research_corpus(args.get("corpus")) or "all",
+            limit=_as_optional_int(args.get("limit")),
+            save=_as_optional_bool(args.get("save"), default=True),
+        )
+
+    def _handle_publish_research_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.publish_research(
+            title=_require_string(args, "title"),
+            body=_require_string(args, "body"),
+            question=_as_optional_string(args.get("question")),
+            sources=_as_optional_string_list(args.get("sources")),
+            tags=_as_optional_string_list(args.get("tags")),
+            target=_as_optional_string(args.get("target")),
+            dry_run=_as_optional_bool(args.get("dry_run"), default=True),
+            visibility=_as_optional_research_publish_visibility(args.get("visibility")) or "internal",
+        )
+
+    def _handle_search_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.search(
+            _require_string(args, "query"),
+            k=_as_optional_int(args.get("k")),
+            mode=_as_optional_search_mode(args.get("mode")),
+            corpus=_as_optional_search_corpus(args.get("corpus")),
+            scope=_as_optional_mapping(args.get("scope")),
+            include_content=_as_optional_bool(args.get("include_content")),
+            min_score=_as_optional_float(args.get("min_score")),
+            rerank=_as_optional_rerank_mode(args.get("rerank")),
+            debug=_as_optional_bool(args.get("debug")),
+        )
+
+    def _handle_get_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.get(
+            _require_string(args, "path"),
+            from_line=_as_optional_int(args.get("from"), default=1),
+            lines=_as_optional_int(args.get("lines")),
+        )
+
+    def _handle_memory_write_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.memory_write(
+            action=_require_string(args, "action"),
+            kind=_require_string(args, "kind"),
+            subject=_require_string(args, "subject"),
+            content=_require_string(args, "content"),
+            scope=_as_optional_string(args.get("scope")),
+            confidence=_as_optional_string(args.get("confidence")),
+            reason=_as_optional_string(args.get("reason")),
+            source=_as_optional_string(args.get("source")),
+            soft=_as_optional_bool(args.get("soft"), default=False),
+            dry_run=_as_optional_bool(args.get("dry_run"), default=False),
+            force_inbox=_as_optional_bool(args.get("force_inbox"), default=False),
+            allow_canonical=_as_optional_bool(args.get("allow_canonical"), default=False),
+        )
+
+    def _handle_write_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.write(
+            kind=_require_string(args, "kind"),
+            target=_require_string(args, "target"),
+            content=_as_optional_string(args.get("content")) or "",
+            soft=_as_optional_bool(args.get("soft"), default=False),
+            dry_run=_as_optional_bool(args.get("dry_run"), default=False),
+            frontmatter=_as_optional_mapping(args.get("frontmatter")),
+            agent=_as_optional_string(args.get("agent")),
+            session_id=_as_optional_string(args.get("session_id")),
+            expected_hash=_as_optional_string(args.get("expected_hash")),
+            reason=_as_optional_string(args.get("reason")),
+        )
+
+    def _handle_purge_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.purge(
+            target=_require_string(args, "target"),
+            expected_hash=_as_optional_string(args.get("expected_hash")),
+            reason=_as_optional_string(args.get("reason")),
+            dry_run=_as_optional_bool(args.get("dry_run"), default=True),
+            allow_canonical=_as_optional_bool(args.get("allow_canonical"), default=False),
+            include_related_tombstone=_as_optional_bool(
+                args.get("include_related_tombstone"),
+                default=False,
+            ),
+        )
+
+    def _handle_link_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.link(dict(args))
+
+    def _handle_status_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        return self.status()
 
     def shutdown(self) -> None:
         self.close()

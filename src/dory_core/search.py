@@ -240,23 +240,18 @@ class SearchEngine:
 
     def search(self, req: SearchReq) -> SearchResp:
         started = time.perf_counter()
-        mode = req.mode
         rerank_decision = resolve_rerank_mode(req.rerank, phase=self.rerank_phase)
         warnings: list[str] = []
         search_plan = (
             self._plan_search(req, warnings=warnings)
-            if mode == "hybrid" and req.corpus != "sessions"
+            if req.mode == "hybrid" and req.corpus != "sessions"
             else None
         )
 
-        if mode == "recall" or req.corpus == "sessions":
-            response = _apply_min_score(
-                self._search_session_plane(req.query, req.k, started=started),
-                req.min_score,
-            )
-            response = self._select_results(response, req=req, warnings=warnings)
-            self._record_recall(req.query, response.results)
-            return response
+        if req.mode == "recall" or req.corpus == "sessions":
+            response = self._search_session_plane(req.query, req.k, started=started)
+            return self._finalize_search_response(response, req=req, warnings=warnings)
+
         durable = self._search_durable(
             req,
             started=started,
@@ -265,66 +260,31 @@ class SearchEngine:
             warnings=warnings,
         )
         if req.corpus == "durable":
-            if search_plan is not None and search_plan.include_session_results:
-                session = self._search_session_plane_multi(search_plan.session_queries, req.k, started=started)
-                merged = _apply_min_score(
-                    self._merge_with_session_results(
-                        durable,
-                        session,
-                        req.query,
-                        req.k,
-                        started=started,
-                    ),
-                    req.min_score,
-                )
-                merged = self._select_results(merged, req=req, warnings=warnings)
-                self._record_recall(req.query, merged.results)
-                return merged
-            if search_plan is None and mode == "hybrid" and self._should_fallback_to_session_plane(req, durable):
-                session = self._search_session_plane(req.query, req.k, started=started)
-                merged = _apply_min_score(
-                    self._merge_with_session_results(durable, session, req.query, req.k, started=started),
-                    req.min_score,
-                )
-                merged = self._select_results(merged, req=req, warnings=warnings)
-                self._record_recall(req.query, merged.results)
-                return merged
-            durable = _apply_min_score(durable, req.min_score)
-            durable = self._select_results(durable, req=req, warnings=warnings)
-            self._record_recall(req.query, durable.results)
-            return durable
+            return self._finalize_search_response(durable, req=req, warnings=warnings)
 
         session_queries = search_plan.session_queries if search_plan is not None else (req.query,)
         session = self._search_session_plane_multi(session_queries, req.k, started=started)
-        if req.corpus == "all":
-            merged = _apply_min_score(
-                self._merge_with_session_results(
-                    durable,
-                    session,
-                    req.query,
-                    req.k,
-                    started=started,
-                    include_session_tail=True,
-                ),
-                req.min_score,
-            )
-            merged = self._select_results(merged, req=req, warnings=warnings)
-            self._record_recall(req.query, merged.results)
-            return merged
+        merged = self._merge_with_session_results(
+            durable,
+            session,
+            req.query,
+            req.k,
+            started=started,
+            include_session_tail=True,
+        )
+        return self._finalize_search_response(merged, req=req, warnings=warnings)
 
-        if search_plan is None and mode == "hybrid" and self._should_fallback_to_session_plane(req, durable):
-            merged = _apply_min_score(
-                self._merge_with_session_results(durable, session, req.query, req.k, started=started),
-                req.min_score,
-            )
-            merged = self._select_results(merged, req=req, warnings=warnings)
-            self._record_recall(req.query, merged.results)
-            return merged
-
-        durable = _apply_min_score(durable, req.min_score)
-        durable = self._select_results(durable, req=req, warnings=warnings)
-        self._record_recall(req.query, durable.results)
-        return durable
+    def _finalize_search_response(
+        self,
+        response: SearchResp,
+        *,
+        req: SearchReq,
+        warnings: list[str],
+    ) -> SearchResp:
+        response = _apply_min_score(response, req.min_score)
+        response = self._select_results(response, req=req, warnings=warnings)
+        self._record_recall(req.query, response.results)
+        return response
 
     def _search_durable(
         self,
@@ -781,22 +741,6 @@ class SearchEngine:
         merged = _with_rank_scores([result for _score, result in ordered[:limit]])
         took_ms = max(1, int((time.perf_counter() - started) * 1000))
         return SearchResp(query=normalized_queries[0], count=len(merged), results=merged, took_ms=took_ms)
-
-    def _should_fallback_to_session_plane(self, req: SearchReq, response: SearchResp) -> bool:
-        if req.mode != "hybrid":
-            return False
-        if not response.results:
-            return True
-
-        top_result = response.results[0]
-        if top_result.path.startswith("logs/sessions/"):
-            return False
-
-        query_profile = _build_query_profile(req.query)
-        exact_hit_ratio = _score_exact_result_coverage(top_result, query_profile)
-        if exact_hit_ratio >= 0.75:
-            return False
-        return self.session_plane.search(SessionSearchQuery(query=req.query, limit=1)).count > 0
 
     def _merge_with_session_results(
         self,

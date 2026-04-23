@@ -130,7 +130,7 @@ class WikiIndexBuilder:
         return sorted(entries, key=lambda entry: (entry.updated, entry.title.casefold()), reverse=True)
 
     def _family_counts(self, entries: list[WikiPageEntry]) -> dict[str, int]:
-        counts = {family: 0 for family in _WIKI_FAMILIES}
+        counts = dict.fromkeys(_WIKI_FAMILIES, 0)
         for entry in entries:
             counts[entry.family] = counts.get(entry.family, 0) + 1
         return counts
