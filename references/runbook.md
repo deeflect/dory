@@ -68,19 +68,25 @@ uv run dory --corpus-root ~/dory --index-root ~/dory/.index reindex
 
 ## Backup
 
-Push the markdown repo to its backup remote:
+Backups are git-based and intentionally separate from the Dory code repository. The corpus directory must be its own private git repository with a configured `origin` remote. If the corpus uses git-crypt, keep `.gitattributes` in that corpus repo so commits are encrypted before they reach the remote.
+
+Commit and push the markdown repo to its backup remote:
 
 ```bash
 DORY_CORPUS_ROOT=~/dory bash scripts/ops/backup.sh
 ```
 
+The script stages corpus changes, creates a timestamped backup commit when there is anything to commit, and pushes `origin`. It explicitly skips runtime indexes, Dory auth state, env files, keys, logs, and OS junk. It fails fast if `DORY_CORPUS_ROOT` is not a git repository or has no `origin`.
+
+For encrypted corpus backups, install `git-crypt` on the host before initializing or committing the corpus repo. A `.gitattributes` file alone is not enough; without the `git-crypt` filter installed, Git cannot safely clean/smudge encrypted paths. The backup script fails before staging if it sees `filter=git-crypt` but cannot find `git-crypt`.
+
 Install a nightly cron entry:
 
 ```bash
-bash scripts/ops/install-backup-cron.sh
+bash scripts/ops/install-backup-cron.sh '17 3 * * *' ~/dory
 ```
 
-Default schedule is `17 3 * * *`. Pass a custom cron expression as the first argument.
+Default schedule is `17 3 * * *`. Pass a custom cron expression as the first argument and the corpus root as the second. The installer writes `DORY_CORPUS_ROOT` into the cron entry so it does not depend on an interactive shell environment.
 
 ## Operator jobs
 

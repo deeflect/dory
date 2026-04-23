@@ -171,6 +171,8 @@ DORY_LOCAL_LLM_API_KEY=
 
 `DORY_DATA_ROOT` is the host directory mounted into the container at `/var/lib/dory`. Any host path works as long as Docker can write to it.
 
+Keep real corpus data outside the public code repository. The default `./data/corpus` path is convenient for local development and is ignored by this repo, but production hosts should use a dedicated private corpus repository and initialize backup/versioning there.
+
 Notes:
 
 - Image build uses host networking so the resolver works in locked-down networks. Leave `DORY_DOCKER_DNS_SERVERS` blank at runtime unless bridge DNS can't resolve your providers.
