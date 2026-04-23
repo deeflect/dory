@@ -65,6 +65,59 @@ temperature: cold
     assert result.results[0].path == "logs/daily/2026-02-10-digest.md"
 
 
+def test_search_prefers_generated_digest_for_explicit_digest_query(
+    tmp_path: Path,
+    fake_embedder,
+) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    corpus_root.mkdir()
+
+    digest_path = corpus_root / "digests" / "daily" / "2026-04-23.md"
+    digest_path.parent.mkdir(parents=True, exist_ok=True)
+    digest_path.write_text(
+        """---
+title: Daily Digest: April 23
+type: digest-daily
+status: active
+source_kind: generated
+canonical: false
+date: 2026-04-23
+---
+
+- Dory backup cron was installed.
+- Weekly digest generation was reviewed.
+- April 23 daily digest captured the operational handoff.
+""",
+        encoding="utf-8",
+    )
+
+    state_path = corpus_root / "projects" / "dory" / "state.md"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(
+        """---
+title: Dory
+type: project
+status: active
+source_kind: canonical
+canonical: true
+---
+
+- Dory backup cron was installed.
+- Weekly digest generation was reviewed.
+- Canonical state keeps the durable conclusion.
+""",
+        encoding="utf-8",
+    )
+
+    reindex_corpus(corpus_root, index_root, fake_embedder)
+    engine = SearchEngine(index_root, fake_embedder)
+
+    result = engine.search(SearchReq(query="daily digest April 23 Dory backup cron", mode="hybrid", k=2))
+
+    assert result.results[0].path == "digests/daily/2026-04-23.md"
+
+
 def test_search_prefers_clawsy_project_notes_for_clawzy_pricing_query(
     tmp_path: Path,
     fake_embedder,

@@ -62,7 +62,15 @@ from dory_core.digest_mining import (
     mine_digest_file,
     mine_digest_tree,
 )
-from dory_core.digest_writer import DailyDigestWriter, OpenRouterDailyDigestGenerator, previous_day
+from dory_core.digest_writer import (
+    DailyDigestWriter,
+    OpenRouterDailyDigestGenerator,
+    OpenRouterWeeklyDigestGenerator,
+    WeeklyDigestWriter,
+    current_iso_week,
+    previous_day,
+    previous_iso_week,
+)
 from dory_core.migration_batching import build_batches, format_batching_summary
 from dory_core.migration_core_seed import format_seed_summary, seed_core_from_root
 from dory_core.migration_entity_discovery import (
@@ -1230,6 +1238,47 @@ def ops_daily_digest_once(
         dry_run=dry_run,
         min_session_age_seconds=min_age_minutes * 60,
         limit=limit,
+    )
+    payload = asdict(result)
+    if result.written and reindex:
+        try:
+            reindex_result = reindex_paths(
+                config.corpus_root,
+                config.index_root,
+                build_runtime_embedder(),
+                [result.digest_path],
+            )
+        except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
+            _fail_with_runtime_error(str(err))
+        payload["reindex"] = asdict(reindex_result)
+        payload["reindexed"] = True
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+
+@ops_app.command("weekly-digest-once")
+def ops_weekly_digest_once(
+    ctx: typer.Context,
+    week: str | None = typer.Option(
+        None,
+        "--week",
+        help="ISO week as YYYY-Www. Defaults to previous week; pass --current-week for the current week.",
+    ),
+    current_week: bool = typer.Option(False, "--current-week", help="Digest the current ISO week instead of previous week."),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Replace an existing weekly digest for the week."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Generate and print without writing."),
+    reindex: bool = typer.Option(True, "--reindex/--no-reindex", help="Reindex the written digest path."),
+) -> None:
+    config = _get_config(ctx)
+    settings = DorySettings()
+    dream_llm = require_dream_llm(settings)
+    target_week = current_iso_week() if current_week else week or previous_iso_week()
+    result = WeeklyDigestWriter(
+        config.corpus_root,
+        OpenRouterWeeklyDigestGenerator(client=dream_llm.client),
+    ).write(
+        week=target_week,
+        overwrite=overwrite,
+        dry_run=dry_run,
     )
     payload = asdict(result)
     if result.written and reindex:

@@ -91,6 +91,7 @@ Batch surface:
 Runtime behavior:
 
 - `daily-digest-once` summarizes raw session logs into durable daily digest files.
+- `weekly-digest-once` summarizes generated daily digests into durable weekly digest files.
 - `dream-once` reads daily/weekly digest files and generates semantic write proposals into `inbox/proposed/`.
 - Raw session distillation is only the explicit legacy/manual `--session` path.
 - Promotes repeated recall hits into distilled notes.
@@ -112,6 +113,7 @@ Main code:
 Batch surface:
 
 - `dory ops daily-digest-once` — `--date`, `--today`, `--overwrite`, `--dry-run`, `--min-age-minutes`, `--limit`, `--reindex/--no-reindex`
+- `dory ops weekly-digest-once` — `--week`, `--current-week`, `--overwrite`, `--dry-run`, `--reindex/--no-reindex`
 - `dory mine-digests` — extracts durable claims out of existing daily/weekly digest files into the claim store
 
 Runtime behavior:
@@ -122,6 +124,7 @@ Runtime behavior:
 - It includes every matching session by default. For multi-session days it batches small sessions together, sends oversized sessions alone, then merges those batch-level digests into the daily digest.
 - It refuses to overwrite an existing digest unless `--overwrite` is passed.
 - It uses the configured dream LLM provider for digest generation and reindexes the written digest path by default.
+- `weekly-digest-once` consumes existing `digests/daily/YYYY-MM-DD.md` files for the target ISO week and writes `digests/weekly/YYYY-Www.md`.
 - `mine-digests` is the follow-up claim extraction pass; it does not create the digest file.
 
 ## Maintenance

@@ -94,6 +94,8 @@ One-shot:
 
 ```bash
 uv run dory --corpus-root ~/dory --index-root ~/dory/.index ops dream-once
+uv run dory --corpus-root ~/dory --index-root ~/dory/.index ops daily-digest-once
+uv run dory --corpus-root ~/dory --index-root ~/dory/.index ops weekly-digest-once
 uv run dory --corpus-root ~/dory --index-root ~/dory/.index ops maintain-once
 uv run dory --corpus-root ~/dory --index-root ~/dory/.index ops wiki-refresh-once
 uv run dory --corpus-root ~/dory --index-root ~/dory/.index ops wiki-refresh-indexes
