@@ -22,6 +22,7 @@ class WakeReq(BaseModel):
     profile: WakeProfile = "default"
     include_recent_sessions: int = Field(default=5, ge=0)
     include_pinned_decisions: bool = True
+    debug: bool = False
 
     @field_validator("budget_tokens")
     @classmethod
@@ -89,6 +90,8 @@ class SearchResp(BaseModel):
 
 
 _SEARCH_RESULT_DEBUG_FIELDS = {"score", "score_normalized", "rank_score", "frontmatter"}
+_WAKE_DEBUG_FIELDS = {"tokens_estimated", "sources", "frozen_at"}
+_ACTIVE_MEMORY_DEBUG_FIELDS = {"took_ms", "profile", "confidence"}
 
 
 def serialize_search_response(response: SearchResp, *, debug: bool = False) -> dict[str, Any]:
@@ -102,6 +105,15 @@ def serialize_search_response(response: SearchResp, *, debug: bool = False) -> d
     return payload
 
 
+def serialize_wake_response(response: WakeResp, *, debug: bool = False) -> dict[str, Any]:
+    payload = response.model_dump(mode="json")
+    if debug:
+        return payload
+    for field in _WAKE_DEBUG_FIELDS:
+        payload.pop(field, None)
+    return payload
+
+
 class ActiveMemoryReq(BaseModel):
     prompt: str
     agent: str
@@ -111,6 +123,7 @@ class ActiveMemoryReq(BaseModel):
     budget_tokens: int = Field(default=400, ge=100, le=1200)
     include_wake: bool = True
     rerank: Literal["auto", "true", "false"] = "auto"
+    debug: bool = False
 
 
 class ActiveMemoryResp(BaseModel):
@@ -121,6 +134,15 @@ class ActiveMemoryResp(BaseModel):
     profile: Literal["general", "coding", "writing", "privacy", "personal"] = "general"
     confidence: Literal["low", "medium", "high"] | None = None
     sources: list[str] = Field(default_factory=list)
+
+
+def serialize_active_memory_response(response: ActiveMemoryResp, *, debug: bool = False) -> dict[str, Any]:
+    payload = response.model_dump(mode="json")
+    if debug:
+        return payload
+    for field in _ACTIVE_MEMORY_DEBUG_FIELDS:
+        payload.pop(field, None)
+    return payload
 
 
 class SessionIngestReq(BaseModel):

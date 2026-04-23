@@ -45,9 +45,39 @@ def test_active_memory_http_endpoint_returns_memory_block(tmp_path: Path, monkey
     payload = result.json()
     assert payload["kind"] == "memory"
     assert payload["summary"] == "Rooster is the focus."
-    assert "took_ms" in payload
+    assert "took_ms" not in payload
     assert stub.requests
     assert stub.requests[0].profile == "general"
+
+
+def test_active_memory_http_includes_debug_fields_when_requested(tmp_path: Path, monkeypatch) -> None:
+    response = ActiveMemoryResp(
+        kind="memory",
+        block="## Active memory\n- Rooster is the focus.",
+        summary="Rooster is the focus.",
+        took_ms=9,
+        confidence="medium",
+        sources=["core/active.md"],
+    )
+    stub = _StubActiveMemoryEngine(response)
+    monkeypatch.setattr("dory_http.app._build_active_memory_engine", lambda runtime: stub)
+
+    client = TestClient(build_app(tmp_path / "corpus", tmp_path / "index"))
+    result = client.post(
+        "/v1/active-memory",
+        json={
+            "prompt": "what are we working on today",
+            "agent": "claude",
+            "profile": "general",
+            "cwd": str(tmp_path),
+            "debug": True,
+        },
+    )
+
+    assert result.status_code == 200
+    payload = result.json()
+    assert payload["took_ms"] == 9
+    assert payload["confidence"] == "medium"
 
 
 def test_active_memory_http_returns_503_for_embedding_provider_errors(tmp_path: Path, monkeypatch) -> None:
