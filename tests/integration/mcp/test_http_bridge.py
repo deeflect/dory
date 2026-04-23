@@ -250,6 +250,38 @@ def test_bridge_routes_get_with_native_from_parameter(monkeypatch) -> None:
     assert '"from":7' in result
 
 
+def test_bridge_routes_get_debug_parameter(monkeypatch) -> None:
+    bridge = _load_bridge_module()
+    captured: dict[str, object] = {}
+
+    def fake_http_get(endpoint: str):
+        captured["endpoint"] = endpoint
+        return {"path": "core/user.md", "hash": "sha256:abc"}
+
+    monkeypatch.setattr(bridge, "http_get", fake_http_get)
+
+    result = bridge.handle_tool_call("dory_get", {"path": "core/user.md", "debug": True})
+
+    assert captured["endpoint"] == "/v1/get?path=core%2Fuser.md&debug=True"
+    assert '"hash":"sha256:abc"' in result
+
+
+def test_bridge_routes_status_debug_parameter(monkeypatch) -> None:
+    bridge = _load_bridge_module()
+    captured: dict[str, object] = {}
+
+    def fake_http_get(endpoint: str):
+        captured["endpoint"] = endpoint
+        return {"api_version": "v1", "corpus_root": "/var/lib/dory"}
+
+    monkeypatch.setattr(bridge, "http_get", fake_http_get)
+
+    result = bridge.handle_tool_call("dory_status", {"debug": True})
+
+    assert captured["endpoint"] == "/v1/status?debug=True"
+    assert '"corpus_root":"/var/lib/dory"' in result
+
+
 def test_bridge_retains_legacy_write_route(monkeypatch) -> None:
     bridge = _load_bridge_module()
     captured: dict[str, object] = {}

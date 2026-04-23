@@ -54,7 +54,9 @@ from dory_core.types import (
     WakeReq,
     PurgeReq,
     WriteReq,
+    serialize_active_memory_response,
     serialize_search_response,
+    serialize_wake_response,
 )
 from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.wake import WakeBuilder
@@ -228,7 +230,7 @@ def build_app(
     @app.post("/v1/wake")
     def wake(req: WakeReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
-        return WakeBuilder(runtime.corpus_root).build(req).model_dump(mode="json")
+        return serialize_wake_response(WakeBuilder(runtime.corpus_root).build(req), debug=req.debug)
 
     @app.post("/v1/search")
     def search(req: SearchReq, request: Request) -> dict[str, Any]:
@@ -251,7 +253,7 @@ def build_app(
     def active_memory(req: ActiveMemoryReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
         try:
-            return _build_active_memory_engine(runtime).build(req).model_dump(mode="json")
+            return serialize_active_memory_response(_build_active_memory_engine(runtime).build(req), debug=req.debug)
         except EmbeddingProviderError as err:
             raise HTTPException(status_code=503, detail=str(err)) from err
 
@@ -300,6 +302,7 @@ def build_app(
         from_line: int | None = Query(None, alias="from"),
         legacy_from_line: int | None = Query(None, alias="from_line"),
         lines: int | None = Query(None),
+        debug: bool = Query(False),
     ) -> dict[str, Any]:
         _authorize_request(request, runtime)
         start_line = from_line if from_line is not None else legacy_from_line if legacy_from_line is not None else 1
@@ -311,7 +314,7 @@ def build_app(
             frontmatter = load_markdown_document(text).frontmatter
         except ValueError:
             frontmatter = {}
-        return {
+        payload = {
             "path": path,
             "from": start_line,
             "lines_returned": len(sliced.splitlines()) if sliced else 0,
@@ -320,6 +323,11 @@ def build_app(
             "hash": f"sha256:{sha256(text.encode('utf-8')).hexdigest()}",
             "content": sliced,
         }
+        if debug:
+            return payload
+        for field in ("lines_returned", "total_lines", "frontmatter", "hash"):
+            payload.pop(field, None)
+        return payload
 
     @app.post("/v1/write")
     def write(req: WriteReq, request: Request) -> dict[str, Any]:
@@ -461,9 +469,9 @@ def build_app(
         raise HTTPException(status_code=400, detail=f"unsupported link op: {req.op}")
 
     @app.get("/v1/status")
-    def status(request: Request) -> dict[str, Any]:
+    def status(request: Request, debug: bool = Query(False)) -> dict[str, Any]:
         _authorize_request(request, runtime)
-        return serialize_status(build_status(runtime.corpus_root, runtime.index_root, settings))
+        return serialize_status(build_status(runtime.corpus_root, runtime.index_root, settings), debug=debug)
 
     @app.get("/v1/tools")
     def tools(request: Request) -> dict[str, Any]:

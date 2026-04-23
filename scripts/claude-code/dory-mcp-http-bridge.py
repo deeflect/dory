@@ -196,7 +196,11 @@ def _get_query_params(name: str, args: dict[str, Any]) -> dict[str, Any]:
             params["from"] = from_value
         if "lines" in args:
             params["lines"] = args["lines"]
+        if "debug" in args:
+            params["debug"] = args["debug"]
         return params
+    if name == "dory_status":
+        return {"debug": args["debug"]} if "debug" in args else {}
     return {}
 
 

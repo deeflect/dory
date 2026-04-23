@@ -55,12 +55,15 @@ def test_http_routes_cover_core_verbs(
     assert wake.status_code == 200
     assert "block" in wake.json()
     assert wake.json()["profile"] == "default"
+    assert "sources" not in wake.json()
     assert search.status_code == 200
     assert search.json()["count"] >= 1
     assert text_search.status_code == 200
     assert text_search.json()["count"] >= 1
     assert get.status_code == 200
     assert "Casey builds agent infrastructure" in get.json()["content"]
+    assert "hash" not in get.json()
+    assert "frontmatter" not in get.json()
     assert tools.status_code == 200
     assert any(tool["name"] == "dory_purge" for tool in tools.json()["tools"])
     assert write.status_code == 200
@@ -69,6 +72,12 @@ def test_http_routes_cover_core_verbs(
     assert purge_dry_run.json()["action"] == "would_purge"
     assert link.status_code == 200
     assert link.json()["count"] >= 1
+
+    status = client.get("/v1/status")
+    assert status.status_code == 200
+    assert status.json()["api_version"] == "v1"
+    assert "corpus_root" not in status.json()
+    assert "compat_matrix" not in status.json()
 
 
 def test_http_purge_requires_hash_for_live_delete(

@@ -115,9 +115,16 @@ def format_status(status: DoryStatus) -> str:
     return json.dumps(payload, indent=2, sort_keys=True)
 
 
-def serialize_status(status: DoryStatus) -> dict[str, Any]:
+_STATUS_DEBUG_FIELDS = {"corpus_root", "index_root", "embedding_batch_size", "openclaw", "compat_matrix"}
+
+
+def serialize_status(status: DoryStatus, *, debug: bool = False) -> dict[str, Any]:
     payload = asdict(status)
     payload["openclaw"] = status.openclaw.model_dump(mode="json")
+    if debug:
+        return payload
+    for field in _STATUS_DEBUG_FIELDS:
+        payload.pop(field, None)
     return payload
 
 

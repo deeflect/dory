@@ -50,11 +50,12 @@ _GET_INPUT_SCHEMA = {
         "from": {"type": "integer"},
         "from_line": {"type": "integer"},
         "lines": {"type": "integer"},
+        "debug": {"type": "boolean", "default": False},
     },
     "required": ["path"],
 }
 
-_STATUS_INPUT_SCHEMA = {"type": "object", "properties": {}}
+_STATUS_INPUT_SCHEMA = {"type": "object", "properties": {"debug": {"type": "boolean", "default": False}}}
 
 
 TOOL_REGISTRY: tuple[DoryTool, ...] = (

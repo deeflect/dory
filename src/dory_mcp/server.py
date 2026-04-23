@@ -36,7 +36,9 @@ from dory_core.types import (
     SearchReq,
     WakeReq,
     WriteReq,
+    serialize_active_memory_response,
     serialize_search_response,
+    serialize_wake_response,
 )
 from dory_core.wake import WakeBuilder
 from dory_core.write import WriteEngine
@@ -85,11 +87,13 @@ class RuntimeCore:
     rerank_candidate_limit: int = 40
 
     def wake(self, req: dict[str, Any]) -> Any:
-        return WakeBuilder(self.corpus_root).build(WakeReq.model_validate(req))
+        wake_req = WakeReq.model_validate(req)
+        return serialize_wake_response(WakeBuilder(self.corpus_root).build(wake_req), debug=wake_req.debug)
 
     def active_memory(self, req: dict[str, Any]) -> Any:
+        active_req = ActiveMemoryReq.model_validate(req)
         planner, composer = build_active_memory_components(DorySettings())
-        return ActiveMemoryEngine(
+        response = ActiveMemoryEngine(
             wake_builder=WakeBuilder(self.corpus_root),
             search_engine=SearchEngine(
                 self.index_root,
@@ -103,7 +107,8 @@ class RuntimeCore:
             root=self.corpus_root,
             planner=planner,
             composer=composer,
-        ).build(ActiveMemoryReq.model_validate(req))
+        ).build(active_req)
+        return serialize_active_memory_response(response, debug=active_req.debug)
 
     def research(self, req: dict[str, Any]) -> Any:
         research_resp = ResearchEngine(
@@ -155,7 +160,7 @@ class RuntimeCore:
             frontmatter = load_markdown_document(text).frontmatter
         except ValueError:
             frontmatter = {}
-        return {
+        payload = {
             "path": str(req["path"]),
             "from": start_line,
             "lines_returned": len(sliced.splitlines()) if sliced else 0,
@@ -164,6 +169,11 @@ class RuntimeCore:
             "hash": f"sha256:{sha256(text.encode('utf-8')).hexdigest()}",
             "content": sliced,
         }
+        if bool(req.get("debug")):
+            return payload
+        for field in ("lines_returned", "total_lines", "frontmatter", "hash"):
+            payload.pop(field, None)
+        return payload
 
     def memory_write(self, req: dict[str, Any]) -> Any:
         return SemanticWriteEngine(
@@ -210,8 +220,7 @@ class RuntimeCore:
         raise ValueError(f"unsupported link op: {parsed.op}")
 
     def status(self, req: dict[str, Any]) -> dict[str, Any]:
-        del req
-        return serialize_status(build_status(self.corpus_root, self.index_root))
+        return serialize_status(build_status(self.corpus_root, self.index_root), debug=bool(req.get("debug")))
 
 
 @dataclass(frozen=True, slots=True)
