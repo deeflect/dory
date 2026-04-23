@@ -10,7 +10,10 @@ def test_runbook_mentions_reindex_recovery() -> None:
     cron_script = Path("scripts/ops/install-backup-cron.sh").read_text(encoding="utf-8")
 
     assert "reindex" in runbook.lower()
-    assert 'git -C "$CORPUS_ROOT" push' in backup_script
+    assert "git -C \"${CORPUS_ROOT}\" add -A" in backup_script
+    assert "git -C \"${CORPUS_ROOT}\" commit" in backup_script
+    assert "git -C \"${CORPUS_ROOT}\" push -u origin" in backup_script
     assert "status" in restore_script
     assert "crontab" in cron_script
     assert "backup.sh" in cron_script
+    assert "DORY_CORPUS_ROOT" in cron_script
