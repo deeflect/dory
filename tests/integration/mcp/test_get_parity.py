@@ -17,7 +17,14 @@ def test_mcp_get_returns_http_parity_fields(tmp_path: Path, fake_embedder) -> No
     )
 
     core = RuntimeCore(corpus_root=corpus_root, index_root=index_root, embedder=fake_embedder)
-    payload = core.get({"path": "core/user.md", "from": 1, "lines": 7})
+    default_payload = core.get({"path": "core/user.md", "from": 1, "lines": 7})
+    payload = core.get({"path": "core/user.md", "from": 1, "lines": 7, "debug": True})
+
+    assert default_payload["path"] == "core/user.md"
+    assert default_payload["from"] == 1
+    assert "lines_returned" not in default_payload
+    assert "frontmatter" not in default_payload
+    assert "hash" not in default_payload
 
     assert payload["path"] == "core/user.md"
     assert payload["from"] == 1
@@ -58,6 +65,6 @@ def test_mcp_get_rejects_non_positive_line_limit(tmp_path: Path, fake_embedder) 
 def test_mcp_status_is_json_renderable(tmp_path: Path, fake_embedder) -> None:
     core = RuntimeCore(corpus_root=tmp_path / "corpus", index_root=tmp_path / "index", embedder=fake_embedder)
 
-    rendered = _render_result(core.status({}))
+    rendered = _render_result(core.status({"debug": True}))
 
     assert '"openclaw"' in rendered

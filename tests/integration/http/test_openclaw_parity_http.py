@@ -46,7 +46,7 @@ def test_http_recall_event_and_public_artifacts_and_status(tmp_path: Path) -> No
         },
     )
     artifacts = client.get("/v1/public-artifacts")
-    status = client.get("/v1/status")
+    status = client.get("/v1/status", params={"debug": True})
 
     assert recall.status_code == 200, recall.text
     assert recall.json()["stored"] is True
