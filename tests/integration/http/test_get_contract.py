@@ -18,12 +18,21 @@ def test_http_get_returns_frontmatter_and_hash(tmp_path: Path, sample_corpus_roo
 
     client = TestClient(build_app(corpus_root, index_root))
     response = client.get("/v1/get", params={"path": "core/user.md", "from": 1, "lines": 8})
+    debug_response = client.get(
+        "/v1/get",
+        params={"path": "core/user.md", "from": 1, "lines": 8, "debug": True},
+    )
 
     assert response.status_code == 200
     payload = response.json()
+    assert "frontmatter" not in payload
+    assert "hash" not in payload
+
+    assert debug_response.status_code == 200
+    debug_payload = debug_response.json()
     expected_text = (corpus_root / "core/user.md").read_text(encoding="utf-8")
-    assert payload["frontmatter"]["title"] == "User"
-    assert payload["hash"] == f"sha256:{sha256(expected_text.encode('utf-8')).hexdigest()}"
+    assert debug_payload["frontmatter"]["title"] == "User"
+    assert debug_payload["hash"] == f"sha256:{sha256(expected_text.encode('utf-8')).hexdigest()}"
 
 
 def test_http_get_accepts_legacy_from_line_alias(tmp_path: Path, sample_corpus_root: Path) -> None:
