@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from dory_core.frontmatter import load_markdown_document
 from dory_core.token_counting import TokenCounter, build_token_counter
 from dory_core.types import WakeProfile, WakeReq, WakeResp
 
@@ -206,10 +207,24 @@ class WakeBuilder:
         if decision_root is None:
             return sections
 
-        for path in sorted(decision_root.glob("*.md"))[:3]:
+        pinned: list[tuple[str, str, Path, str]] = []
+        for path in sorted(decision_root.glob("*.md")):
             text = path.read_text(encoding="utf-8").strip()
             if not text:
                 continue
+            try:
+                document = load_markdown_document(text)
+            except ValueError:
+                continue
+            if document.frontmatter.get("pinned") is not True:
+                continue
+            status = str(document.frontmatter.get("status", "")).strip().lower()
+            if status in {"retired", "superseded", "stale"}:
+                continue
+            updated = str(document.frontmatter.get("updated", "") or document.frontmatter.get("created", "") or "")
+            pinned.append((updated, path.name, path, text))
+
+        for _updated, _name, path, text in sorted(pinned, reverse=True)[:3]:
             sections.append(
                 HotBlockSection(
                     path=path.relative_to(self.root),

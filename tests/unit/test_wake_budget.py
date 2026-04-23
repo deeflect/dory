@@ -71,6 +71,29 @@ def test_wake_builder_includes_decisions_when_requested(sample_corpus_root) -> N
     assert "decisions/2026-04-07-homeserver.md" in resp.sources
 
 
+def test_wake_builder_skips_unpinned_decisions(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "decisions").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    (tmp_path / "decisions" / "unpinned.md").write_text(
+        "---\ntitle: Unpinned\ntype: decision\nstatus: active\n---\n\nShould stay out of wake.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "decisions" / "pinned.md").write_text(
+        "---\ntitle: Pinned\ntype: decision\nstatus: active\npinned: true\n---\n\nShould appear.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="claude-code", budget_tokens=400, include_recent_sessions=0, include_pinned_decisions=True)
+    )
+
+    assert "Should appear." in resp.block
+    assert "Should stay out of wake." not in resp.block
+    assert "decisions/pinned.md" in resp.sources
+    assert "decisions/unpinned.md" not in resp.sources
+
+
 def test_wake_builder_uses_token_counter_for_budgeting(sample_corpus_root) -> None:
     resp = WakeBuilder(sample_corpus_root, token_counter=_FakeTokenCounter()).build(
         WakeReq(agent="claude-code", budget_tokens=20, include_recent_sessions=0)

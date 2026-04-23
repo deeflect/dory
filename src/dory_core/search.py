@@ -110,6 +110,13 @@ _SESSION_QUERY_TOKENS = {
     "transcript",
     "transcripts",
 }
+_DIGEST_QUERY_TOKENS = {
+    "daily",
+    "digest",
+    "digests",
+    "weekly",
+    "week",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -1034,15 +1041,21 @@ def _score_document_prior(
     source_kind = str(frontmatter.get("source_kind", "")).strip().lower()
     status = str(frontmatter.get("status", "")).strip().lower()
     temporal_query = query_profile.has_temporal_hint
+    digest_query = bool(tokens & _DIGEST_QUERY_TOKENS)
     if temporal_query and (path.startswith("logs/daily/") or _extract_document_date(frontmatter) is not None):
         score += 0.09 if path.startswith("logs/daily/") else 0.045
+    if digest_query:
+        if path.startswith("digests/"):
+            score += 0.2
+        elif path.startswith(("logs/daily/", "logs/weekly/")):
+            score += 0.06
     if path.startswith("inbox/"):
         score -= 0.04
     if path.startswith("logs/") and not temporal_query:
         score -= 0.03
     if status == "raw":
         score -= 0.03
-    if source_kind == "generated":
+    if source_kind == "generated" and not (digest_query and path.startswith("digests/")):
         score -= 0.018
     if _is_low_trust_search_document(path, frontmatter):
         score -= 0.05
@@ -1232,6 +1245,11 @@ def _merge_source_prior(result: SearchResult, *, query_profile: QueryProfile, so
         score += 0.035
     if path.startswith("projects/") and path.endswith("/state.md"):
         score += 0.03
+    wants_digest = bool(tokens & _DIGEST_QUERY_TOKENS)
+    if path.startswith("digests/") and wants_digest:
+        score += 0.16
+    if path.startswith("logs/") and tokens & _DIGEST_QUERY_TOKENS:
+        score += 0.025
     if path == "core/active.md" and tokens & _CURRENT_QUERY_TOKENS:
         score += 0.035
     if path == "core/env.md" and tokens & _ENV_QUERY_TOKENS:
@@ -1247,7 +1265,7 @@ def _merge_source_prior(result: SearchResult, *, query_profile: QueryProfile, so
         score -= 0.035
     if sensitivity and sensitivity != "none" and not (tokens & _PRIVACY_QUERY_TOKENS):
         score -= 0.025
-    if evidence_class == "generated" or path.startswith("wiki/"):
+    if (evidence_class == "generated" and not (path.startswith("digests/") and wants_digest)) or path.startswith("wiki/"):
         score -= 0.03
     if evidence_class in {"inbox", "raw", "archive"}:
         score -= 0.045

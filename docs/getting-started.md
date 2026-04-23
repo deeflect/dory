@@ -263,6 +263,14 @@ uv run dory --corpus-root data/corpus --index-root .dory/index ops daily-digest-
 
 Defaults: writes yesterday's `digests/daily/YYYY-MM-DD.md`, includes every matching session, skips sessions touched in the last 30 minutes, won't overwrite an existing digest, and reindexes only the written path. Multi-session days are processed as packed digest batches: small sessions are combined, oversized sessions are sent alone, and the batch digests are merged into the daily digest. Use `--today`, `--date YYYY-MM-DD`, `--dry-run`, `--limit`, or `--overwrite` for manual runs.
 
+Weekly digest of generated daily digests:
+
+```bash
+uv run dory --corpus-root data/corpus --index-root .dory/index ops weekly-digest-once
+```
+
+Defaults: writes the previous ISO week's `digests/weekly/YYYY-Www.md`, uses existing daily digests as source material, won't overwrite an existing weekly digest, and reindexes only the written path. Use `--current-week`, `--week YYYY-Www`, `--dry-run`, or `--overwrite` for manual runs.
+
 ## Browser wiki and Obsidian
 
 Generate the compiled wiki:

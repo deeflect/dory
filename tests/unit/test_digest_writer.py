@@ -8,9 +8,15 @@ from dory_core.digest_writer import (
     DailyDigest,
     DailyDigestWriter,
     DigestSessionSource,
+    WeeklyDigest,
+    WeeklyDigestWriter,
     batch_daily_sessions,
     collect_daily_sessions,
+    collect_weekly_daily_digests,
+    current_iso_week,
+    iso_week_date_range,
     previous_day,
+    previous_iso_week,
 )
 
 
@@ -40,6 +46,20 @@ class _RecordingDailyDigestGenerator:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _FakeWeeklyDigestGenerator:
+    def generate(self, *, week: str, daily_digests: tuple[DigestSessionSource, ...]) -> WeeklyDigest:
+        return WeeklyDigest(
+            title=f"Weekly Digest - {week}",
+            summary=f"Summarized {len(daily_digests)} daily digests.",
+            key_outcomes=("Dory weekly digest generation was verified.",),
+            decisions=("Use daily digests as weekly source material.",),
+            followups=("Schedule weekly digest generation.",),
+            projects=("dory",),
+            days=tuple(daily_digest.updated[:10] for daily_digest in daily_digests),
+        )
+
+
 def _write_session(corpus: Path, relative: str, *, updated: str, body: str = "User and assistant worked.") -> Path:
     path = corpus / relative
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -52,6 +72,25 @@ agent: codex
 device: test-device
 session_id: {path.stem}
 updated: '{updated}'
+---
+
+{body}
+""",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _write_daily_digest(corpus: Path, relative: str, *, digest_date: str, body: str = "Daily work happened.") -> Path:
+    path = corpus / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"""---
+title: Daily Digest
+type: digest-daily
+status: active
+source_kind: generated
+date: '{digest_date}'
 ---
 
 {body}
@@ -204,3 +243,70 @@ def test_daily_digest_writer_refuses_overwrite_by_default(tmp_path: Path) -> Non
 
 def test_previous_day_uses_reference_date() -> None:
     assert previous_day(reference=date(2026, 4, 20)) == "2026-04-19"
+
+
+def test_week_helpers_use_iso_weeks() -> None:
+    assert current_iso_week(reference=date(2026, 4, 23)) == "2026-W17"
+    assert previous_iso_week(reference=date(2026, 4, 23)) == "2026-W16"
+    assert iso_week_date_range("2026-W17") == (date(2026, 4, 20), date(2026, 4, 26))
+
+
+def test_collect_weekly_daily_digests_uses_frontmatter_date(tmp_path: Path) -> None:
+    _write_daily_digest(
+        tmp_path,
+        "digests/daily/2026-04-20.md",
+        digest_date="2026-04-20",
+        body="Monday.",
+    )
+    _write_daily_digest(
+        tmp_path,
+        "digests/daily/2026-04-27.md",
+        digest_date="2026-04-27",
+        body="Next Monday.",
+    )
+
+    start, end = iso_week_date_range("2026-W17")
+    digests = collect_weekly_daily_digests(tmp_path, week_start=start, week_end=end)
+
+    assert [digest.path for digest in digests] == ["digests/daily/2026-04-20.md"]
+
+
+def test_weekly_digest_writer_writes_generated_digest(tmp_path: Path) -> None:
+    _write_daily_digest(
+        tmp_path,
+        "digests/daily/2026-04-20.md",
+        digest_date="2026-04-20",
+        body="Dory backup was fixed.",
+    )
+    _write_daily_digest(
+        tmp_path,
+        "digests/daily/2026-04-21.md",
+        digest_date="2026-04-21",
+        body="Dory scheduling was reviewed.",
+    )
+
+    result = WeeklyDigestWriter(tmp_path, _FakeWeeklyDigestGenerator()).write(week="2026-W17")
+
+    digest_path = tmp_path / "digests" / "weekly" / "2026-W17.md"
+    assert result.written is True
+    assert result.digest_path == "digests/weekly/2026-W17.md"
+    assert result.daily_digests_included == (
+        "digests/daily/2026-04-20.md",
+        "digests/daily/2026-04-21.md",
+    )
+    written = digest_path.read_text(encoding="utf-8")
+    assert "type: digest-weekly" in written
+    assert "Summarized 2 daily digests." in written
+    assert "digests/daily/2026-04-20.md" in written
+
+
+def test_weekly_digest_writer_refuses_overwrite_by_default(tmp_path: Path) -> None:
+    digest_path = tmp_path / "digests" / "weekly" / "2026-W17.md"
+    digest_path.parent.mkdir(parents=True)
+    digest_path.write_text("existing\n", encoding="utf-8")
+
+    result = WeeklyDigestWriter(tmp_path, _FakeWeeklyDigestGenerator()).write(week="2026-W17")
+
+    assert result.written is False
+    assert result.skipped_reason == "weekly digest already exists; pass overwrite=True to replace it"
+    assert digest_path.read_text(encoding="utf-8") == "existing\n"

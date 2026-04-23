@@ -125,6 +125,58 @@ def test_ops_dream_once_defaults_to_digest_sources(cli_runner, monkeypatch, tmp_
     assert not (corpus_root / "inbox" / "distilled" / "codex-2026-04-11.md").exists()
 
 
+def test_ops_weekly_digest_once_writes_from_daily_digests(cli_runner, monkeypatch, tmp_path: Path) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    daily_root = corpus_root / "digests" / "daily"
+    daily_root.mkdir(parents=True, exist_ok=True)
+    (daily_root / "2026-04-20.md").write_text(
+        "---\ntitle: Daily Digest\ntype: digest-daily\ndate: '2026-04-20'\n---\n\nDory backup was fixed.\n",
+        encoding="utf-8",
+    )
+    (daily_root / "2026-04-21.md").write_text(
+        "---\ntitle: Daily Digest\ntype: digest-daily\ndate: '2026-04-21'\n---\n\nDory scheduling was reviewed.\n",
+        encoding="utf-8",
+    )
+    client = _QueuedOpenRouterClient(
+        [
+            {
+                "title": "Weekly Digest - 2026-W17",
+                "summary": "Dory backup and scheduling work landed.",
+                "key_outcomes": ["Backup is encrypted."],
+                "decisions": ["Use daily digests as weekly inputs."],
+                "followups": ["Install cron."],
+                "projects": ["dory"],
+                "days": ["2026-04-20", "2026-04-21"],
+            }
+        ]
+    )
+    monkeypatch.setattr("dory_cli.main.require_dream_llm", lambda settings: DreamLLM(client=client, backend="openrouter"))
+
+    result = cli_runner.invoke(
+        app,
+        [
+            "--corpus-root",
+            str(corpus_root),
+            "--index-root",
+            str(index_root),
+            "ops",
+            "weekly-digest-once",
+            "--week",
+            "2026-W17",
+            "--no-reindex",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["written"] is True
+    assert payload["digest_path"] == "digests/weekly/2026-W17.md"
+    written = (corpus_root / "digests" / "weekly" / "2026-W17.md").read_text(encoding="utf-8")
+    assert "type: digest-weekly" in written
+    assert "Dory backup and scheduling work landed." in written
+
+
 def test_ops_dream_once_promotes_recall_candidates(cli_runner, monkeypatch, tmp_path: Path) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / ".index"

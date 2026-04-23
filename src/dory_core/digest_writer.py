@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -30,6 +31,17 @@ class DailyDigest:
 
 
 @dataclass(frozen=True, slots=True)
+class WeeklyDigest:
+    title: str
+    summary: str
+    key_outcomes: tuple[str, ...] = ()
+    decisions: tuple[str, ...] = ()
+    followups: tuple[str, ...] = ()
+    projects: tuple[str, ...] = ()
+    days: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class DailyDigestResult:
     digest_path: str
     date: str
@@ -42,8 +54,25 @@ class DailyDigestResult:
     content: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class WeeklyDigestResult:
+    digest_path: str
+    week: str
+    daily_digests_considered: int
+    daily_digests_included: tuple[str, ...]
+    written: bool
+    dry_run: bool = False
+    skipped_reason: str | None = None
+    reindexed: bool = False
+    content: str | None = None
+
+
 class DailyDigestGenerator(Protocol):
     def generate(self, *, target_date: str, sessions: tuple[DigestSessionSource, ...]) -> DailyDigest: ...
+
+
+class WeeklyDigestGenerator(Protocol):
+    def generate(self, *, week: str, daily_digests: tuple[DigestSessionSource, ...]) -> WeeklyDigest: ...
 
 
 _DAILY_DIGEST_SCHEMA = {
@@ -60,6 +89,21 @@ _DAILY_DIGEST_SCHEMA = {
     "required": ["title", "summary", "key_outcomes", "decisions", "followups", "projects"],
 }
 
+_WEEKLY_DIGEST_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "title": {"type": "string"},
+        "summary": {"type": "string"},
+        "key_outcomes": {"type": "array", "items": {"type": "string"}},
+        "decisions": {"type": "array", "items": {"type": "string"}},
+        "followups": {"type": "array", "items": {"type": "string"}},
+        "projects": {"type": "array", "items": {"type": "string"}},
+        "days": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["title", "summary", "key_outcomes", "decisions", "followups", "projects", "days"],
+}
+
 _SYSTEM_PROMPT = (
     "You write Dory daily digests from AI-agent session logs.\n"
     "Use only the provided session text. Do not infer missing facts or fill gaps from prior knowledge.\n"
@@ -72,6 +116,15 @@ _SYSTEM_PROMPT = (
     "Avoid private personal details unless they are explicitly framed as a durable preference, boundary, or safety rule.\n"
     "When multiple sessions are provided, merge duplicates and preserve source-grounded specificity.\n"
     "If there is no durable signal, say so plainly instead of inventing outcomes.\n"
+    "Write compactly for later memory mining."
+)
+
+_WEEKLY_SYSTEM_PROMPT = (
+    "You write Dory weekly digests from already-generated daily digests.\n"
+    "Use only the provided daily digest text. Do not infer missing facts or fill gaps from prior knowledge.\n"
+    "Compress repeated items across days and preserve durable memory signal: project progress, decisions, "
+    "current state, operational changes, tests/deployments, blockers, and follow-ups.\n"
+    "Prefer cross-day themes and decisions over per-session detail. Never include secrets or raw credentials.\n"
     "Write compactly for later memory mining."
 )
 
@@ -90,7 +143,22 @@ class LLMDailyDigestGenerator:
         return _coerce_daily_digest(payload, target_date=target_date)
 
 
+@dataclass(frozen=True, slots=True)
+class LLMWeeklyDigestGenerator:
+    client: JSONGenerationClient
+
+    def generate(self, *, week: str, daily_digests: tuple[DigestSessionSource, ...]) -> WeeklyDigest:
+        payload = self.client.generate_json(
+            system_prompt=_WEEKLY_SYSTEM_PROMPT,
+            user_prompt=_build_weekly_digest_prompt(week=week, daily_digests=daily_digests),
+            schema_name="dory_weekly_digest",
+            schema=_WEEKLY_DIGEST_SCHEMA,
+        )
+        return _coerce_weekly_digest(payload, week=week)
+
+
 OpenRouterDailyDigestGenerator = LLMDailyDigestGenerator
+OpenRouterWeeklyDigestGenerator = LLMWeeklyDigestGenerator
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +248,77 @@ class DailyDigestWriter:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class WeeklyDigestWriter:
+    corpus_root: Path
+    generator: WeeklyDigestGenerator
+
+    def write(
+        self,
+        *,
+        week: str,
+        overwrite: bool = False,
+        dry_run: bool = False,
+    ) -> WeeklyDigestResult:
+        week_start, week_end = iso_week_date_range(week)
+        digest_rel = Path("digests") / "weekly" / f"{week}.md"
+        digest_path = self.corpus_root / digest_rel
+        if digest_path.exists() and not overwrite:
+            return WeeklyDigestResult(
+                digest_path=digest_rel.as_posix(),
+                week=week,
+                daily_digests_considered=0,
+                daily_digests_included=(),
+                written=False,
+                dry_run=dry_run,
+                skipped_reason="weekly digest already exists; pass overwrite=True to replace it",
+            )
+
+        daily_digests = collect_weekly_daily_digests(
+            self.corpus_root,
+            week_start=week_start,
+            week_end=week_end,
+        )
+        if not daily_digests:
+            return WeeklyDigestResult(
+                digest_path=digest_rel.as_posix(),
+                week=week,
+                daily_digests_considered=0,
+                daily_digests_included=(),
+                written=False,
+                dry_run=dry_run,
+                skipped_reason="no daily digests found for week",
+            )
+
+        digest = self.generator.generate(week=week, daily_digests=daily_digests)
+        content = render_weekly_digest(
+            week=week,
+            week_start=week_start,
+            week_end=week_end,
+            digest=digest,
+            daily_digests=daily_digests,
+        )
+        if dry_run:
+            return WeeklyDigestResult(
+                digest_path=digest_rel.as_posix(),
+                week=week,
+                daily_digests_considered=len(daily_digests),
+                daily_digests_included=tuple(item.path for item in daily_digests),
+                written=False,
+                dry_run=True,
+                content=content,
+            )
+
+        atomic_write_text(digest_path, content, encoding="utf-8")
+        return WeeklyDigestResult(
+            digest_path=digest_rel.as_posix(),
+            week=week,
+            daily_digests_considered=len(daily_digests),
+            daily_digests_included=tuple(item.path for item in daily_digests),
+            written=True,
+        )
+
+
 def collect_daily_sessions(
     corpus_root: Path,
     *,
@@ -215,6 +354,28 @@ def collect_daily_sessions(
         if limit is not None and len(sessions) >= limit:
             break
     return tuple(sessions)
+
+
+def collect_weekly_daily_digests(
+    corpus_root: Path,
+    *,
+    week_start: date,
+    week_end: date,
+) -> tuple[DigestSessionSource, ...]:
+    digests_root = corpus_root / "digests" / "daily"
+    if not digests_root.exists():
+        return ()
+
+    daily_digests: list[DigestSessionSource] = []
+    for path in sorted(digests_root.glob("*.md")):
+        source = _load_daily_digest_source(corpus_root=corpus_root, path=path)
+        if source is None:
+            continue
+        digest_date = _coerce_iso_date(_date_from_session(source))
+        if digest_date is None or not (week_start <= digest_date <= week_end):
+            continue
+        daily_digests.append(source)
+    return tuple(daily_digests)
 
 
 def batch_daily_sessions(
@@ -290,9 +451,79 @@ def render_daily_digest(
     return dump_markdown_document(frontmatter, "\n".join(sections))
 
 
+def render_weekly_digest(
+    *,
+    week: str,
+    week_start: date,
+    week_end: date,
+    digest: WeeklyDigest,
+    daily_digests: tuple[DigestSessionSource, ...],
+) -> str:
+    frontmatter: dict[str, Any] = {
+        "title": digest.title or f"Weekly Digest - {week}",
+        "type": "digest-weekly",
+        "status": "active",
+        "source_kind": "generated",
+        "temperature": "warm",
+        "canonical": False,
+        "week": week,
+        "week_start": week_start.isoformat(),
+        "week_end": week_end.isoformat(),
+        "created": datetime.now(tz=UTC).date().isoformat(),
+        "updated": datetime.now(tz=UTC).date().isoformat(),
+        "source_digests": [daily_digest.path for daily_digest in daily_digests],
+    }
+    sections = [
+        f"# {digest.title or f'Weekly Digest - {week}'}",
+        "",
+        "## Summary",
+        digest.summary.strip() or "No summary generated.",
+    ]
+    sections.extend(_render_bullets("## Key Outcomes", digest.key_outcomes))
+    sections.extend(_render_bullets("## Decisions", digest.decisions))
+    sections.extend(_render_bullets("## Follow-ups", digest.followups))
+    sections.extend(_render_bullets("## Projects", digest.projects))
+    sections.extend(_render_bullets("## Days", digest.days))
+    sections.extend(
+        [
+            "",
+            "## Source Daily Digests",
+            *[f"- `{daily_digest.path}`" for daily_digest in daily_digests],
+        ]
+    )
+    return dump_markdown_document(frontmatter, "\n".join(sections))
+
+
 def previous_day(reference: date | None = None) -> str:
     current = reference or date.today()
     return date.fromordinal(current.toordinal() - 1).isoformat()
+
+
+def previous_iso_week(reference: date | None = None) -> str:
+    current = reference or date.today()
+    return iso_week_string(current - timedelta(days=7))
+
+
+def current_iso_week(reference: date | None = None) -> str:
+    return iso_week_string(reference or date.today())
+
+
+def iso_week_string(value: date) -> str:
+    year, week, _weekday = value.isocalendar()
+    return f"{year}-W{week:02d}"
+
+
+def iso_week_date_range(week: str) -> tuple[date, date]:
+    match = re.fullmatch(r"(\d{4})-W(\d{2})", week.strip())
+    if match is None:
+        raise ValueError(f"invalid ISO week: {week}")
+    year = int(match.group(1))
+    week_number = int(match.group(2))
+    try:
+        week_start = date.fromisocalendar(year, week_number, 1)
+    except ValueError as err:
+        raise ValueError(f"invalid ISO week: {week}") from err
+    return week_start, week_start + timedelta(days=6)
 
 
 def _load_session_source(*, corpus_root: Path, path: Path, max_chars: int | None) -> DigestSessionSource | None:
@@ -318,6 +549,28 @@ def _load_session_source(*, corpus_root: Path, path: Path, max_chars: int | None
     )
 
 
+def _load_daily_digest_source(*, corpus_root: Path, path: Path) -> DigestSessionSource | None:
+    text = path.read_text(encoding="utf-8")
+    try:
+        document = load_markdown_document(text)
+        frontmatter = document.frontmatter
+        body = document.body
+    except ValueError:
+        return None
+    relative_path = path.relative_to(corpus_root).as_posix()
+    updated = _coerce_string(frontmatter.get("date")) or _coerce_string(frontmatter.get("updated")) or _date_from_path(path)
+    content = body.strip()
+    if not content:
+        return None
+    return DigestSessionSource(
+        path=relative_path,
+        agent="daily-digest",
+        session_id=path.stem,
+        updated=updated,
+        content=content,
+    )
+
+
 def _build_digest_prompt(*, target_date: str, sessions: tuple[DigestSessionSource, ...]) -> str:
     rendered_sessions: list[str] = []
     for session in sessions:
@@ -334,6 +587,22 @@ def _build_digest_prompt(*, target_date: str, sessions: tuple[DigestSessionSourc
             )
         )
     return f"Digest date: {target_date}\n\nSession logs:\n\n" + "\n\n---\n\n".join(rendered_sessions)
+
+
+def _build_weekly_digest_prompt(*, week: str, daily_digests: tuple[DigestSessionSource, ...]) -> str:
+    rendered_digests: list[str] = []
+    for daily_digest in daily_digests:
+        rendered_digests.append(
+            "\n".join(
+                [
+                    f"### {daily_digest.path}",
+                    f"date: {daily_digest.updated[:10]}",
+                    "",
+                    daily_digest.content,
+                ]
+            )
+        )
+    return f"Digest week: {week}\n\nDaily digests:\n\n" + "\n\n---\n\n".join(rendered_digests)
 
 
 def _batch_digest_source(*, batch: tuple[DigestSessionSource, ...], digest: DailyDigest) -> DigestSessionSource:
@@ -376,6 +645,20 @@ def _coerce_daily_digest(payload: object, *, target_date: str) -> DailyDigest:
     )
 
 
+def _coerce_weekly_digest(payload: object, *, week: str) -> WeeklyDigest:
+    if not isinstance(payload, dict):
+        return WeeklyDigest(title=f"Weekly Digest - {week}", summary="No summary generated.")
+    return WeeklyDigest(
+        title=_coerce_string(payload.get("title")) or f"Weekly Digest - {week}",
+        summary=_coerce_string(payload.get("summary")) or "No summary generated.",
+        key_outcomes=_coerce_string_tuple(payload.get("key_outcomes")),
+        decisions=_coerce_string_tuple(payload.get("decisions")),
+        followups=_coerce_string_tuple(payload.get("followups")),
+        projects=_coerce_string_tuple(payload.get("projects")),
+        days=_coerce_string_tuple(payload.get("days")),
+    )
+
+
 def _render_bullets(title: str, items: tuple[str, ...]) -> list[str]:
     rendered = ["", title]
     if not items:
@@ -389,6 +672,15 @@ def _date_from_session(source: DigestSessionSource) -> str | None:
     if len(source.updated) >= 10:
         return source.updated[:10]
     return None
+
+
+def _coerce_iso_date(value: str | None) -> date | None:
+    if not value or len(value) < 10:
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
 
 
 def _date_from_path(path: Path) -> str:
