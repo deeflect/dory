@@ -132,6 +132,33 @@ def test_semantic_write_flow_creates_structured_decision_pages(tmp_path: Path) -
     assert "## Evidence" in decision.body
 
 
+def test_semantic_write_engine_allows_large_canonical_rewrites(tmp_path: Path) -> None:
+    root = tmp_path / "corpus"
+    (root / "projects" / "dory").mkdir(parents=True)
+    project_path = root / "projects" / "dory" / "state.md"
+    project_path.write_text(
+        "---\ntitle: Dory\naliases: []\n---\n# Dory\n\n## Current State\n\n"
+        + ("Existing canonical context.\n" * 700),
+        encoding="utf-8",
+    )
+
+    engine = SemanticWriteEngine(root)
+    response = engine.write(
+        MemoryWriteReq(
+            action="write",
+            kind="state",
+            subject="dory",
+            content="Dory can update large canonical pages.",
+            scope="project",
+            allow_canonical=True,
+        )
+    )
+
+    assert response.resolved is True
+    assert response.result == "written"
+    assert "Dory can update large canonical pages." in project_path.read_text(encoding="utf-8")
+
+
 def test_semantic_write_dry_run_reports_canonical_target_without_persisting(tmp_path: Path) -> None:
     root = tmp_path / "corpus"
     (root / "projects" / "dory").mkdir(parents=True)
@@ -193,7 +220,7 @@ def test_semantic_write_dry_run_large_canonical_target_still_reports_route(tmp_p
     assert response.target_path == "projects/dory/state.md"
     assert response.message is not None
     assert response.message.startswith("CANONICAL TARGET projects/dory/state.md")
-    assert "rendered target exceeds preview write-size limit" in response.message
+    assert "dry_run: would_replace" in response.message
     assert project_path.read_text(encoding="utf-8") == before
 
 
