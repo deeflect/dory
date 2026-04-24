@@ -23,12 +23,19 @@ def _ensure_runtime_dependencies() -> None:
         import pydantic  # noqa: F401
         import pydantic_settings  # noqa: F401
     except ModuleNotFoundError:
-        uv = shutil.which("uv")
+        uv = shutil.which("uv") or _repo_local_uv()
         if uv is None or os.environ.get("DORY_CLIENT_SHIPPER_BOOTSTRAPPED") == "1":
             raise
         env = os.environ.copy()
         env["DORY_CLIENT_SHIPPER_BOOTSTRAPPED"] = "1"
         os.execvpe(uv, [uv, "run", "python", str(Path(__file__).resolve()), *sys.argv[1:]], env)
+
+
+def _repo_local_uv() -> str | None:
+    candidate = REPO_ROOT / ".local" / "bin" / "uv"
+    if candidate.exists() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    return None
 
 
 _ensure_runtime_dependencies()
