@@ -59,6 +59,7 @@ uv run dory memory-write "Atlas is the active focus this week." \
 
 uv run dory search "active focus"
 uv run dory wake --profile coding --budget 1200
+uv run dory wake --profile coding --project atlas
 ```
 
 Serve it over HTTP:
@@ -89,6 +90,7 @@ wake  →  search  →  get  →  memory-write  →  link
 ```
 
 - **wake** — bounded hot context at session start
+- **project wake** — `wake --project <name>` adds a matching `projects/<slug>/state.md` page by slug, title, or alias
 - **search** — hybrid search across durable memory and session evidence
 - **get** — exact markdown, with hashes and metadata
 - **memory-write** — semantic writes (facts, preferences, decisions, project state)

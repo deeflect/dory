@@ -26,14 +26,16 @@ def test_dory_memory_write_schema_exposes_semantic_fields() -> None:
 def test_dory_wake_schema_exposes_profiles() -> None:
     tools = build_tool_schemas()
     wake_tool = next(tool for tool in tools if tool["name"] == "dory_wake")
+    props = wake_tool["inputSchema"]["properties"]
 
-    assert wake_tool["inputSchema"]["properties"]["profile"]["enum"] == [
+    assert props["profile"]["enum"] == [
         "default",
         "casual",
         "coding",
         "writing",
         "privacy",
     ]
+    assert "project" in props
 
 
 def test_dory_active_memory_schema_exposes_include_wake_and_limits() -> None:

@@ -4,7 +4,7 @@ import argparse
 import json
 import socketserver
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from hashlib import sha256
 from io import TextIOBase
@@ -85,6 +85,32 @@ class RuntimeCore:
     retrieval_planner: OpenRouterRetrievalPlanner | None = None
     reranker: Any = None
     rerank_candidate_limit: int = 40
+    search_engine: SearchEngine = field(init=False)
+    active_memory_engine: ActiveMemoryEngine = field(init=False)
+
+    def __post_init__(self) -> None:
+        search_engine = SearchEngine(
+            self.index_root,
+            self.embedder,
+            query_expander=self.query_expander,
+            retrieval_planner=self.retrieval_planner,
+            result_selector=self.retrieval_planner,
+            reranker=self.reranker,
+            rerank_candidate_limit=self.rerank_candidate_limit,
+        )
+        planner, composer = build_active_memory_components(DorySettings())
+        object.__setattr__(self, "search_engine", search_engine)
+        object.__setattr__(
+            self,
+            "active_memory_engine",
+            ActiveMemoryEngine(
+                wake_builder=WakeBuilder(self.corpus_root),
+                search_engine=search_engine,
+                root=self.corpus_root,
+                planner=planner,
+                composer=composer,
+            ),
+        )
 
     def wake(self, req: dict[str, Any]) -> Any:
         wake_req = WakeReq.model_validate(req)
@@ -92,36 +118,13 @@ class RuntimeCore:
 
     def active_memory(self, req: dict[str, Any]) -> Any:
         active_req = ActiveMemoryReq.model_validate(req)
-        planner, composer = build_active_memory_components(DorySettings())
-        response = ActiveMemoryEngine(
-            wake_builder=WakeBuilder(self.corpus_root),
-            search_engine=SearchEngine(
-                self.index_root,
-                self.embedder,
-                query_expander=self.query_expander,
-                retrieval_planner=self.retrieval_planner,
-                result_selector=self.retrieval_planner,
-                reranker=self.reranker,
-                rerank_candidate_limit=self.rerank_candidate_limit,
-            ),
-            root=self.corpus_root,
-            planner=planner,
-            composer=composer,
-        ).build(active_req)
+        response = self.active_memory_engine.build(active_req)
         return serialize_active_memory_response(response, debug=active_req.debug)
 
     def research(self, req: dict[str, Any]) -> Any:
-        research_resp = ResearchEngine(
-            search_engine=SearchEngine(
-                self.index_root,
-                self.embedder,
-                query_expander=self.query_expander,
-                retrieval_planner=self.retrieval_planner,
-                result_selector=self.retrieval_planner,
-                reranker=self.reranker,
-                rerank_candidate_limit=self.rerank_candidate_limit,
-            )
-        ).research_from_req(ResearchReq.model_validate(req))
+        research_resp = ResearchEngine(search_engine=self.search_engine).research_from_req(
+            ResearchReq.model_validate(req)
+        )
         artifact_resp = None
         if req.get("save", True):
             artifact_resp = ArtifactWriter(
@@ -139,15 +142,7 @@ class RuntimeCore:
 
     def search(self, req: dict[str, Any]) -> Any:
         search_req = SearchReq.model_validate(req)
-        response = SearchEngine(
-            self.index_root,
-            self.embedder,
-            query_expander=self.query_expander,
-            retrieval_planner=self.retrieval_planner,
-            result_selector=self.retrieval_planner,
-            reranker=self.reranker,
-            rerank_candidate_limit=self.rerank_candidate_limit,
-        ).search(search_req)
+        response = self.search_engine.search(search_req)
         return serialize_search_response(response, debug=search_req.debug)
 
     def get(self, req: dict[str, Any]) -> dict[str, Any]:
@@ -171,8 +166,8 @@ class RuntimeCore:
         }
         if bool(req.get("debug")):
             return payload
-        for field in ("lines_returned", "total_lines", "frontmatter", "hash"):
-            payload.pop(field, None)
+        for key in ("lines_returned", "total_lines", "frontmatter", "hash"):
+            payload.pop(key, None)
         return payload
 
     def memory_write(self, req: dict[str, Any]) -> Any:
@@ -455,6 +450,8 @@ def _build_query_expander(settings) -> OpenRouterQueryExpander | None:
 
 
 def _build_retrieval_planner(settings: DorySettings, *, purpose: str) -> OpenRouterRetrievalPlanner | None:
+    if purpose == "query" and not settings.query_planner_enabled:
+        return None
     client = build_openrouter_client(settings, purpose=purpose)
     if client is None:
         return None

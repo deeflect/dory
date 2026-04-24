@@ -71,6 +71,50 @@ def test_wake_builder_includes_decisions_when_requested(sample_corpus_root) -> N
     assert "decisions/2026-04-07-homeserver.md" in resp.sources
 
 
+def test_wake_builder_includes_project_context_by_slug(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "projects" / "dory").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    (tmp_path / "projects" / "dory" / "state.md").write_text(
+        "---\ntitle: Dory\ntype: project\n---\n\n## Summary\n- Dory project context.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=400, include_recent_sessions=0, project="dory")
+    )
+
+    assert "Dory project context." in resp.block
+    assert "projects/dory/state.md" in resp.sources
+
+
+def test_wake_builder_resolves_project_context_by_title_or_alias(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "projects" / "palace").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    (tmp_path / "projects" / "palace" / "state.md").write_text(
+        """---
+title: Dory
+type: project
+slug: palace
+aliases:
+- Dory memory
+---
+
+## Summary
+- Alias-routed project context.
+""",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=400, include_recent_sessions=0, project="Dory memory")
+    )
+
+    assert "Alias-routed project context." in resp.block
+    assert "projects/palace/state.md" in resp.sources
+
+
 def test_wake_builder_skips_unpinned_decisions(tmp_path: Path) -> None:
     (tmp_path / "core").mkdir(parents=True)
     (tmp_path / "decisions").mkdir(parents=True)
