@@ -28,6 +28,7 @@ def _ensure_runtime_dependencies() -> None:
             raise
         env = os.environ.copy()
         env["DORY_CLIENT_SHIPPER_BOOTSTRAPPED"] = "1"
+        env.setdefault("UV_CACHE_DIR", str(REPO_ROOT / ".cache" / "uv"))
         os.execvpe(uv, [uv, "run", "python", str(Path(__file__).resolve()), *sys.argv[1:]], env)
 
 
