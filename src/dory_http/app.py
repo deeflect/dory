@@ -114,6 +114,8 @@ class HttpRuntime:
     retrieval_planner: OpenRouterRetrievalPlanner | None
     reranker: Any
     rerank_candidate_limit: int
+    search_engine: SearchEngine
+    active_memory_engine: ActiveMemoryEngine
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,16 +135,40 @@ def build_app(
 ) -> FastAPI:
     app = FastAPI()
     settings = DorySettings()
+    runtime_embedder = embedder or build_runtime_embedder()
+    query_expander = _build_query_expander(settings)
+    retrieval_planner = _build_retrieval_planner(settings, purpose="query")
+    reranker = build_reranker(settings)
+    rerank_candidate_limit = settings.query_reranker_candidate_limit
+    search_engine = SearchEngine(
+        Path(index_root),
+        runtime_embedder,
+        query_expander=query_expander,
+        retrieval_planner=retrieval_planner,
+        result_selector=retrieval_planner,
+        reranker=reranker,
+        rerank_candidate_limit=rerank_candidate_limit,
+    )
+    active_memory_planner, active_memory_composer = build_active_memory_components(settings)
+    active_memory_engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(Path(corpus_root)),
+        search_engine=search_engine,
+        root=Path(corpus_root),
+        planner=active_memory_planner,
+        composer=active_memory_composer,
+    )
     runtime = HttpRuntime(
         corpus_root=Path(corpus_root),
         index_root=Path(index_root),
         auth_tokens_path=Path(auth_tokens_path) if auth_tokens_path is not None else None,
         allow_no_auth=settings.allow_no_auth,
-        embedder=embedder or build_runtime_embedder(),
-        query_expander=_build_query_expander(settings),
-        retrieval_planner=_build_retrieval_planner(settings, purpose="query"),
-        reranker=build_reranker(settings),
-        rerank_candidate_limit=settings.query_reranker_candidate_limit,
+        embedder=runtime_embedder,
+        query_expander=query_expander,
+        retrieval_planner=retrieval_planner,
+        reranker=reranker,
+        rerank_candidate_limit=rerank_candidate_limit,
+        search_engine=search_engine,
+        active_memory_engine=active_memory_engine,
     )
 
     @app.middleware("http")
@@ -236,15 +262,7 @@ def build_app(
     def search(req: SearchReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
         try:
-            response = SearchEngine(
-                runtime.index_root,
-                runtime.embedder,
-                query_expander=runtime.query_expander,
-                retrieval_planner=runtime.retrieval_planner,
-                result_selector=runtime.retrieval_planner,
-                reranker=runtime.reranker,
-                rerank_candidate_limit=runtime.rerank_candidate_limit,
-            ).search(req)
+            response = _build_search_engine(runtime).search(req)
             return serialize_search_response(response, debug=req.debug)
         except EmbeddingProviderError as err:
             raise HTTPException(status_code=503, detail=str(err)) from err
@@ -262,15 +280,7 @@ def build_app(
         _authorize_request(request, runtime)
         try:
             research_resp = ResearchEngine(
-                search_engine=SearchEngine(
-                    runtime.index_root,
-                    runtime.embedder,
-                    query_expander=runtime.query_expander,
-                    retrieval_planner=runtime.retrieval_planner,
-                    result_selector=runtime.retrieval_planner,
-                    reranker=runtime.reranker,
-                    rerank_candidate_limit=runtime.rerank_candidate_limit,
-                )
+                search_engine=_build_search_engine(runtime)
             ).research_from_req(req)
             artifact_resp = None
             if req.save:
@@ -610,6 +620,10 @@ def _build_openclaw_parity_store(runtime: HttpRuntime) -> OpenClawParityStore:
     return OpenClawParityStore(runtime.index_root)
 
 
+def _build_search_engine(runtime: HttpRuntime) -> SearchEngine:
+    return runtime.search_engine
+
+
 def _build_migration_engine(runtime: HttpRuntime, *, use_llm: bool = True) -> MigrationEngine:
     if not use_llm:
         return MigrationEngine(runtime.corpus_root, llm=None)
@@ -679,22 +693,7 @@ def _build_retrieval_planner(settings: DorySettings, *, purpose: str) -> OpenRou
 
 
 def _build_active_memory_engine(runtime: HttpRuntime) -> ActiveMemoryEngine:
-    planner, composer = build_active_memory_components(DorySettings())
-    return ActiveMemoryEngine(
-        wake_builder=WakeBuilder(runtime.corpus_root),
-        search_engine=SearchEngine(
-            runtime.index_root,
-            runtime.embedder,
-            query_expander=runtime.query_expander,
-            retrieval_planner=runtime.retrieval_planner,
-            result_selector=runtime.retrieval_planner,
-            reranker=runtime.reranker,
-            rerank_candidate_limit=runtime.rerank_candidate_limit,
-        ),
-        root=runtime.corpus_root,
-        planner=planner,
-        composer=composer,
-    )
+    return runtime.active_memory_engine
 
 
 if __name__ == "__main__":

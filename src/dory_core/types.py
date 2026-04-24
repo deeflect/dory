@@ -20,6 +20,7 @@ class WakeReq(BaseModel):
     budget_tokens: int = 600
     agent: str
     profile: WakeProfile = "default"
+    project: str | None = None
     include_recent_sessions: int = Field(default=5, ge=0)
     include_pinned_decisions: bool = True
     debug: bool = False

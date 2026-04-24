@@ -194,9 +194,12 @@ def wake(
     budget: int = typer.Option(600, "--budget"),
     agent: str = typer.Option("codex", "--agent"),
     profile: str = typer.Option("default", "--profile"),
+    project: str | None = typer.Option(None, "--project", help="Optional project/entity handle to include in wake."),
 ) -> None:
     config = _get_config(ctx)
-    resp = WakeBuilder(config.corpus_root).build(WakeReq(budget_tokens=budget, agent=agent, profile=profile))
+    resp = WakeBuilder(config.corpus_root).build(
+        WakeReq(budget_tokens=budget, agent=agent, profile=profile, project=project)
+    )
     typer.echo(resp.block)
 
 
