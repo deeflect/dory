@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import socket
 import sys
 import time
@@ -15,6 +16,22 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
+
+
+def _ensure_runtime_dependencies() -> None:
+    try:
+        import pydantic  # noqa: F401
+        import pydantic_settings  # noqa: F401
+    except ModuleNotFoundError:
+        uv = shutil.which("uv")
+        if uv is None or os.environ.get("DORY_CLIENT_SHIPPER_BOOTSTRAPPED") == "1":
+            raise
+        env = os.environ.copy()
+        env["DORY_CLIENT_SHIPPER_BOOTSTRAPPED"] = "1"
+        os.execvpe(uv, [uv, "run", "python", str(Path(__file__).resolve()), *sys.argv[1:]], env)
+
+
+_ensure_runtime_dependencies()
 
 from dory_core.session_capture import SessionCapture  # noqa: E402
 from dory_core.session_cleaner import SessionCleaner  # noqa: E402

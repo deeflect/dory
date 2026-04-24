@@ -10,6 +10,23 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+def test_client_session_shipper_supports_bare_python_launch() -> None:
+    result = subprocess.run(
+        [
+            "python3",
+            "scripts/ops/client-session-shipper.py",
+            "--help",
+        ],
+        cwd=_repo_root(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Auto-discover, clean, and ship session logs to Dory." in result.stdout
+
+
 def test_client_session_shipper_auto_discovers_claude_session(tmp_path: Path) -> None:
     claude_root = tmp_path / ".claude" / "projects" / "palace"
     claude_root.mkdir(parents=True)
