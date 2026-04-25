@@ -26,7 +26,6 @@ from dory_core.embedding import (
 from dory_core.errors import DoryValidationError
 from dory_core.frontmatter import load_markdown_document
 from dory_core.link import LinkService
-from dory_core.llm.active_memory import build_active_memory_components
 from dory_core.llm.openrouter import build_openrouter_client
 from dory_core.llm_rerank import build_reranker
 from dory_core.migration_engine import MigrationEngine
@@ -35,6 +34,7 @@ from dory_core.index.reindex import reindex_corpus
 from dory_core.openclaw_parity import OpenClawParityStore, list_public_artifacts
 from dory_core.purge import PurgeEngine
 from dory_core.query_expansion import OpenRouterQueryExpander
+from dory_core.runtime import build_query_expander, build_retrieval_planner, build_surface_runtime
 from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
 from dory_core.artifacts import ArtifactWriter
 from dory_core.research import ResearchEngine
@@ -136,39 +136,25 @@ def build_app(
     app = FastAPI()
     settings = DorySettings()
     runtime_embedder = embedder or build_runtime_embedder()
-    query_expander = _build_query_expander(settings)
-    retrieval_planner = _build_retrieval_planner(settings, purpose="query")
-    reranker = build_reranker(settings)
-    rerank_candidate_limit = settings.query_reranker_candidate_limit
-    search_engine = SearchEngine(
-        Path(index_root),
-        runtime_embedder,
-        query_expander=query_expander,
-        retrieval_planner=retrieval_planner,
-        result_selector=retrieval_planner,
-        reranker=reranker,
-        rerank_candidate_limit=rerank_candidate_limit,
-    )
-    active_memory_planner, active_memory_composer = build_active_memory_components(settings)
-    active_memory_engine = ActiveMemoryEngine(
-        wake_builder=WakeBuilder(Path(corpus_root)),
-        search_engine=search_engine,
-        root=Path(corpus_root),
-        planner=active_memory_planner,
-        composer=active_memory_composer,
+    surface_runtime = build_surface_runtime(
+        corpus_root=Path(corpus_root),
+        index_root=Path(index_root),
+        settings=settings,
+        embedder=runtime_embedder,
+        reranker=build_reranker(settings),
     )
     runtime = HttpRuntime(
         corpus_root=Path(corpus_root),
         index_root=Path(index_root),
         auth_tokens_path=Path(auth_tokens_path) if auth_tokens_path is not None else None,
         allow_no_auth=settings.allow_no_auth,
-        embedder=runtime_embedder,
-        query_expander=query_expander,
-        retrieval_planner=retrieval_planner,
-        reranker=reranker,
-        rerank_candidate_limit=rerank_candidate_limit,
-        search_engine=search_engine,
-        active_memory_engine=active_memory_engine,
+        embedder=surface_runtime.embedder,
+        query_expander=surface_runtime.query_expander,
+        retrieval_planner=surface_runtime.retrieval_planner,
+        reranker=surface_runtime.reranker,
+        rerank_candidate_limit=surface_runtime.rerank_candidate_limit,
+        search_engine=surface_runtime.search_engine,
+        active_memory_engine=surface_runtime.active_memory_engine,
     )
 
     @app.middleware("http")
@@ -675,21 +661,11 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _build_query_expander(settings: DorySettings) -> OpenRouterQueryExpander | None:
-    if not settings.query_expansion_enabled or settings.query_expansion_max <= 0:
-        return None
-    client = build_openrouter_client(settings, purpose="query")
-    if client is None:
-        return None
-    return OpenRouterQueryExpander(client=client, max_expansions=settings.query_expansion_max)
+    return build_query_expander(settings)
 
 
 def _build_retrieval_planner(settings: DorySettings, *, purpose: str) -> OpenRouterRetrievalPlanner | None:
-    if purpose == "query" and not settings.query_planner_enabled:
-        return None
-    client = build_openrouter_client(settings, purpose=purpose)
-    if client is None:
-        return None
-    return OpenRouterRetrievalPlanner(client=client)
+    return build_retrieval_planner(settings, purpose=purpose)
 
 
 def _build_active_memory_engine(runtime: HttpRuntime) -> ActiveMemoryEngine:

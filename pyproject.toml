@@ -86,6 +86,9 @@ exclude = [
   "__pycache__",
 ]
 
+[tool.hatch.build.targets.sdist.force-include]
+"packages/openclaw-dory/dist/index.js" = "packages/openclaw-dory/dist/index.js"
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

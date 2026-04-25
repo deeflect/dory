@@ -37,10 +37,9 @@ def test_query_retrieval_planner_respects_toggle(monkeypatch) -> None:
         def __init__(self, client) -> None:
             self.client = client
 
-    monkeypatch.setattr(mcp_server, "OpenRouterRetrievalPlanner", FakePlanner)
+    monkeypatch.setattr("dory_core.runtime.OpenRouterRetrievalPlanner", FakePlanner)
     monkeypatch.setattr(
-        mcp_server,
-        "build_openrouter_client",
+        "dory_core.runtime.build_openrouter_client",
         lambda settings, *, purpose: calls.append(purpose) or object(),
     )
 
@@ -64,8 +63,8 @@ def test_runtime_core_reuses_search_engine(monkeypatch, tmp_path: Path, fake_emb
         def search(self, req):
             return SearchResp(query=req.query, count=0, results=[], took_ms=1)
 
-    monkeypatch.setattr(mcp_server, "SearchEngine", FakeSearchEngine)
-    monkeypatch.setattr(mcp_server, "build_active_memory_components", lambda settings: (None, None))
+    monkeypatch.setattr("dory_core.runtime.SearchEngine", FakeSearchEngine)
+    monkeypatch.setattr("dory_core.runtime.build_active_memory_components", lambda settings: (None, None))
 
     core = mcp_server.RuntimeCore(
         corpus_root=tmp_path / "corpus",

@@ -1,5 +1,6 @@
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import { jsonResult, listMemoryCorpusSupplements, readNumberParam, readStringParam, resolveMemorySearchConfig, resolveSessionAgentId, } from "openclaw/plugin-sdk/memory-core-host-runtime-core";
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const managerCache = new Map();
 const PLUGIN_ID = "dory-memory";
 const CONFIG_SCHEMA = {
@@ -17,6 +18,10 @@ const CONFIG_SCHEMA = {
         tokenEnv: {
             type: "string",
             description: "Optional environment variable name containing the Dory bearer token.",
+        },
+        timeoutMs: {
+            type: "number",
+            description: "HTTP request timeout in milliseconds.",
         },
     },
     required: ["baseUrl"],
@@ -71,11 +76,27 @@ async function request(options, path, init) {
     if (options.token) {
         headers.Authorization = `Bearer ${options.token}`;
     }
-    const response = await fetch(new URL(path, options.baseUrl), {
-        method: init.method,
-        headers,
-        body: init.body ? JSON.stringify(init.body) : undefined,
-    });
+    const timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+        response = await fetch(new URL(path, options.baseUrl), {
+            method: init.method,
+            headers,
+            body: init.body ? JSON.stringify(init.body) : undefined,
+            signal: controller.signal,
+        });
+    }
+    catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+            throw new Error(`dory request timed out after ${timeoutMs}ms: ${path}`);
+        }
+        throw error;
+    }
+    finally {
+        clearTimeout(timeout);
+    }
     if (!response.ok) {
         const detail = (await response.text()).trim();
         throw new Error(`dory request failed: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`);
@@ -810,7 +831,9 @@ function resolveClientOptions(pluginConfig) {
         throw new Error("dory-memory plugin requires plugins.entries.dory-memory.config.baseUrl");
     }
     const token = resolveDoryToken(pluginConfig);
-    return { baseUrl, token };
+    const config = pluginConfig ?? {};
+    const timeoutMs = readNumberParam(config, "timeoutMs") ?? readNumberParam(config, "timeout_ms");
+    return { baseUrl, token, timeoutMs };
 }
 function resolveDoryToken(pluginConfig) {
     const configuredToken = typeof pluginConfig?.token === "string" && pluginConfig.token.trim()
