@@ -79,6 +79,7 @@ include = [
 ]
 exclude = [
   "/eval/runs",
+  "/packages/openclaw-dory/node_modules",
   "/scripts/release",
   "*.env",
   ".env",
