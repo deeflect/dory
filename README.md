@@ -266,3 +266,13 @@ Not affiliated with, endorsed by, or connected to Disney or Pixar. "Dory" is an 
 *Just keep swimming. 🐟*
 
 </div>
+
+---
+
+### Built by
+
+Built by [Dee](https://deeflect.com) — AI Engineer & Product Designer in LA. Made this because my agents forgot who I was one too many times in a row.
+
+Star if Dory saves you from re-explaining your life every morning. [Open an issue](https://github.com/deeflect/dory/issues) if it doesn't, or if it's quietly forgetting things.
+
+[deeflect.com](https://deeflect.com) · [Wikidata](https://www.wikidata.org/entity/Q138828544) · [LinkedIn](https://www.linkedin.com/in/dkargaev/) · [X](https://x.com/deeflectcom)
