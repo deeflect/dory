@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from dory_core.types import MemoryWriteReq, SearchReq, WakeReq
 
 
@@ -29,3 +32,19 @@ def test_wake_req_budget_cap() -> None:
     req = WakeReq(budget_tokens=9_999, agent="claude-code")
 
     assert req.budget_tokens == 1_500
+
+
+def test_wake_req_rejects_invalid_lower_bounds() -> None:
+    with pytest.raises(ValidationError):
+        WakeReq(budget_tokens=0, agent="claude-code")
+
+    with pytest.raises(ValidationError):
+        WakeReq(agent="")
+
+
+def test_search_req_rejects_empty_query_and_negative_min_score() -> None:
+    with pytest.raises(ValidationError):
+        SearchReq(query="")
+
+    with pytest.raises(ValidationError):
+        SearchReq(query="graphql", min_score=-0.1)

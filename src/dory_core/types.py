@@ -17,8 +17,8 @@ ActiveMemoryProfile = Literal["auto", "general", "coding", "writing", "privacy",
 
 
 class WakeReq(BaseModel):
-    budget_tokens: int = 600
-    agent: str
+    budget_tokens: int = Field(default=600, ge=1)
+    agent: str = Field(min_length=1)
     profile: WakeProfile = "default"
     project: str | None = None
     include_recent_sessions: int = Field(default=5, ge=0)
@@ -49,12 +49,12 @@ class SearchScope(BaseModel):
 
 
 class SearchReq(BaseModel):
-    query: str
+    query: str = Field(min_length=1)
     scope: SearchScope = Field(default_factory=SearchScope)
     k: int = Field(default=10, ge=1, le=50)
     mode: SearchMode = "hybrid"
     corpus: SearchCorpus = "durable"
-    min_score: float = 0.0
+    min_score: float = Field(default=0.0, ge=0.0)
     include_content: bool = True
     rerank: Literal["auto", "true", "false"] = "auto"
     debug: bool = False

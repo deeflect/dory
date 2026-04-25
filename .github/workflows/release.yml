@@ -16,11 +16,27 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/openclaw-dory/package-lock.json
+
       - name: Sync dependencies
         run: uv sync --frozen --all-groups
 
+      - name: Run lint
+        run: uv run ruff check .
+
       - name: Run tests
         run: uv run pytest -q
+
+      - name: Build OpenClaw plugin
+        working-directory: packages/openclaw-dory
+        run: |
+          npm ci
+          npm run build
 
       - name: Build package
         run: uv build --wheel --sdist

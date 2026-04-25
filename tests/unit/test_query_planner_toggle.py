@@ -20,7 +20,7 @@ def test_http_query_planner_can_be_disabled(monkeypatch) -> None:
         calls.append(purpose)
         return _FakePlannerClient()
 
-    monkeypatch.setattr(http_app, "build_openrouter_client", fake_build_openrouter_client)
+    monkeypatch.setattr("dory_core.runtime.build_openrouter_client", fake_build_openrouter_client)
 
     planner = http_app._build_retrieval_planner(settings, purpose="query")
 
@@ -35,7 +35,7 @@ def test_http_maintenance_planner_still_uses_openrouter_when_query_planner_disab
         del settings, purpose
         return _FakePlannerClient()
 
-    monkeypatch.setattr(http_app, "build_openrouter_client", fake_build_openrouter_client)
+    monkeypatch.setattr("dory_core.runtime.build_openrouter_client", fake_build_openrouter_client)
 
     planner = http_app._build_retrieval_planner(settings, purpose="maintenance")
 

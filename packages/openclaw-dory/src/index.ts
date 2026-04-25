@@ -17,6 +17,7 @@ type JsonRecord = Record<string, unknown>;
 export type DoryClientOptions = {
   baseUrl: string;
   token?: string;
+  timeoutMs?: number;
 };
 
 export type DorySearchMode = "hybrid" | "lexical" | "semantic" | "recall";
@@ -206,6 +207,7 @@ type DoryWriteKind = "append" | "create" | "replace" | "forget";
 type DoryMemoryWriteAction = "write" | "replace" | "forget";
 type DoryMemoryWriteKind = "fact" | "preference" | "state" | "decision" | "note";
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const managerCache = new Map<string, DoryMemorySearchManager>();
 const PLUGIN_ID = "dory-memory";
 
@@ -224,6 +226,10 @@ const CONFIG_SCHEMA = {
     tokenEnv: {
       type: "string",
       description: "Optional environment variable name containing the Dory bearer token.",
+    },
+    timeoutMs: {
+      type: "number",
+      description: "HTTP request timeout in milliseconds.",
     },
   },
   required: ["baseUrl"],
@@ -287,11 +293,25 @@ async function request<T>(
     headers.Authorization = `Bearer ${options.token}`;
   }
 
-  const response = await fetch(new URL(path, options.baseUrl), {
-    method: init.method,
-    headers,
-    body: init.body ? JSON.stringify(init.body) : undefined,
-  });
+  const timeoutMs = Math.max(1, options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(new URL(path, options.baseUrl), {
+      method: init.method,
+      headers,
+      body: init.body ? JSON.stringify(init.body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`dory request timed out after ${timeoutMs}ms: ${path}`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const detail = (await response.text()).trim();
@@ -1205,7 +1225,9 @@ function resolveClientOptions(pluginConfig: JsonRecord | undefined): DoryClientO
     throw new Error("dory-memory plugin requires plugins.entries.dory-memory.config.baseUrl");
   }
   const token = resolveDoryToken(pluginConfig);
-  return { baseUrl, token };
+  const config = pluginConfig ?? {};
+  const timeoutMs = readNumberParam(config, "timeoutMs") ?? readNumberParam(config, "timeout_ms");
+  return { baseUrl, token, timeoutMs };
 }
 
 function resolveDoryToken(pluginConfig: JsonRecord | undefined): string | undefined {

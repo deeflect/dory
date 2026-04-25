@@ -17,13 +17,11 @@ from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.artifacts import ArtifactWriter
 from dory_core.frontmatter import load_markdown_document
 from dory_core.link import LinkService
-from dory_core.llm.active_memory import build_active_memory_components
-from dory_core.llm.openrouter import build_openrouter_client
-from dory_core.llm_rerank import build_reranker
 from dory_core.purge import PurgeEngine
 from dory_core.query_expansion import OpenRouterQueryExpander
 from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
 from dory_core.research import ResearchEngine
+from dory_core.runtime import build_query_expander, build_retrieval_planner, build_surface_runtime
 from dory_core.search import SearchEngine
 from dory_core.semantic_write import SemanticWriteEngine
 from dory_core.status import build_status, serialize_status
@@ -89,28 +87,17 @@ class RuntimeCore:
     active_memory_engine: ActiveMemoryEngine = field(init=False)
 
     def __post_init__(self) -> None:
-        search_engine = SearchEngine(
-            self.index_root,
-            self.embedder,
+        surface_runtime = build_surface_runtime(
+            corpus_root=self.corpus_root,
+            index_root=self.index_root,
+            embedder=self.embedder,
             query_expander=self.query_expander,
             retrieval_planner=self.retrieval_planner,
-            result_selector=self.retrieval_planner,
             reranker=self.reranker,
             rerank_candidate_limit=self.rerank_candidate_limit,
         )
-        planner, composer = build_active_memory_components(DorySettings())
-        object.__setattr__(self, "search_engine", search_engine)
-        object.__setattr__(
-            self,
-            "active_memory_engine",
-            ActiveMemoryEngine(
-                wake_builder=WakeBuilder(self.corpus_root),
-                search_engine=search_engine,
-                root=self.corpus_root,
-                planner=planner,
-                composer=composer,
-            ),
-        )
+        object.__setattr__(self, "search_engine", surface_runtime.search_engine)
+        object.__setattr__(self, "active_memory_engine", surface_runtime.active_memory_engine)
 
     def wake(self, req: dict[str, Any]) -> Any:
         wake_req = WakeReq.model_validate(req)
@@ -391,15 +378,10 @@ def parse_serve_args(argv: list[str] | None = None) -> McpServeConfig:
 def main(argv: list[str] | None = None) -> None:
     config = parse_serve_args(argv)
     try:
-        settings = DorySettings()
         core = RuntimeCore(
             corpus_root=config.corpus_root,
             index_root=config.index_root,
             embedder=build_runtime_embedder(),
-            query_expander=_build_query_expander(settings),
-            retrieval_planner=_build_retrieval_planner(settings, purpose="query"),
-            reranker=build_reranker(settings),
-            rerank_candidate_limit=settings.query_reranker_candidate_limit,
         )
     except EmbeddingConfigurationError as err:
         raise SystemExit(str(err)) from err
@@ -441,21 +423,11 @@ def _slice_lines(text: str, start_line: int, limit: int | None) -> str:
 
 
 def _build_query_expander(settings) -> OpenRouterQueryExpander | None:
-    if not settings.query_expansion_enabled or settings.query_expansion_max <= 0:
-        return None
-    client = build_openrouter_client(settings, purpose="query")
-    if client is None:
-        return None
-    return OpenRouterQueryExpander(client=client, max_expansions=settings.query_expansion_max)
+    return build_query_expander(settings)
 
 
 def _build_retrieval_planner(settings: DorySettings, *, purpose: str) -> OpenRouterRetrievalPlanner | None:
-    if purpose == "query" and not settings.query_planner_enabled:
-        return None
-    client = build_openrouter_client(settings, purpose=purpose)
-    if client is None:
-        return None
-    return OpenRouterRetrievalPlanner(client=client)
+    return build_retrieval_planner(settings, purpose=purpose)
 
 
 if __name__ == "__main__":
