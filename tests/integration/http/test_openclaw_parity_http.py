@@ -68,7 +68,7 @@ def test_http_recall_event_and_public_artifacts_and_status(tmp_path: Path) -> No
     assert payload["openclaw"]["last_recall_selected_path"] == "people/avery.md"
 
 
-def test_http_search_respects_min_score_for_openclaw_clients(tmp_path: Path, fake_embedder) -> None:
+def test_http_search_respects_min_relevance_score_for_openclaw_clients(tmp_path: Path, fake_embedder) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / "index"
     (corpus_root / "people").mkdir(parents=True)
@@ -93,7 +93,7 @@ def test_http_search_respects_min_score_for_openclaw_clients(tmp_path: Path, fak
     )
     thresholded = client.post(
         "/v1/search",
-        json={"query": "Avery prefers async work", "mode": "hybrid", "k": 5, "min_score": 100.0},
+        json={"query": "Avery prefers async work", "mode": "hybrid", "k": 5, "min_relevance_score": 2.0},
     )
 
     assert baseline.status_code == 200, baseline.text

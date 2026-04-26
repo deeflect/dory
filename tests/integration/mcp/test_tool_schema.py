@@ -50,11 +50,11 @@ def test_dory_active_memory_schema_exposes_include_wake_and_limits() -> None:
     assert props["timeout_ms"]["maximum"] == 5000
 
 
-def test_dory_search_schema_exposes_min_score() -> None:
+def test_dory_search_schema_exposes_min_relevance_score() -> None:
     tools = build_tool_schemas()
     search_tool = next(tool for tool in tools if tool["name"] == "dory_search")
 
-    assert "min_score" in search_tool["inputSchema"]["properties"]
+    assert "min_relevance_score" in search_tool["inputSchema"]["properties"]
     assert "corpus" in search_tool["inputSchema"]["properties"]
     assert search_tool["inputSchema"]["properties"]["corpus"]["enum"] == ["durable", "sessions", "all"]
     assert "scope" in search_tool["inputSchema"]["properties"]

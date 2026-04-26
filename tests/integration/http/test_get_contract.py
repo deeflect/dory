@@ -62,4 +62,5 @@ def test_http_get_rejects_non_positive_line_limit(tmp_path: Path, sample_corpus_
     response = client.get("/v1/get", params={"path": "core/user.md", "from": 1, "lines": -1})
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "'lines' must be >= 1"
+    assert response.json()["error"]["message"] == "'lines' must be >= 1"
+    assert response.json()["error"]["code"] == "bad_request"

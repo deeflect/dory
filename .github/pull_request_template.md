@@ -6,9 +6,11 @@
 
 - [ ] `uv run ruff check .`
 - [ ] `uv run pytest -q`
+- [ ] `(cd packages/openclaw-dory && npm ci && npm run build)`
 - [ ] `uv build --wheel --sdist`
 - [ ] `uv run python eval/validate.py`
 - [ ] `python3 scripts/release/check-public-safety.py`
+- [ ] `python3 scripts/release/check-public-safety.py --path dist`
 - [ ] Other:
 
 ## Public-Safety Checklist

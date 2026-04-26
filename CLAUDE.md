@@ -4,7 +4,7 @@ Claude agents should follow `AGENTS.md`. This file adds Claude-specific reminder
 
 ## Operating Mode
 
-- Use Dory MCP tools directly when available. Start with `dory_wake(profile="coding", budget_tokens=1200)` for code work.
+- Use Dory MCP tools directly when available. Start a new session, post-compaction continuation, or real task switch with `dory_wake(profile="coding", budget_tokens=1200)` for code work; do not rerun wake on every turn when the wake block is still in context.
 - Prefer `dory_search` followed by exact `dory_get` before making claims about project state, prior decisions, or current runtime assumptions.
 - Do not copy private Dory memory into repository files. Public docs, tests, evals, examples, and issue templates must use synthetic data.
 - Keep responses and patches scoped. If a change is cross-cutting, state the plan briefly and then implement.
@@ -14,7 +14,7 @@ Claude agents should follow `AGENTS.md`. This file adds Claude-specific reminder
 - Python code targets Python 3.12 and is managed with `uv`.
 - Run `uv run ruff check <paths>` for touched Python paths.
 - Run focused `uv run pytest ...` tests for behavior changes; use `uv run pytest -q` when the change has broad impact.
-- For OpenClaw plugin changes, update `packages/openclaw-dory/src/index.ts`, run `npm run build`, and include the rebuilt `packages/openclaw-dory/dist/index.js`.
+- For OpenClaw plugin changes, update `packages/openclaw-dory/src/index.ts`, run `npm install && npm run build` locally or `npm ci && npm run build` in CI, and include the rebuilt `packages/openclaw-dory/dist/index.js`.
 - Do not edit generated or local runtime files unless the task explicitly asks for them.
 
 ## Public-Safety Rules

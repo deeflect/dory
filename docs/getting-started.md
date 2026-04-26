@@ -227,7 +227,7 @@ If the host runs in Docker, use the `docker compose exec` token command from the
 
 Agents should follow this read loop:
 
-1. `wake` at session start or task switch
+1. `wake` once at session start, after context compaction, or at a real task switch
 2. `search` before claims about projects, people, decisions, or current environment
 3. `get` for exact files before quoting or editing
 4. `memory-write` for durable facts, preferences, decisions, or project state

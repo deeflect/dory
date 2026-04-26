@@ -26,7 +26,7 @@ Claude Code, Codex CLI, and opencode are rule and MCP clients. OpenClaw and Herm
 
 | Tool | MCP | HTTP | CLI | When to use |
 |---|:-:|:-:|:-:|---|
-| `dory_wake` | ✓ | ✓ | ✓ | Session start or task switch — loads bounded hot context. |
+| `dory_wake` | ✓ | ✓ | ✓ | New session, post-compaction continuation, or real task switch — loads bounded hot context. |
 | `dory_active_memory` | ✓ | ✓ | ✓ | High-stakes or ambiguous replies — staged, task-specific retrieval. |
 | `dory_search` | ✓ | ✓ | ✓ | Find candidate sources. Use `mode="exact"` for unique markers. |
 | `dory_get` | ✓ | ✓ | ✓ | Read exact paths and hashes after search. |
@@ -39,7 +39,7 @@ Claude Code, Codex CLI, and opencode are rule and MCP clients. OpenClaw and Herm
 
 ## Read loop
 
-1. `dory_wake` at session start or task switch. Pick the profile: `coding` for project work (operational only), `writing` for voice/content work (voice-first), `privacy` for boundary-sensitive questions (boundary-only; do not treat it as a profile dump).
+1. `dory_wake` once at new session start, after context compaction, or at a real task switch. Pick the profile: `coding` for project work (operational only), `writing` for voice/content work (voice-first), `privacy` for boundary-sensitive questions (boundary-only; do not treat it as a profile dump). If the wake block is still in context and the task has not changed, reuse it instead of calling wake again.
 2. `dory_search` before any factual claim about projects, people, priorities, decisions, or current environment.
 3. `dory_get` on exact result paths before quoting or acting. It reads paths inside the configured Dory corpus, not arbitrary repo files cited as external evidence.
 4. `dory_link` only when relationships or backlinks matter. Bound dense project/core queries with `max_edges`, and drop noisy families like `logs/sessions/` via `exclude_prefixes`. Responses include `count`, `total_count`, and `truncated` so you can tell when the graph was capped.

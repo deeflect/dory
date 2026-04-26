@@ -100,4 +100,5 @@ def test_http_research_returns_503_for_embedding_provider_errors(
     )
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "embedding backend unavailable"
+    assert response.json()["error"]["message"] == "embedding backend unavailable"
+    assert response.json()["error"]["code"] == "service_unavailable"

@@ -98,7 +98,34 @@ async function request(options, path, init) {
         clearTimeout(timeout);
     }
     if (!response.ok) {
-        const detail = (await response.text()).trim();
+        const raw = (await response.text()).trim();
+        let detail = raw;
+        if (raw) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed && typeof parsed === "object") {
+                    const envelope = parsed.error;
+                    if (envelope && typeof envelope === "object") {
+                        const message = envelope.message;
+                        const code = envelope.code;
+                        if (typeof message === "string" && message.trim()) {
+                            detail = typeof code === "string" && code.trim()
+                                ? `${code}: ${message.trim()}`
+                                : message.trim();
+                        }
+                    }
+                    else {
+                        const fallback = parsed.detail;
+                        if (typeof fallback === "string" && fallback.trim()) {
+                            detail = fallback.trim();
+                        }
+                    }
+                }
+            }
+            catch {
+                // Fall through with raw text.
+            }
+        }
         throw new Error(`dory request failed: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`);
     }
     return (await response.json());
@@ -590,7 +617,7 @@ export class DoryMemorySearchManager {
             query,
             k: opts?.maxResults ?? 10,
             mode,
-            min_score: opts?.minScore,
+            min_relevance_score: opts?.minScore,
             rerank: opts?.rerank,
             debug: opts?.debug ?? false,
         });

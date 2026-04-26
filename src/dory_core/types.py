@@ -54,7 +54,14 @@ class SearchReq(BaseModel):
     k: int = Field(default=10, ge=1, le=50)
     mode: SearchMode = "hybrid"
     corpus: SearchCorpus = "durable"
-    min_score: float = Field(default=0.0, ge=0.0)
+    min_relevance_score: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Filter results whose normalized relevance score (0..1) is below "
+            "this threshold. Comparable across all search modes."
+        ),
+    )
     include_content: bool = True
     rerank: Literal["auto", "true", "false"] = "auto"
     debug: bool = False

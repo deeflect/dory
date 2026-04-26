@@ -78,6 +78,8 @@ npm install
 npm run build
 ```
 
+CI uses `npm ci && npm run build`. The generated `dist/index.js` is tracked because OpenClaw loads it directly; `node_modules/` is local build state and is excluded from the Python sdist.
+
 Then verify:
 
 - `package.json` has `openclaw.extensions`
@@ -123,6 +125,12 @@ openclaw config set plugins.entries.dory-memory.config.tokenEnv '"DORY_CLIENT_AU
 ```
 
 The managed gateway process must actually receive that environment variable. If it does not, plugin load will fail with a clear `tokenEnv ... empty or unset` error.
+
+HTTP requests time out after 10 seconds by default. Override that when needed:
+
+```bash
+openclaw config set plugins.entries.dory-memory.config.timeoutMs '15000' --strict-json
+```
 
 Validate and restart the managed gateway:
 

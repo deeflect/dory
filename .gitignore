@@ -30,6 +30,9 @@ dist/
 .uv/
 # uv.lock is tracked on purpose — it's what the Docker build pins against
 
+# OpenClaw plugin local build state
+packages/openclaw-dory/node_modules/
+
 # dory daemon runtime
 .index/
 .dory/

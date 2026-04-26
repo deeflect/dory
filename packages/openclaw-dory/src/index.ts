@@ -314,7 +314,32 @@ async function request<T>(
   }
 
   if (!response.ok) {
-    const detail = (await response.text()).trim();
+    const raw = (await response.text()).trim();
+    let detail = raw;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown> | unknown;
+        if (parsed && typeof parsed === "object") {
+          const envelope = (parsed as Record<string, unknown>).error;
+          if (envelope && typeof envelope === "object") {
+            const message = (envelope as Record<string, unknown>).message;
+            const code = (envelope as Record<string, unknown>).code;
+            if (typeof message === "string" && message.trim()) {
+              detail = typeof code === "string" && code.trim()
+                ? `${code}: ${message.trim()}`
+                : message.trim();
+            }
+          } else {
+            const fallback = (parsed as Record<string, unknown>).detail;
+            if (typeof fallback === "string" && fallback.trim()) {
+              detail = fallback.trim();
+            }
+          }
+        }
+      } catch {
+        // Fall through with raw text.
+      }
+    }
     throw new Error(
       `dory request failed: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`,
     );
@@ -940,7 +965,7 @@ export class DoryMemorySearchManager implements MemorySearchManager {
       query,
       k: opts?.maxResults ?? 10,
       mode,
-      min_score: opts?.minScore,
+      min_relevance_score: opts?.minScore,
       rerank: opts?.rerank,
       debug: opts?.debug ?? false,
     });

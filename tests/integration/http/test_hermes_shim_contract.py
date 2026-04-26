@@ -60,7 +60,7 @@ def test_hermes_provider_covers_http_verbs(
     wake = provider.wake(agent="hermes", budget_tokens=200, profile="coding")
     search = provider.search("HomeServer")
     exact_search = provider.search("HomeServer", mode="exact", debug=True)
-    thresholded_search = provider.search("HomeServer", min_score=100.0)
+    thresholded_search = provider.search("HomeServer", min_relevance_score=2.0)
     scoped_search = provider.search(
         "HomeServer",
         corpus="durable",

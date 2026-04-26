@@ -97,4 +97,5 @@ def test_active_memory_http_returns_503_for_embedding_provider_errors(tmp_path: 
     )
 
     assert result.status_code == 503
-    assert result.json()["detail"] == "embedding backend unavailable"
+    assert result.json()["error"]["message"] == "embedding backend unavailable"
+    assert result.json()["error"]["code"] == "service_unavailable"

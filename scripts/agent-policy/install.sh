@@ -280,6 +280,20 @@ block_body = (
     "\n"
     "[mcp_servers.dory.env]\n"
     f"{env_block}"
+    "\n"
+    "# Mutating tools require approval; read-only tools run without prompting.\n"
+    "[mcp_servers.dory.tools.dory_memory_write]\n"
+    'approval_mode = "approve"\n'
+    "\n"
+    "[mcp_servers.dory.tools.dory_write]\n"
+    'approval_mode = "approve"\n'
+    "\n"
+    "[mcp_servers.dory.tools.dory_purge]\n"
+    'approval_mode = "approve"\n'
+    "\n"
+    "[mcp_servers.dory.tools.dory_research]\n"
+    'approval_mode = "approve"\n'
+    "\n"
     "# dory:END\n"
 )
 with open(config_path) as f:

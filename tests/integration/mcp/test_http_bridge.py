@@ -180,7 +180,7 @@ def test_bridge_routes_search_with_corpus(monkeypatch) -> None:
             "corpus": "sessions",
             "scope": {"type": ["log"], "status": ["active"]},
             "include_content": False,
-            "min_score": 0.2,
+            "min_relevance_score": 0.2,
             "rerank": "true",
             "debug": True,
         },
@@ -194,7 +194,7 @@ def test_bridge_routes_search_with_corpus(monkeypatch) -> None:
         "corpus": "sessions",
         "scope": {"type": ["log"], "status": ["active"]},
         "include_content": False,
-        "min_score": 0.2,
+        "min_relevance_score": 0.2,
         "rerank": "true",
         "debug": True,
     }
@@ -420,7 +420,10 @@ def test_bridge_http_errors_are_structured(monkeypatch) -> None:
             self.reason = reason
 
         def read(self) -> bytes:
-            return b'{"detail":"backend unavailable"}'
+            return (
+                b'{"error":{"code":"service_unavailable",'
+                b'"message":"backend unavailable","type":"http_error"}}'
+            )
 
         def close(self) -> None:
             return None
@@ -442,3 +445,5 @@ def test_bridge_http_errors_are_structured(monkeypatch) -> None:
     assert payload["ok"] is False
     assert payload["error"]["type"] == "http_error"
     assert payload["error"]["status"] == 503
+    assert payload["error"]["code"] == "service_unavailable"
+    assert payload["error"]["message"] == "backend unavailable"

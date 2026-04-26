@@ -40,6 +40,13 @@ from dory_core.types import (
 )
 from dory_core.wake import WakeBuilder
 from dory_core.write import WriteEngine
+from dory_mcp.auth import (
+    TcpAuthConfig,
+    auth_error_response,
+    extract_and_strip_auth,
+    load_tcp_auth_config,
+    token_matches,
+)
 from dory_mcp.tools import TOOL_MAP, build_tool_schemas
 
 
@@ -72,6 +79,8 @@ class McpServeConfig:
     port: int
     corpus_root: Path
     index_root: Path
+    auth_tokens_path: Path | None
+    allow_no_auth: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +330,10 @@ class _TcpRequestHandler(socketserver.StreamRequestHandler):
         if not isinstance(server, DoryMcpTcpServer):
             raise TypeError("unexpected server type")
 
+        # Per-connection latch: once a valid token is seen we don't require
+        # clients to repeat it on every request over the same TCP connection.
+        connection_authorized = not server.auth_config.required
+
         for raw_line in self.rfile:
             line = raw_line.decode("utf-8").strip()
             if not line:
@@ -332,6 +345,26 @@ class _TcpRequestHandler(socketserver.StreamRequestHandler):
                 self.wfile.write((json.dumps(response, sort_keys=True) + "\n").encode("utf-8"))
                 self.wfile.flush()
                 continue
+
+            if not connection_authorized:
+                token = extract_and_strip_auth(request)
+                if not token_matches(token, server.auth_config):
+                    response = auth_error_response(
+                        request.get("id"),
+                        message=(
+                            "missing bearer token: pass it as params._auth.token on the first MCP request"
+                            if not token
+                            else "invalid bearer token"
+                        ),
+                    )
+                    self.wfile.write((json.dumps(response, sort_keys=True) + "\n").encode("utf-8"))
+                    self.wfile.flush()
+                    continue
+                connection_authorized = True
+            else:
+                # Tolerate repeated _auth fields after latch; just strip them.
+                extract_and_strip_auth(request)
+
             response = server.mcp_server.handle(request)
             if response is None:
                 continue
@@ -343,28 +376,71 @@ class DoryMcpTcpServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, core: DoryMcpCore, host: str, port: int) -> None:
+    def __init__(self, core: DoryMcpCore, host: str, port: int, auth_config: TcpAuthConfig) -> None:
         self.mcp_server = DoryMcpServer(core=core)
+        self.auth_config = auth_config
         super().__init__((host, port), _TcpRequestHandler)
 
 
-def build_tcp_server(core: DoryMcpCore, host: str, port: int) -> DoryMcpTcpServer:
-    return DoryMcpTcpServer(core=core, host=host, port=port)
+def build_tcp_server(
+    core: DoryMcpCore,
+    host: str,
+    port: int,
+    *,
+    auth_config: TcpAuthConfig | None = None,
+    allow_no_auth: bool = False,
+) -> DoryMcpTcpServer:
+    """Build a TCP MCP server.
+
+    Pass ``auth_config`` to enforce bearer auth, or ``allow_no_auth=True`` for
+    process-local trusted contexts (tests, single-machine dev). Refusing to
+    default to no-auth in production paths is intentional — the CLI entrypoint
+    requires an explicit env opt-out.
+    """
+    if auth_config is None:
+        auth_config = TcpAuthConfig(tokens=(), allow_no_auth=bool(allow_no_auth))
+    return DoryMcpTcpServer(core=core, host=host, port=port, auth_config=auth_config)
 
 
-def serve_tcp(core: DoryMcpCore, host: str, port: int) -> None:
-    with build_tcp_server(core=core, host=host, port=port) as server:
+def serve_tcp(
+    core: DoryMcpCore,
+    host: str,
+    port: int,
+    *,
+    auth_config: TcpAuthConfig | None = None,
+    allow_no_auth: bool = False,
+) -> None:
+    with build_tcp_server(
+        core=core,
+        host=host,
+        port=port,
+        auth_config=auth_config,
+        allow_no_auth=allow_no_auth,
+    ) as server:
         server.serve_forever()
 
 
 def parse_serve_args(argv: list[str] | None = None) -> McpServeConfig:
     runtime_paths = resolve_runtime_paths()
+    settings = DorySettings()
     parser = argparse.ArgumentParser(description="Run the Dory MCP bridge.")
     parser.add_argument("--mode", choices=["stdio", "tcp"], default="stdio", help="Transport mode")
     parser.add_argument("--host", default="127.0.0.1", help="TCP bind host")
     parser.add_argument("--port", type=int, default=8765, help="TCP bind port")
     parser.add_argument("--corpus-root", type=Path, default=runtime_paths.corpus_root, help="Path to the Dory corpus")
     parser.add_argument("--index-root", type=Path, default=runtime_paths.index_root, help="Path to the Dory index")
+    parser.add_argument(
+        "--auth-tokens-path",
+        type=Path,
+        default=runtime_paths.auth_tokens_path,
+        help="Bearer-token file shared with the HTTP daemon (TCP mode only).",
+    )
+    parser.add_argument(
+        "--allow-no-auth",
+        action="store_true",
+        default=settings.allow_no_auth,
+        help="Disable bearer auth on the TCP listener. DO NOT enable on untrusted networks.",
+    )
     args = parser.parse_args(argv)
     return McpServeConfig(
         mode=args.mode,
@@ -372,6 +448,8 @@ def parse_serve_args(argv: list[str] | None = None) -> McpServeConfig:
         port=args.port,
         corpus_root=args.corpus_root,
         index_root=args.index_root,
+        auth_tokens_path=args.auth_tokens_path,
+        allow_no_auth=args.allow_no_auth,
     )
 
 
@@ -386,7 +464,14 @@ def main(argv: list[str] | None = None) -> None:
     except EmbeddingConfigurationError as err:
         raise SystemExit(str(err)) from err
     if config.mode == "tcp":
-        serve_tcp(core=core, host=config.host, port=config.port)
+        try:
+            auth_config = load_tcp_auth_config(
+                auth_tokens_path=config.auth_tokens_path,
+                allow_no_auth=config.allow_no_auth,
+            )
+        except ValueError as err:
+            raise SystemExit(str(err)) from err
+        serve_tcp(core=core, host=config.host, port=config.port, auth_config=auth_config)
         return
     serve_stdio(core=core)
 

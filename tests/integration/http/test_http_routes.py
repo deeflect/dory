@@ -108,7 +108,7 @@ def test_http_purge_requires_hash_for_live_delete(
     )
 
     assert missing_hash.status_code == 400
-    assert "expected_hash" in missing_hash.json()["detail"]["message"]
+    assert "expected_hash" in missing_hash.json()["error"]["message"]
     assert deleted.status_code == 200
     assert deleted.json()["action"] == "purged"
     assert not target.exists()
@@ -139,7 +139,7 @@ def test_http_write_returns_400_for_business_validation_errors(
     )
 
     assert response.status_code == 400
-    assert "frontmatter is required" in response.json()["detail"]["message"]
+    assert "frontmatter is required" in response.json()["error"]["message"]
 
 
 def test_http_link_rejects_path_escape(
@@ -160,4 +160,4 @@ def test_http_link_rejects_path_escape(
     response = client.post("/v1/link", json={"op": "neighbors", "path": "../outside.md"})
 
     assert response.status_code == 400
-    assert "escapes corpus root" in response.json()["detail"]
+    assert "escapes corpus root" in response.json()["error"]["message"]

@@ -13,7 +13,15 @@ from pathlib import Path
 from typing import Any, NoReturn
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+    StreamingResponse,
+)
 import uvicorn
 
 from dory_core.config import DorySettings, resolve_runtime_paths
@@ -84,6 +92,17 @@ def current_request_id() -> str | None:
     return _request_id_var.get()
 
 
+_HTTP_STATUS_CODE_TO_API_CODE = {
+    400: "bad_request",
+    401: "unauthorized",
+    403: "forbidden",
+    404: "not_found",
+    409: "conflict",
+    422: "validation_error",
+    503: "service_unavailable",
+}
+
+
 def _raise_api_error(
     *,
     status_code: int,
@@ -101,6 +120,34 @@ def _raise_api_error(
     if request_id is not None:
         detail["request_id"] = request_id
     raise HTTPException(status_code=status_code, detail=detail) from cause
+
+
+def _api_error_payload(
+    *,
+    status_code: int,
+    detail: object,
+) -> dict[str, dict[str, Any]]:
+    """Normalize FastAPI HTTPException details into the contract envelope."""
+    if isinstance(detail, dict) and "code" in detail and "message" in detail:
+        error: dict[str, Any] = {
+            "code": str(detail.get("code")),
+            "message": str(detail.get("message")),
+            "type": str(detail.get("type", "http_error")),
+        }
+        for key, value in detail.items():
+            if key in error:
+                continue
+            error[key] = value
+    else:
+        error = {
+            "code": _HTTP_STATUS_CODE_TO_API_CODE.get(status_code, f"http_{status_code}"),
+            "message": str(detail) if detail is not None else "",
+            "type": "http_error",
+        }
+    request_id = current_request_id()
+    if request_id is not None and "request_id" not in error:
+        error["request_id"] = request_id
+    return {"error": error}
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,6 +203,38 @@ def build_app(
         search_engine=surface_runtime.search_engine,
         active_memory_engine=surface_runtime.active_memory_engine,
     )
+
+    @app.exception_handler(HTTPException)
+    async def _http_exception_handler(request: Request, exc: HTTPException) -> Response:
+        # Wiki uses redirects/HTML and is not part of the JSON v1 contract.
+        if request.url.path.startswith("/wiki"):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"detail": exc.detail},
+                headers=exc.headers or None,
+            )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=_api_error_payload(status_code=exc.status_code, detail=exc.detail),
+            headers=exc.headers or None,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> Response:
+        if request.url.path.startswith("/wiki"):
+            return JSONResponse(status_code=422, content={"detail": exc.errors()})
+        payload = _api_error_payload(
+            status_code=422,
+            detail={
+                "code": "validation_error",
+                "message": "Request payload failed validation.",
+                "type": "validation_error",
+                "errors": exc.errors(),
+            },
+        )
+        return JSONResponse(status_code=422, content=payload)
 
     @app.middleware("http")
     async def _request_id_middleware(request: Request, call_next):

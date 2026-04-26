@@ -94,4 +94,4 @@ def test_http_reports_invalid_auth_token_configuration(
     response = client.get("/v1/status")
 
     assert response.status_code == 503
-    assert "invalid auth token configuration" in response.json()["detail"]
+    assert "invalid auth token configuration" in response.json()["error"]["message"]

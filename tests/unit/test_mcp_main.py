@@ -19,15 +19,18 @@ def test_parse_serve_args_defaults() -> None:
 def test_main_dispatches_tcp(monkeypatch) -> None:
     calls: dict[str, object] = {}
 
-    def fake_serve_tcp(core, host: str, port: int) -> None:
-        calls["tcp"] = {"core": core, "host": host, "port": port}
+    def fake_serve_tcp(core, host: str, port: int, *, auth_config=None) -> None:
+        calls["tcp"] = {"core": core, "host": host, "port": port, "auth_config": auth_config}
 
     monkeypatch.setattr(mcp_server, "serve_tcp", fake_serve_tcp)
 
-    mcp_server.main(["--mode", "tcp", "--host", "0.0.0.0", "--port", "9901"])
+    mcp_server.main(
+        ["--mode", "tcp", "--host", "0.0.0.0", "--port", "9901", "--allow-no-auth"]
+    )
 
     assert calls["tcp"]["host"] == "0.0.0.0"
     assert calls["tcp"]["port"] == 9901
+    assert calls["tcp"]["auth_config"].required is False
 
 
 def test_query_retrieval_planner_respects_toggle(monkeypatch) -> None:

@@ -1342,10 +1342,26 @@ def ops_eval_once(
     questions_root: Path = typer.Option(Path("eval/public/questions"), "--questions-root"),
     runs_root: Path = typer.Option(Path("eval/runs"), "--runs-root"),
     top_k: int = typer.Option(5, "--top-k"),
+    corpus_root_override: Path | None = typer.Option(
+        None,
+        "--corpus-root",
+        help="Run the eval against this corpus instead of the configured Dory corpus.",
+    ),
+    index_root_override: Path | None = typer.Option(
+        None,
+        "--index-root",
+        help="Use this index path for the eval run (defaults to .dory/index next to the corpus).",
+    ),
 ) -> None:
     config = _get_config(ctx)
+    if corpus_root_override is not None:
+        eval_corpus = corpus_root_override
+        eval_index = index_root_override or (corpus_root_override.parent / ".dory" / "index")
+    else:
+        eval_corpus = config.corpus_root
+        eval_index = index_root_override or config.index_root
     try:
-        runner = EvalOnceRunner(config.corpus_root, config.index_root, build_runtime_embedder())
+        runner = EvalOnceRunner(eval_corpus, eval_index, build_runtime_embedder())
         result = runner.run(
             reindex_first=reindex_first,
             questions_root=questions_root,

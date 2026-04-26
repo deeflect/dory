@@ -42,9 +42,9 @@ def test_wake_req_rejects_invalid_lower_bounds() -> None:
         WakeReq(agent="")
 
 
-def test_search_req_rejects_empty_query_and_negative_min_score() -> None:
+def test_search_req_rejects_empty_query_and_negative_min_relevance_score() -> None:
     with pytest.raises(ValidationError):
         SearchReq(query="")
 
     with pytest.raises(ValidationError):
-        SearchReq(query="graphql", min_score=-0.1)
+        SearchReq(query="graphql", min_relevance_score=-0.1)

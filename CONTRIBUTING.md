@@ -35,6 +35,8 @@ npm install
 npm run build
 ```
 
+CI uses `npm ci && npm run build` before Python packaging. The rebuilt `packages/openclaw-dory/dist/index.js` should be committed when TypeScript changes; `packages/openclaw-dory/node_modules/` is local build state and must not ship in the Python sdist.
+
 ## Validation
 
 Use the smallest checks that prove your change. Common commands:
@@ -42,10 +44,12 @@ Use the smallest checks that prove your change. Common commands:
 ```bash
 uv run ruff check .
 uv run pytest -q
+(cd packages/openclaw-dory && npm ci && npm run build)
 uv build --wheel --sdist
 docker build -t dory:local .
 uv run python eval/validate.py
 python3 scripts/release/check-public-safety.py
+python3 scripts/release/check-public-safety.py --path dist
 ```
 
 For public docs, examples, evals, fixtures, or release artifacts, run the safety scan on the touched paths:

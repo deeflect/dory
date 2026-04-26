@@ -434,7 +434,7 @@ class DoryMemoryProvider(MemoryProvider):
             corpus=_as_optional_search_corpus(args.get("corpus")),
             scope=_as_optional_mapping(args.get("scope")),
             include_content=_as_optional_bool(args.get("include_content")),
-            min_score=_as_optional_float(args.get("min_score")),
+            min_relevance_score=_as_optional_float(args.get("min_relevance_score")),
             rerank=_as_optional_rerank_mode(args.get("rerank")),
             debug=_as_optional_bool(args.get("debug")),
         )
@@ -649,7 +649,7 @@ class DoryMemoryProvider(MemoryProvider):
         corpus: SearchCorpus | None = None,
         scope: dict[str, Any] | None = None,
         include_content: bool | None = None,
-        min_score: float | None = None,
+        min_relevance_score: float | None = None,
         rerank: str | None = None,
         debug: bool | None = None,
     ) -> dict[str, Any]:
@@ -665,8 +665,8 @@ class DoryMemoryProvider(MemoryProvider):
             payload["scope"] = scope
         if include_content is not None:
             payload["include_content"] = include_content
-        if min_score is not None:
-            payload["min_score"] = min_score
+        if min_relevance_score is not None:
+            payload["min_relevance_score"] = min_relevance_score
         if rerank is not None:
             payload["rerank"] = rerank
         if debug is not None:
@@ -1055,13 +1055,13 @@ class DoryMemoryProvider(MemoryProvider):
             headers["Authorization"] = f"Bearer {self.token}"
         active_client = self.client or self._owned_client
         if active_client is None:
-            raise RuntimeError("Dory provider is not initialized with a base URL or HTTP client")
+            raise DoryProviderError("Dory provider is not initialized with a base URL or HTTP client")
         response = active_client.request(method, path, json=json, params=params, headers=headers)
         return self._parse_response(response)
 
     def _session_ingest(self, *, status: SessionStatus, turns: list[SessionTurn]) -> dict[str, Any]:
         if not turns:
-            raise RuntimeError("no session turns available for ingest")
+            raise DoryProviderError("no session turns available for ingest")
         return self._request(
             "POST",
             "/v1/session-ingest",
@@ -1245,7 +1245,7 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                         },
                     },
                     "include_content": {"type": "boolean"},
-                    "min_score": {"type": "number"},
+                    "min_relevance_score": {"type": "number"},
                     "rerank": {"type": "string", "enum": ["auto", "true", "false"]},
                     "debug": {"type": "boolean"},
                 },
@@ -1462,12 +1462,21 @@ def _response_error_message(response: Any) -> str:
     except Exception:
         return _safe_response_text(response)
     if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and message.strip():
+                return message.strip()
+        if isinstance(error, str) and error.strip():
+            return error.strip()
+        # Legacy / wiki responses still emit FastAPI's default `detail` field.
         detail = payload.get("detail")
         if isinstance(detail, str) and detail.strip():
             return detail.strip()
-        error = payload.get("error")
-        if isinstance(error, str) and error.strip():
-            return error.strip()
+        if isinstance(detail, dict):
+            message = detail.get("message")
+            if isinstance(message, str) and message.strip():
+                return message.strip()
         message = payload.get("message")
         if isinstance(message, str) and message.strip():
             return message.strip()

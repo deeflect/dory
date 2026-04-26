@@ -112,13 +112,25 @@ def _perform_request(request: urllib.request.Request) -> dict[str, Any]:
                 },
             }
     except urllib.error.HTTPError as err:
-        detail = err.read().decode("utf-8", errors="replace")[:1000]
+        body = err.read().decode("utf-8", errors="replace")[:1000]
+        try:
+            parsed = json.loads(body) if body else {}
+        except json.JSONDecodeError:
+            parsed = {}
+        envelope = parsed.get("error") if isinstance(parsed, dict) else None
+        if isinstance(envelope, dict):
+            error_payload: dict[str, Any] = {"type": str(envelope.get("type") or "http_error"), "status": err.code}
+            for key in ("code", "message", "request_id"):
+                if envelope.get(key) is not None:
+                    error_payload[key] = envelope[key]
+            error_payload.setdefault("message", err.reason)
+            return {"ok": False, "error": error_payload}
         return {
             "ok": False,
             "error": {
                 "type": "http_error",
                 "status": err.code,
-                "message": detail or err.reason,
+                "message": body or err.reason,
             },
         }
     except Exception as err:

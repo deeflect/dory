@@ -1,14 +1,19 @@
 <!-- dory-policy:START -->
 ## Dory — Shared Memory Layer
 
-Dory is the shared memory service for this workspace. Agents read and write
-through Dory instead of keeping separate durable memory silos.
+Dory is the shared memory service for this machine across all projects, not
+only the Dory repository. Agents read and write through Dory instead of keeping
+separate durable memory silos.
 
 **Read flow**
 
-1. At session start or when task switches, call `dory_wake`. Use
-   `profile="coding"` for project work, `profile="writing"` for content work,
-   and `profile="privacy"` for boundary-sensitive questions.
+1. At the start of every new session, before substantive work, call
+   `dory_wake`. Do this even when the current repo is not the Dory repo. Choose
+   the profile from the task: `profile="coding"` for software/project
+   implementation, `profile="writing"` for content/copy/voice work, and
+   `profile="privacy"` for boundary-sensitive questions. If the current task or
+   repo clearly maps to a known project, pass `project="<name-or-slug>"` so wake
+   includes that project state page.
 2. Before making factual claims about projects, people, decisions, priorities,
    or current environment, use `dory_search`.
 3. Use `dory_get` for exact source text and hashes, then cite the source path

@@ -89,7 +89,7 @@ Full walkthrough → [docs/getting-started.md](docs/getting-started.md)
 wake  →  search  →  get  →  memory-write  →  link
 ```
 
-- **wake** — bounded hot context at session start
+- **wake** — bounded hot context once at session start, after compaction, or at a real task switch
 - **project wake** — `wake --project <name>` adds a matching `projects/<slug>/state.md` page by slug, title, or alias
 - **search** — hybrid search across durable memory and session evidence
 - **get** — exact markdown, with hashes and metadata
@@ -168,7 +168,7 @@ The goal is practical: one memory layer for all agents, with enough structure to
 
 Contributions are welcome, but the public repo has a hard privacy boundary. Use synthetic data in docs, tests, evals, examples, and fixtures. Do not commit private corpora, raw session logs, real personal memories, direct contact details, local absolute paths, private hostnames, tokens, or `.env` files.
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR. The short version: use Conventional Commits, keep changes scoped, run the relevant `uv` checks, and run `scripts/release/check-public-safety.py` for public docs or artifacts.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR. The short version: use Conventional Commits, keep changes scoped, run the relevant `uv` checks, rebuild the OpenClaw plugin when TypeScript changes, and run `scripts/release/check-public-safety.py` for public docs or artifacts.
 
 ## Useful entrypoints
 

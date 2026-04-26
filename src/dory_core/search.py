@@ -288,7 +288,7 @@ class SearchEngine:
         req: SearchReq,
         warnings: list[str],
     ) -> SearchResp:
-        response = _apply_min_score(response, req.min_score)
+        response = _apply_min_relevance_score(response, req.min_relevance_score)
         response = self._select_results(response, req=req, warnings=warnings)
         self._record_recall(req.query, response.results)
         return response
@@ -944,10 +944,20 @@ def _document_precedence(row: _ChunkRow, frontmatter: dict[str, object]) -> tupl
     return score, row.score, row.path
 
 
-def _apply_min_score(response: SearchResp, min_score: float) -> SearchResp:
-    if min_score == 0.0:
+def _apply_min_relevance_score(response: SearchResp, threshold: float) -> SearchResp:
+    """Drop results whose normalized score is below ``threshold`` (0..1).
+
+    Normalized scores are comparable across BM25/vector/hybrid/rerank, unlike
+    raw ``score`` which is mode-specific. A result without ``score_normalized``
+    is treated as ``0.0``.
+    """
+    if threshold <= 0.0:
         return response
-    results = [result for result in response.results if result.score >= min_score]
+    results = [
+        result
+        for result in response.results
+        if (result.score_normalized or 0.0) >= threshold
+    ]
     return SearchResp(
         query=response.query,
         count=len(results),

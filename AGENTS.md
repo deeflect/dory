@@ -25,7 +25,7 @@ This is the public Dory repository. Dory is a local-first memory daemon for agen
 
 Use Dory as the shared memory layer for agent work in this repo.
 
-1. At session start or when switching tasks, call `wake` with the right profile.
+1. At a new session start, after context compaction, or when switching to a genuinely new task, call `wake` with the right profile. Do not rerun wake on every user turn while the current wake block is still in context.
 2. Before making factual claims about memory, projects, people, priorities, decisions, or current environment, use Dory first.
 3. Preferred read flow: `wake`, then `search`, then exact `get`, then `link` only when graph context is useful.
 4. Cite exact Dory source paths when an answer depends on Dory memory.
@@ -56,9 +56,11 @@ Do not write memory for transient conversation turns. Always dry-run semantic wr
 uv sync --frozen --all-groups
 uv run ruff check .
 uv run pytest -q
+(cd packages/openclaw-dory && npm ci && npm run build)
 uv build --wheel --sdist
 uv run python eval/validate.py
 python3 scripts/release/check-public-safety.py
+python3 scripts/release/check-public-safety.py --path dist
 ```
 
 For focused changes, run the smallest test that proves the behavior. For broad changes, run the full unit or full CI-equivalent checks.
@@ -70,6 +72,8 @@ cd packages/openclaw-dory
 npm install
 npm run build
 ```
+
+CI uses `npm ci` before the Python package build. `packages/openclaw-dory/dist/index.js` is explicitly included in the sdist, while `packages/openclaw-dory/node_modules/` must stay excluded.
 
 ## Commit Rules
 
