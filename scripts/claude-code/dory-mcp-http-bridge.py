@@ -62,6 +62,14 @@ _GET_TOOLS: dict[str, str] = {
     "dory_status": "/v1/status",
 }
 
+_POST_TOOL_ENDPOINTS: dict[str, str] = {
+    "dory_memory_propose": "/v1/memory-proposals",
+    "dory_memory_proposals": "/v1/memory-proposals/list",
+    "dory_memory_proposal_get": "/v1/memory-proposals/get",
+    "dory_memory_proposal_apply": "/v1/memory-proposals/apply",
+    "dory_memory_proposal_reject": "/v1/memory-proposals/reject",
+}
+
 # Bridge-side default injection. These are client-context defaults that don't
 # belong in the server's Pydantic models.
 _CLIENT_DEFAULTS: dict[str, dict[str, Any]] = {
@@ -74,6 +82,8 @@ _CLIENT_DEFAULTS: dict[str, dict[str, Any]] = {
 
 def _endpoint_for(tool_name: str) -> str:
     """Map `dory_memory_write` → `/v1/memory-write`. Matches dory_http routes."""
+    if tool_name in _POST_TOOL_ENDPOINTS:
+        return _POST_TOOL_ENDPOINTS[tool_name]
     stem = tool_name.removeprefix("dory_").replace("_", "-")
     return f"/v1/{stem}"
 

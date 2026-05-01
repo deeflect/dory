@@ -32,6 +32,11 @@ Claude Code, Codex CLI, and opencode are rule and MCP clients. OpenClaw and Herm
 | `dory_get` | ✓ | ✓ | ✓ | Read exact paths and hashes after search. |
 | `dory_link` | ✓ | ✓ | equivalents | Inspect neighbors, backlinks, or wikilink lint. CLI equivalents are `neighbors`, `backlinks`, and `lint`. |
 | `dory_memory_write` | ✓ | ✓ | ✓ | Preferred semantic write — subject is resolved, not path-first. |
+| `dory_memory_propose` | ✓ | ✓ | ✓ | Create a reviewable semantic write proposal with a dry-run preview. |
+| `dory_memory_proposals` | ✓ | ✓ | ✓ | List pending, applied, or rejected proposals. |
+| `dory_memory_proposal_get` | ✓ | ✓ | ✓ | Inspect a proposal before apply/reject. |
+| `dory_memory_proposal_apply` | ✓ | ✓ | ✓ | Promote a pending proposal after Dory checks that its route is still current. |
+| `dory_memory_proposal_reject` | ✓ | ✓ | ✓ | Archive a proposal that should not be promoted. |
 | `dory_write` | ✓ | ✓ | — | Exact-path markdown write when the target is known. |
 | `dory_purge` | ✓ | ✓ | ✓ | Guarded hard-delete for scratch and generated artifacts. |
 | `dory_status` | ✓ | ✓ | ✓ | Corpus, index, auth, and capability diagnostics. |
@@ -39,11 +44,11 @@ Claude Code, Codex CLI, and opencode are rule and MCP clients. OpenClaw and Herm
 
 ## Read loop
 
-1. `dory_wake` once at new session start, after context compaction, or at a real task switch. Pick the profile: `coding` for project work (operational only), `writing` for voice/content work (voice-first), `privacy` for boundary-sensitive questions (boundary-only; do not treat it as a profile dump). If the wake block is still in context and the task has not changed, reuse it instead of calling wake again.
+1. `dory_wake` once at new session start, after context compaction, or at a real task switch. Pick the profile: `coding` for project work (operational only), `writing` for voice/content work (voice-first), `privacy` for boundary-sensitive questions (boundary-only; do not treat it as a profile dump). Pass `project` when the current project is known. If the wake block is still in context and the task has not changed, reuse it instead of calling wake again.
 2. `dory_search` before any factual claim about projects, people, priorities, decisions, or current environment.
 3. `dory_get` on exact result paths before quoting or acting. It reads paths inside the configured Dory corpus, not arbitrary repo files cited as external evidence.
 4. `dory_link` only when relationships or backlinks matter. Bound dense project/core queries with `max_edges`, and drop noisy families like `logs/sessions/` via `exclude_prefixes`. Responses include `count`, `total_count`, and `truncated` so you can tell when the graph was capped.
-5. `dory_active_memory(profile="coding|writing|privacy|personal|general", include_wake=false)` when wake already ran and the reply needs task-specific retrieval. Prefer an explicit profile over `auto`. If you pass `include_wake=true`, active memory uses the profile's wake policy and avoids inlining unrelated personal context.
+5. `dory_active_memory(profile="coding|writing|privacy|personal|general", include_wake=false)` when wake already ran and the reply needs task-specific retrieval. Prefer an explicit profile, pass `project` or `cwd` so project state can be included, and pass `scope.session_key` when the reply should use only the current session's recall evidence. If you pass `include_wake=true`, active memory uses the profile's wake policy and avoids inlining unrelated personal context.
 
 Treat wake as framing, not proof that every canonical file was loaded. Search + get is the authoritative read path.
 
@@ -58,9 +63,11 @@ Write only when at least one of these is true:
 - Project state materially changed.
 - A durable people, project, or current-truth fact was established.
 
-Dry-run first when the route isn't obvious (`dry_run=true`). Inspect `target_path`, `subject_ref`, and `message` before committing.
+Dry-run first when the route isn't obvious (`dry_run=true`). Inspect `target_path`, `subject_ref`, `evidence_path`, `matched_by`, `preview`, and `message` before committing. Include `agent`, `session_id`, or `origin_surface` when the write came from a specific client/session.
 
 **Prefer `dory_memory_write`** for durable semantic writes. Keep subjects specific — a generic subject can resolve into an existing canonical page. Canonical target previews are labeled `CANONICAL TARGET`; live writes to canonical targets need `allow_canonical=true` after preview. Use `force_inbox=true` for tentative or review-needed material.
+
+Use `dory_memory_propose` instead of a live write when the memory is plausible but needs review, when multiple agents are contributing shared context, or when the target is canonical and the agent is not sure it should commit. Proposals live under `inbox/proposed/` with the dry-run route, preview, risk flags, source paths, and provenance. Review with `dory_memory_proposal_get`, then apply or reject. Apply re-runs the semantic route first and fails if the target no longer matches the stored dry run.
 
 **Use `dory_write` only when you know the exact path** and have read the current hash with `dory_get`. Kinds: `append`, `create`, `replace`, `forget`. New files need `frontmatter.title` and `frontmatter.type`; use `type: capture` for `inbox/**`. `replace` and `forget` require `expected_hash`; `forget` also requires a `reason`.
 
@@ -89,7 +96,7 @@ When the server enforces tokens, clients must send:
 Authorization: Bearer <token>
 ```
 
-Browser wiki login requires `DORY_WEB_PASSWORD`. Without it, the login form returns 503 by design.
+Browser `/app` and `/wiki` routes share the same login. `/app` is the Dory browser interface for status, proposals, settings, and wiki entry points. Browser login requires `DORY_WEB_PASSWORD`; without it, the login form returns 503 by design.
 
 ## MCP setup
 
@@ -152,6 +159,16 @@ curl -X POST "$DORY_HTTP_URL/v1/memory-write" \
   -H "Authorization: Bearer $DORY_CLIENT_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"action":"write","kind":"decision","subject":"example-project","content":"Ship by end of sprint.","allow_canonical":true}'
+
+curl -X POST "$DORY_HTTP_URL/v1/memory-proposals" \
+  -H "Authorization: Bearer $DORY_CLIENT_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"write","kind":"fact","subject":"example-project","content":"Needs review before promotion.","proposal_id":"example-review"}'
+
+curl -X POST "$DORY_HTTP_URL/v1/memory-proposals/apply" \
+  -H "Authorization: Bearer $DORY_CLIENT_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"proposal_id":"example-review","agent":"codex"}'
 ```
 
 ## Privacy boundary

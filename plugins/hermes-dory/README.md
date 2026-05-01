@@ -80,6 +80,7 @@ Wake/active-memory notes:
 
 - default `wake_profile` is `coding`, because Hermes is normally used for project work
 - set `active_memory_include_wake: false` when Hermes already calls wake during prefetch to avoid duplicate context
+- `wake`, `active_memory`, and prefetch helpers can forward `project`; `active_memory` and prefetch helpers can also forward session recall `scope`
 
 Write safety notes:
 

@@ -6,7 +6,7 @@ from time import sleep
 
 from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.retrieval_planner import ActiveMemoryComposition, ActiveMemoryPlanningContext, ActiveMemoryRetrievalPlan
-from dory_core.types import ActiveMemoryReq, SearchReq, WakeReq, WakeResp
+from dory_core.types import ActiveMemoryReq, SearchReq, SearchScope, WakeReq, WakeResp
 from dory_core.wake import WakeBuilder
 
 
@@ -175,6 +175,34 @@ def test_active_memory_builds_memory_block_for_state_question(tmp_path: Path) ->
     assert search_engine.requests[1].rerank == "false"
 
 
+def test_active_memory_applies_scope_to_session_recall_only(tmp_path: Path) -> None:
+    search_engine = _StubSearchEngine()
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=search_engine,
+    )
+    example_session = "codex-session-1"
+
+    engine.build(
+        ActiveMemoryReq(
+            prompt="what are we working on today",
+            agent="codex",
+            include_wake=False,
+            scope=SearchScope(session_key=example_session, agent=["codex"], status=["active"]),
+        )
+    )
+
+    durable_req = search_engine.requests[0]
+    session_req = search_engine.requests[1]
+    assert durable_req.corpus == "durable"
+    assert durable_req.scope.session_key is None
+    assert durable_req.scope.agent == []
+    assert session_req.corpus == "sessions"
+    assert session_req.scope.session_key == example_session
+    assert session_req.scope.agent == ["codex"]
+    assert session_req.scope.status == ["active"]
+
+
 def test_active_memory_can_skip_wake_after_session_wake_was_loaded(tmp_path: Path) -> None:
     search_engine = _StubSearchEngine()
     wake_builder = _CountingWakeBuilder()
@@ -195,6 +223,51 @@ def test_active_memory_can_skip_wake_after_session_wake_was_loaded(tmp_path: Pat
     assert "wake block should be omitted" not in result.block
     assert "core/user.md" not in result.sources
     assert "core/active.md" in result.sources
+
+
+def test_active_memory_infers_project_from_cwd_and_includes_project_state(tmp_path: Path) -> None:
+    class EmptySearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            del req
+            return _make_response([])
+
+    corpus_root = tmp_path / "corpus"
+    workspace = tmp_path / "workspace"
+    (workspace).mkdir()
+    (workspace / "pyproject.toml").write_text('[project]\nname = "dory"\n', encoding="utf-8")
+    (corpus_root / "core").mkdir(parents=True)
+    (corpus_root / "core" / "active.md").write_text("Dory is active.\n", encoding="utf-8")
+    (corpus_root / "projects" / "dory").mkdir(parents=True)
+    (corpus_root / "projects" / "dory" / "state.md").write_text(
+        """---
+title: Dory
+type: project
+status: active
+canonical: true
+---
+
+## Summary
+- Dory is the shared memory substrate for agents.
+""",
+        encoding="utf-8",
+    )
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=corpus_root),
+        search_engine=EmptySearchEngine(),
+        root=corpus_root,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what is the current memory work",
+            agent="codex",
+            cwd=str(workspace),
+            include_wake=False,
+        )
+    )
+
+    assert "projects/dory/state.md" in result.sources
+    assert "Dory is the shared memory substrate for agents." in result.block
 
 
 def test_active_memory_filters_low_trust_durable_evidence(tmp_path: Path) -> None:

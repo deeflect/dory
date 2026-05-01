@@ -10,19 +10,11 @@ from fastapi import HTTPException
 from fastapi.responses import HTMLResponse
 
 from dory_core.frontmatter import load_markdown_document
+from dory_http.app_ui import render_app_shell
 
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|([^\]]+))?\]\]")
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
-_NAV_LINKS = (
-    ("Index", "/wiki"),
-    ("Hot", "/wiki/hot"),
-    ("Log", "/wiki/log"),
-    ("Projects", "/wiki/projects/index"),
-    ("People", "/wiki/people/index"),
-    ("Concepts", "/wiki/concepts/index"),
-    ("Decisions", "/wiki/decisions/index"),
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +70,7 @@ def render_wiki_search(corpus_root: Path, query: str) -> HTMLResponse:
         content.append("</ol>")
     elif normalized_query:
         content.append("<p>No generated wiki pages matched that query.</p>")
-    html = _layout(title="Wiki Search", content="\n".join(content))
+    html = _layout(title="Wiki Search", content="\n".join(content), include_search=False)
     return HTMLResponse(html)
 
 
@@ -104,7 +96,7 @@ def render_wiki_login(
         "</section>"
     )
     return HTMLResponse(
-        _layout(title="Wiki Login", content=content, include_search=False),
+        _layout(title="Wiki Login", content=content, include_search=False, show_logout=False),
         status_code=status_code,
     )
 
@@ -330,228 +322,15 @@ def _search_form(query: str = "") -> str:
     )
 
 
-def _layout(*, title: str, content: str, include_search: bool = True) -> str:
-    nav = "".join(f'<a href="{href}">{escape(label)}</a>' for label, href in _NAV_LINKS)
-    search = _search_form() if include_search else ""
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{escape(title)} - Dory Wiki</title>
-  <style>
-    :root {{
-      color-scheme: light;
-      --bg: #f5efe4;
-      --paper: #fffaf1;
-      --ink: #201913;
-      --muted: #786c5f;
-      --line: #ded1bf;
-      --accent: #9f4d1c;
-      --accent-soft: #ead0bb;
-      --code: #2c211a;
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      background:
-        radial-gradient(circle at 8% 10%, rgba(159, 77, 28, .15), transparent 28rem),
-        linear-gradient(135deg, #f8f1e5 0%, #efe0cc 100%);
-      color: var(--ink);
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-      line-height: 1.55;
-    }}
-    .shell {{
-      display: grid;
-      grid-template-columns: 16rem minmax(0, 1fr);
-      min-height: 100vh;
-    }}
-    aside {{
-      border-right: 1px solid var(--line);
-      padding: 2rem 1.25rem;
-      background: rgba(255, 250, 241, .72);
-      backdrop-filter: blur(18px);
-      position: sticky;
-      top: 0;
-      height: 100vh;
-    }}
-    aside h2 {{
-      margin: 0 0 1rem;
-      font-size: 1rem;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-    }}
-    nav a {{
-      display: block;
-      color: var(--ink);
-      text-decoration: none;
-      padding: .42rem .55rem;
-      border-radius: .55rem;
-      margin: .1rem 0;
-    }}
-    nav a:hover {{ background: var(--accent-soft); }}
-    main {{
-      max-width: 920px;
-      width: 100%;
-      padding: 3rem clamp(1rem, 4vw, 4rem);
-    }}
-    .card {{
-      background: rgba(255, 250, 241, .88);
-      border: 1px solid var(--line);
-      border-radius: 1.5rem;
-      box-shadow: 0 24px 80px rgba(55, 38, 22, .14);
-      padding: clamp(1.1rem, 3vw, 2.4rem);
-    }}
-    h1, h2, h3, h4 {{
-      line-height: 1.1;
-      margin: 1.6em 0 .55em;
-      letter-spacing: -.03em;
-    }}
-    h1 {{ font-size: clamp(2rem, 6vw, 4.2rem); margin-top: 0; }}
-    h2 {{ font-size: clamp(1.45rem, 3vw, 2.2rem); border-top: 1px solid var(--line); padding-top: 1rem; }}
-    h3 {{ font-size: 1.25rem; }}
-    a {{ color: var(--accent); font-weight: 650; text-underline-offset: .16em; }}
-    p, li {{ font-size: 1.02rem; }}
-    code {{
-      display: inline-block;
-      font-family: "SFMono-Regular", "Cascadia Mono", monospace;
-      font-size: .82em;
-      color: var(--code);
-      background: #f0e2d0;
-      border-radius: .35rem;
-      padding: .05rem .35rem;
-      margin-left: .4rem;
-    }}
-    pre {{
-      overflow: auto;
-      background: #251d17;
-      color: #fff3e2;
-      border-radius: 1rem;
-      padding: 1rem;
-    }}
-    pre code {{ background: transparent; color: inherit; margin: 0; padding: 0; }}
-    blockquote {{
-      border-left: .25rem solid var(--accent);
-      margin-left: 0;
-      padding-left: 1rem;
-      color: var(--muted);
-    }}
-    .meta {{
-      display: flex;
-      flex-wrap: wrap;
-      gap: .4rem;
-      margin-bottom: 1.4rem;
-    }}
-    .meta span {{
-      border: 1px solid var(--line);
-      background: #f4e7d6;
-      color: var(--muted);
-      border-radius: 999px;
-      padding: .18rem .55rem;
-      font-size: .78rem;
-    }}
-    .search {{
-      display: flex;
-      gap: .6rem;
-      margin: 0 0 1.4rem;
-    }}
-    .search input {{
-      flex: 1;
-      min-width: 0;
-      border: 1px solid var(--line);
-      border-radius: .8rem;
-      padding: .72rem .85rem;
-      font: inherit;
-      background: #fffaf1;
-    }}
-    .search button {{
-      border: 0;
-      border-radius: .8rem;
-      background: var(--ink);
-      color: #fffaf1;
-      padding: .72rem 1rem;
-      font: inherit;
-      font-weight: 700;
-    }}
-    .search-results {{
-      padding-left: 1.35rem;
-    }}
-    .search-results li {{
-      margin-bottom: 1rem;
-    }}
-    .search-results p, .muted {{
-      color: var(--muted);
-    }}
-    .login-panel {{
-      max-width: 32rem;
-    }}
-    .login label {{
-      display: grid;
-      gap: .4rem;
-      color: var(--muted);
-      font-weight: 700;
-    }}
-    .login input {{
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: .8rem;
-      padding: .78rem .85rem;
-      font: inherit;
-      background: #fffaf1;
-      color: var(--ink);
-      margin-bottom: .8rem;
-    }}
-    .login button {{
-      border: 0;
-      border-radius: .8rem;
-      background: var(--ink);
-      color: #fffaf1;
-      padding: .78rem 1rem;
-      font: inherit;
-      font-weight: 800;
-      width: 100%;
-    }}
-    .error {{
-      background: #f6d9cc;
-      color: #7b2d14;
-      border: 1px solid #d99c7e;
-      border-radius: .8rem;
-      padding: .7rem .85rem;
-    }}
-    @media (max-width: 760px) {{
-      .shell {{ display: block; }}
-      aside {{
-        position: static;
-        height: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--line);
-        padding: 1rem;
-      }}
-      nav {{
-        display: flex;
-        gap: .25rem;
-        overflow-x: auto;
-        padding-bottom: .2rem;
-      }}
-      nav a {{ white-space: nowrap; }}
-      main {{ padding: 1rem; }}
-      .search {{ flex-direction: column; }}
-    }}
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <aside>
-      <h2>Dory Wiki</h2>
-      <nav>{nav}</nav>
-    </aside>
-    <main>
-      <section class="card">
-        {search}
-        {content}
-      </section>
-    </main>
-  </div>
-</body>
-</html>
-"""
+def _layout(*, title: str, content: str, include_search: bool = True, show_logout: bool = True) -> str:
+    if include_search:
+        search = _search_form()
+    else:
+        search = None if show_logout else ""
+    return render_app_shell(
+        title=title,
+        active="wiki",
+        content=content,
+        search_html=search,
+        show_logout=show_logout,
+    )

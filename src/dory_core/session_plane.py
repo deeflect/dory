@@ -13,6 +13,12 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 class SessionSearchQuery:
     query: str
     limit: int = 5
+    agents: tuple[str, ...] = ()
+    devices: tuple[str, ...] = ()
+    session_ids: tuple[str, ...] = ()
+    statuses: tuple[str, ...] = ()
+    since: str | None = None
+    until: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,9 +146,10 @@ class SessionEvidencePlane:
             return SessionSearchResponse(count=0, results=())
 
         query_terms = _query_terms(query.query)
+        filters_sql, filter_params = _session_filter_clause(query)
         with sqlite3.connect(self.db_path) as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT
                     d.path,
                     d.content,
@@ -155,10 +162,11 @@ class SessionEvidencePlane:
                 FROM session_docs_fts
                 JOIN session_docs AS d ON d.rowid = session_docs_fts.rowid
                 WHERE session_docs_fts MATCH ?
+                {filters_sql}
                 ORDER BY rank ASC, d.updated DESC
                 LIMIT ?
                 """,
-                (fts_query, max(query.limit * 4, query.limit)),
+                (fts_query, *filter_params, max(query.limit * 4, query.limit)),
             ).fetchall()
 
         ranked = sorted(
@@ -189,6 +197,32 @@ def _build_fts_query(raw_query: str) -> str:
     if not deduped:
         return ""
     return " OR ".join(f'"{token}"' for token in deduped)
+
+
+def _session_filter_clause(query: SessionSearchQuery) -> tuple[str, tuple[str, ...]]:
+    clauses: list[str] = []
+    params: list[str] = []
+    for column, values in (
+        ("d.agent", query.agents),
+        ("d.device", query.devices),
+        ("d.session_id", query.session_ids),
+        ("d.status", query.statuses),
+    ):
+        normalized = tuple(value.strip() for value in values if value.strip())
+        if not normalized:
+            continue
+        placeholders = ", ".join("?" for _ in normalized)
+        clauses.append(f"{column} IN ({placeholders})")
+        params.extend(normalized)
+    if query.since is not None and query.since.strip():
+        clauses.append("d.updated >= ?")
+        params.append(query.since.strip())
+    if query.until is not None and query.until.strip():
+        clauses.append("d.updated <= ?")
+        params.append(query.until.strip())
+    if not clauses:
+        return "", ()
+    return " AND " + " AND ".join(clauses), tuple(params)
 
 
 def _query_terms(raw_query: str) -> tuple[str, ...]:

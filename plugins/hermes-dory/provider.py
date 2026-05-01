@@ -378,6 +378,11 @@ class DoryMemoryProvider(MemoryProvider):
             "dory_search": self._handle_search_tool,
             "dory_get": self._handle_get_tool,
             "dory_memory_write": self._handle_memory_write_tool,
+            "dory_memory_propose": self._handle_memory_propose_tool,
+            "dory_memory_proposals": self._handle_memory_proposals_tool,
+            "dory_memory_proposal_get": self._handle_memory_proposal_get_tool,
+            "dory_memory_proposal_apply": self._handle_memory_proposal_apply_tool,
+            "dory_memory_proposal_reject": self._handle_memory_proposal_reject_tool,
             "dory_write": self._handle_write_tool,
             "dory_purge": self._handle_purge_tool,
             "dory_link": self._handle_link_tool,
@@ -389,6 +394,7 @@ class DoryMemoryProvider(MemoryProvider):
             agent=_as_optional_string(args.get("agent")),
             budget_tokens=_as_optional_int(args.get("budget_tokens")),
             profile=_as_optional_wake_profile(args.get("profile")),
+            project=_as_optional_string(args.get("project")),
             include_recent_sessions=_as_optional_int(args.get("include_recent_sessions")),
             include_pinned_decisions=_as_optional_bool(args.get("include_pinned_decisions")),
         )
@@ -399,6 +405,8 @@ class DoryMemoryProvider(MemoryProvider):
             agent=_as_optional_string(args.get("agent")),
             budget_tokens=_as_optional_int(args.get("budget_tokens")),
             cwd=_as_optional_string(args.get("cwd")),
+            project=_as_optional_string(args.get("project")),
+            scope=_as_optional_mapping(args.get("scope")),
             timeout_ms=_as_optional_int(args.get("timeout_ms")),
             profile=_as_optional_active_memory_profile(args.get("profile")),
             include_wake=_as_optional_bool(args.get("include_wake")),
@@ -460,6 +468,54 @@ class DoryMemoryProvider(MemoryProvider):
             dry_run=_as_optional_bool(args.get("dry_run"), default=False),
             force_inbox=_as_optional_bool(args.get("force_inbox"), default=False),
             allow_canonical=_as_optional_bool(args.get("allow_canonical"), default=False),
+            agent=_as_optional_string(args.get("agent")),
+            session_id=_as_optional_string(args.get("session_id")),
+            origin_surface=_as_optional_string(args.get("origin_surface")),
+        )
+
+    def _handle_memory_propose_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.memory_propose(
+            action=_require_string(args, "action"),
+            kind=_require_string(args, "kind"),
+            subject=_require_string(args, "subject"),
+            content=_require_string(args, "content"),
+            scope=_as_optional_string(args.get("scope")),
+            confidence=_as_optional_string(args.get("confidence")),
+            reason=_as_optional_string(args.get("reason")),
+            source=_as_optional_string(args.get("source")),
+            soft=_as_optional_bool(args.get("soft"), default=False),
+            force_inbox=_as_optional_bool(args.get("force_inbox"), default=False),
+            agent=_as_optional_string(args.get("agent")),
+            session_id=_as_optional_string(args.get("session_id")),
+            origin_surface=_as_optional_string(args.get("origin_surface")),
+            source_paths=_as_optional_string_list(args.get("source_paths")),
+            proposal_id=_as_optional_string(args.get("proposal_id")),
+        )
+
+    def _handle_memory_proposals_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.memory_proposals(status=_as_optional_string(args.get("status")) or "pending")
+
+    def _handle_memory_proposal_get_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.memory_proposal_get(
+            _require_string(args, "proposal_id"),
+            status=_as_optional_string(args.get("status")) or "pending",
+        )
+
+    def _handle_memory_proposal_apply_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.memory_proposal_apply(
+            _require_string(args, "proposal_id"),
+            agent=_as_optional_string(args.get("agent")),
+            session_id=_as_optional_string(args.get("session_id")),
+            origin_surface=_as_optional_string(args.get("origin_surface")),
+        )
+
+    def _handle_memory_proposal_reject_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.memory_proposal_reject(
+            _require_string(args, "proposal_id"),
+            reason=_as_optional_string(args.get("reason")),
+            agent=_as_optional_string(args.get("agent")),
+            session_id=_as_optional_string(args.get("session_id")),
+            origin_surface=_as_optional_string(args.get("origin_surface")),
         )
 
     def _handle_write_tool(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -527,6 +583,9 @@ class DoryMemoryProvider(MemoryProvider):
                     content=content,
                     scope="core",
                     source="hermes-builtin-user",
+                    agent=self._runtime_agent,
+                    session_id=self._session_id or None,
+                    origin_surface="hermes-builtin-memory",
                 )
                 return
             self.write(
@@ -619,26 +678,24 @@ class DoryMemoryProvider(MemoryProvider):
         agent: str | None = None,
         budget_tokens: int | None = None,
         profile: WakeProfile | None = None,
+        project: str | None = None,
         include_recent_sessions: int | None = None,
         include_pinned_decisions: bool | None = None,
     ) -> dict[str, Any]:
-        return self._request(
-            "POST",
-            "/v1/wake",
-            json={
-                "agent": self._resolve_agent(agent),
-                "budget_tokens": budget_tokens if budget_tokens is not None else self.wake_budget_tokens,
-                "profile": profile if profile is not None else self.wake_profile,
-                "include_recent_sessions": (
-                    include_recent_sessions if include_recent_sessions is not None else self.wake_recent_sessions
-                ),
-                "include_pinned_decisions": (
-                    include_pinned_decisions
-                    if include_pinned_decisions is not None
-                    else self.wake_include_pinned_decisions
-                ),
-            },
-        )
+        payload: dict[str, Any] = {
+            "agent": self._resolve_agent(agent),
+            "budget_tokens": budget_tokens if budget_tokens is not None else self.wake_budget_tokens,
+            "profile": profile if profile is not None else self.wake_profile,
+            "include_recent_sessions": (
+                include_recent_sessions if include_recent_sessions is not None else self.wake_recent_sessions
+            ),
+            "include_pinned_decisions": (
+                include_pinned_decisions if include_pinned_decisions is not None else self.wake_include_pinned_decisions
+            ),
+        }
+        if project is not None:
+            payload["project"] = project
+        return self._request("POST", "/v1/wake", json=payload)
 
     def search(
         self,
@@ -727,6 +784,9 @@ class DoryMemoryProvider(MemoryProvider):
         dry_run: bool = False,
         force_inbox: bool = False,
         allow_canonical: bool = False,
+        agent: str | None = None,
+        session_id: str | None = None,
+        origin_surface: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "action": action,
@@ -746,7 +806,107 @@ class DoryMemoryProvider(MemoryProvider):
             payload["reason"] = reason
         if source is not None:
             payload["source"] = source
+        if agent is not None:
+            payload["agent"] = agent
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if origin_surface is not None:
+            payload["origin_surface"] = origin_surface
         return self._request("POST", "/v1/memory-write", json=payload)
+
+    def memory_propose(
+        self,
+        *,
+        action: str,
+        kind: str,
+        subject: str,
+        content: str,
+        scope: str | None = None,
+        confidence: str | None = None,
+        reason: str | None = None,
+        source: str | None = None,
+        soft: bool = False,
+        force_inbox: bool = False,
+        agent: str | None = None,
+        session_id: str | None = None,
+        origin_surface: str | None = None,
+        source_paths: list[str] | None = None,
+        proposal_id: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "action": action,
+            "kind": kind,
+            "subject": subject,
+            "content": content,
+            "soft": soft,
+            "force_inbox": force_inbox,
+        }
+        if scope is not None:
+            payload["scope"] = scope
+        if confidence is not None:
+            payload["confidence"] = confidence
+        if reason is not None:
+            payload["reason"] = reason
+        if source is not None:
+            payload["source"] = source
+        if agent is not None:
+            payload["agent"] = agent
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if origin_surface is not None:
+            payload["origin_surface"] = origin_surface
+        if source_paths:
+            payload["source_paths"] = source_paths
+        if proposal_id is not None:
+            payload["proposal_id"] = proposal_id
+        return self._request("POST", "/v1/memory-proposals", json=payload)
+
+    def memory_proposals(self, *, status: str = "pending") -> dict[str, Any]:
+        return self._request("POST", "/v1/memory-proposals/list", json={"status": status})
+
+    def memory_proposal_get(self, proposal_id: str, *, status: str = "pending") -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/memory-proposals/get",
+            json={"proposal_id": proposal_id, "status": status},
+        )
+
+    def memory_proposal_apply(
+        self,
+        proposal_id: str,
+        *,
+        agent: str | None = None,
+        session_id: str | None = None,
+        origin_surface: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"proposal_id": proposal_id}
+        if agent is not None:
+            payload["agent"] = agent
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if origin_surface is not None:
+            payload["origin_surface"] = origin_surface
+        return self._request("POST", "/v1/memory-proposals/apply", json=payload)
+
+    def memory_proposal_reject(
+        self,
+        proposal_id: str,
+        *,
+        reason: str | None = None,
+        agent: str | None = None,
+        session_id: str | None = None,
+        origin_surface: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"proposal_id": proposal_id}
+        if reason is not None:
+            payload["reason"] = reason
+        if agent is not None:
+            payload["agent"] = agent
+        if session_id is not None:
+            payload["session_id"] = session_id
+        if origin_surface is not None:
+            payload["origin_surface"] = origin_surface
+        return self._request("POST", "/v1/memory-proposals/reject", json=payload)
 
     def purge(
         self,
@@ -848,6 +1008,8 @@ class DoryMemoryProvider(MemoryProvider):
         agent: str | None = None,
         budget_tokens: int | None = None,
         cwd: str | None = None,
+        project: str | None = None,
+        scope: dict[str, Any] | None = None,
         timeout_ms: int | None = None,
         profile: ActiveMemoryProfile | None = None,
         include_wake: bool | None = None,
@@ -863,6 +1025,10 @@ class DoryMemoryProvider(MemoryProvider):
             payload["profile"] = profile
         if cwd is not None:
             payload["cwd"] = cwd
+        if project is not None:
+            payload["project"] = project
+        if scope is not None:
+            payload["scope"] = scope
         if timeout_ms is not None:
             payload["timeout_ms"] = timeout_ms
         if rerank is not None:
@@ -878,15 +1044,19 @@ class DoryMemoryProvider(MemoryProvider):
         k: int | None = None,
         mode: SearchMode | None = None,
         cwd: str | None = None,
+        project: str | None = None,
+        scope: dict[str, Any] | None = None,
         timeout_ms: int | None = None,
     ) -> dict[str, Any]:
-        wake_payload = self.wake(agent=agent, budget_tokens=budget_tokens)
-        search_payload = self.search(prompt, k=k, mode=mode)
+        wake_payload = self.wake(agent=agent, budget_tokens=budget_tokens, project=project)
+        search_payload = self.search(prompt, k=k, mode=mode, scope=scope)
         active_memory_payload = self.active_memory(
             prompt,
             agent=agent,
             budget_tokens=budget_tokens,
             cwd=cwd,
+            project=project,
+            scope=scope,
             timeout_ms=timeout_ms,
             include_wake=False,
         )
@@ -905,6 +1075,8 @@ class DoryMemoryProvider(MemoryProvider):
         k: int | None = None,
         mode: SearchMode | None = None,
         cwd: str | None = None,
+        project: str | None = None,
+        scope: dict[str, Any] | None = None,
         timeout_ms: int | None = None,
     ) -> str:
         prefetched = self.prefetch_bundle(
@@ -914,6 +1086,8 @@ class DoryMemoryProvider(MemoryProvider):
             k=k,
             mode=mode,
             cwd=cwd,
+            project=project,
+            scope=scope,
             timeout_ms=timeout_ms,
         )
         active_memory = prefetched.get("active_memory")
@@ -956,6 +1130,9 @@ class DoryMemoryProvider(MemoryProvider):
         dry_run: bool = False,
         force_inbox: bool = False,
         allow_canonical: bool = False,
+        agent: str | None = None,
+        session_id: str | None = None,
+        origin_surface: str | None = None,
         target: str | None = None,
         write_kind: str = "append",
         frontmatter: dict[str, Any] | None = None,
@@ -975,6 +1152,9 @@ class DoryMemoryProvider(MemoryProvider):
                 dry_run=dry_run,
                 force_inbox=force_inbox,
                 allow_canonical=allow_canonical,
+                agent=agent,
+                session_id=session_id,
+                origin_surface=origin_surface,
             )
         if target is None:
             raise ValueError("store_memory requires either subject or target")
@@ -1006,6 +1186,9 @@ class DoryMemoryProvider(MemoryProvider):
                     dry_run=bool(write.get("dry_run", False)),
                     force_inbox=bool(write.get("force_inbox", False)),
                     allow_canonical=bool(write.get("allow_canonical", False)),
+                    agent=str(write["agent"]) if "agent" in write else None,
+                    session_id=str(write["session_id"]) if "session_id" in write else None,
+                    origin_surface=str(write["origin_surface"]) if "origin_surface" in write else None,
                     target=str(write["target"]) if "target" in write else None,
                     write_kind=str(write.get("write_kind", write.get("kind", "append"))),
                     frontmatter=write.get("frontmatter"),
@@ -1147,6 +1330,7 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                 "properties": {
                     "budget_tokens": {"type": "integer"},
                     "agent": {"type": "string"},
+                    "project": {"type": "string"},
                     "profile": {
                         "type": "string",
                         "enum": ["default", "casual", "coding", "writing", "privacy"],
@@ -1165,6 +1349,19 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     "prompt": {"type": "string"},
                     "agent": {"type": "string"},
                     "cwd": {"type": "string"},
+                    "project": {"type": "string"},
+                    "scope": {
+                        "type": "object",
+                        "properties": {
+                            "agent": {"type": "array", "items": {"type": "string"}},
+                            "device": {"type": "array", "items": {"type": "string"}},
+                            "session_id": {"type": "array", "items": {"type": "string"}},
+                            "session_key": {"type": "string"},
+                            "status": {"type": "array", "items": {"type": "string"}},
+                            "since": {"type": "string"},
+                            "until": {"type": "string"},
+                        },
+                    },
                     "profile": {
                         "type": "string",
                         "enum": ["auto", "general", "coding", "writing", "privacy", "personal"],
@@ -1240,6 +1437,10 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                             "type": {"type": "array", "items": {"type": "string"}},
                             "status": {"type": "array", "items": {"type": "string"}},
                             "tags": {"type": "array", "items": {"type": "string"}},
+                            "agent": {"type": "array", "items": {"type": "string"}},
+                            "device": {"type": "array", "items": {"type": "string"}},
+                            "session_id": {"type": "array", "items": {"type": "string"}},
+                            "session_key": {"type": "string"},
                             "since": {"type": "string"},
                             "until": {"type": "string"},
                         },
@@ -1284,6 +1485,9 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     "dry_run": {"type": "boolean"},
                     "force_inbox": {"type": "boolean"},
                     "allow_canonical": {"type": "boolean"},
+                    "agent": {"type": "string"},
+                    "session_id": {"type": "string"},
+                    "origin_surface": {"type": "string"},
                 },
                 "required": ["action", "kind", "subject", "content"],
             },

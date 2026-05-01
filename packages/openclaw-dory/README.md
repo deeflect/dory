@@ -59,6 +59,8 @@ The exported default entrypoint uses the documented OpenClaw plugin SDK shape:
 
 `memory_write` is semantic-first: the agent supplies `action`, `kind`, `subject`, and `content`, and Dory resolves the canonical target internally. The old path-first Dory `/v1/write` surface is not the primary OpenClaw write path anymore.
 
+`memory_search` forwards OpenClaw's session key into Dory search scope, and the exported manager does the same for active-memory calls. Use `corpus: "sessions"` when a search should target session recall only.
+
 Compaction flush is now Dory-backed as well: the plugin advertises a real flush plan so OpenClaw can prepare durable memory summaries before compaction, and those summaries are intended to flow through semantic memory writes instead of markdown-path mutation.
 
 ## Source Audit / Benchmark

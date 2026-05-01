@@ -256,7 +256,7 @@ class SearchEngine:
         )
 
         if req.mode == "recall" or req.corpus == "sessions":
-            response = self._search_session_plane(req.query, req.k, started=started)
+            response = self._search_session_plane(req.query, req.k, scope=req.scope, started=started)
             return self._finalize_search_response(response, req=req, warnings=warnings)
 
         durable = self._search_durable(
@@ -270,7 +270,7 @@ class SearchEngine:
             return self._finalize_search_response(durable, req=req, warnings=warnings)
 
         session_queries = search_plan.session_queries if search_plan is not None else (req.query,)
-        session = self._search_session_plane_multi(session_queries, req.k, started=started)
+        session = self._search_session_plane_multi(session_queries, req.k, scope=req.scope, started=started)
         merged = self._merge_with_session_results(
             durable,
             session,
@@ -699,9 +699,10 @@ class SearchEngine:
         query: str,
         limit: int,
         *,
+        scope: SearchScope | None = None,
         started: float,
     ) -> SearchResp:
-        response = self.session_plane.search(SessionSearchQuery(query=query, limit=limit))
+        response = self.session_plane.search(_session_search_query(query=query, limit=limit, scope=scope))
         results = [
             SearchResult(
                 path=result.path,
@@ -731,14 +732,15 @@ class SearchEngine:
         queries: Sequence[str],
         limit: int,
         *,
+        scope: SearchScope | None = None,
         started: float,
     ) -> SearchResp:
         normalized_queries = [query for query in queries if query.strip()]
         if not normalized_queries:
-            return self._search_session_plane("", limit, started=started)
+            return self._search_session_plane("", limit, scope=scope, started=started)
         scored_results: dict[str, tuple[float, SearchResult]] = {}
         for query_index, query in enumerate(normalized_queries):
-            response = self._search_session_plane(query, limit, started=started)
+            response = self._search_session_plane(query, limit, scope=scope, started=started)
             for result_index, result in enumerate(response.results, start=1):
                 score = float(result.score) - (query_index * 0.1) - (result_index * 0.01)
                 existing = scored_results.get(result.path)
@@ -827,6 +829,28 @@ def _fuse_scores(
         for position, chunk_id in enumerate(ranking, start=1):
             scores[chunk_id] += 1.0 / (fusion_k + position)
     return dict(scores)
+
+
+def _session_search_query(*, query: str, limit: int, scope: SearchScope | None) -> SessionSearchQuery:
+    if scope is None:
+        return SessionSearchQuery(query=query, limit=limit)
+    session_ids = tuple(_normalized_filter_values(scope.session_id))
+    if scope.session_key is not None and scope.session_key.strip():
+        session_ids = _dedupe_preserve_order([*session_ids, scope.session_key.strip()])
+    return SessionSearchQuery(
+        query=query,
+        limit=limit,
+        agents=tuple(_normalized_filter_values(scope.agent)),
+        devices=tuple(_normalized_filter_values(scope.device)),
+        session_ids=session_ids,
+        statuses=tuple(_normalized_filter_values(scope.status)),
+        since=scope.since,
+        until=scope.until,
+    )
+
+
+def _normalized_filter_values(values: Sequence[str]) -> list[str]:
+    return [value.strip() for value in values if value.strip()]
 
 
 def _cosine_similarity(left: Sequence[float], right: Sequence[float]) -> float:

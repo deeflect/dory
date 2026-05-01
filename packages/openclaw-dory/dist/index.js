@@ -33,7 +33,7 @@ const MemorySearchSchema = {
         query: { type: "string" },
         maxResults: { type: "number" },
         minScore: { type: "number" },
-        corpus: { enum: ["memory", "wiki", "all"] },
+        corpus: { enum: ["memory", "wiki", "all", "sessions"] },
         rerank: { enum: ["auto", "true", "false"] },
         debug: { type: "boolean" },
     },
@@ -387,6 +387,7 @@ function createMemorySearchTool(options, ctx) {
                         maxResults,
                         minScore,
                         sessionKey: toolCtx.agentSessionKey,
+                        corpus: requestedCorpus,
                         rerank,
                         debug,
                     })).map((result, index) => ({
@@ -609,14 +610,15 @@ export class DoryMemorySearchManager {
         opts?.onDebug?.({
             provider: "dory-http",
             mode,
-            sessionKeyApplied: false,
-            sessionKeySupported: false,
-            warning: opts?.sessionKey ? "sessionKey is not yet supported by Dory HTTP search" : undefined,
+            sessionKeyApplied: Boolean(opts?.sessionKey),
+            sessionKeySupported: true,
         });
         const payload = await search(this.options, {
             query,
             k: opts?.maxResults ?? 10,
             mode,
+            corpus: mapDoryCorpus(opts?.corpus),
+            scope: opts?.sessionKey ? { session_key: opts.sessionKey } : undefined,
             min_relevance_score: opts?.minScore,
             rerank: opts?.rerank,
             debug: opts?.debug ?? false,
@@ -639,6 +641,8 @@ export class DoryMemorySearchManager {
             agent: opts?.agent ?? this.agentId,
             budget_tokens: opts?.budgetTokens,
             cwd: opts?.cwd,
+            project: opts?.project,
+            scope: opts?.sessionKey ? { session_key: opts.sessionKey } : undefined,
             profile: opts?.profile,
             timeout_ms: opts?.timeoutMs,
             rerank: opts?.rerank,
@@ -750,6 +754,15 @@ function mapSearchMode(mode) {
         return "vector";
     }
     return "hybrid";
+}
+function mapDoryCorpus(corpus) {
+    if (corpus === "all") {
+        return "all";
+    }
+    if (corpus === "sessions") {
+        return "sessions";
+    }
+    return "durable";
 }
 function getDoryManager(options, agentId) {
     const key = `default:${agentId}`;

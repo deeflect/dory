@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dory_core.semantic_write import SubjectMatch, SubjectResolver, build_semantic_write_plan
+from dory_core.semantic_write import SemanticWriteEngine, SubjectMatch, SubjectResolver, build_semantic_write_plan
 from dory_core.types import MemoryWriteReq, MemoryWriteResp
 
 
@@ -38,6 +38,36 @@ def test_memory_write_resp_carries_resolution_metadata() -> None:
     assert resp.result == "written"
     assert resp.indexed is True
     assert resp.quarantined is False
+
+
+def test_semantic_write_preview_includes_provenance_and_plan(tmp_path: Path) -> None:
+    (tmp_path / "projects" / "sample").mkdir(parents=True)
+    (tmp_path / "projects" / "sample" / "state.md").write_text(
+        "---\ntitle: Sample\n---\n# Sample\n",
+        encoding="utf-8",
+    )
+    engine = SemanticWriteEngine(tmp_path, resolver_client=None)
+
+    resp = engine.write(
+        MemoryWriteReq(
+            action="write",
+            kind="state",
+            subject="sample",
+            content="Sample is the active focus this week.",
+            scope="project",
+            dry_run=True,
+            agent="codex",
+            session_id="session-1",
+            origin_surface="mcp",
+        )
+    )
+
+    assert resp.result == "preview"
+    assert resp.evidence_path is not None
+    assert resp.matched_by == "subject_ref"
+    assert resp.preview is not None
+    assert resp.preview["target_path"] == "projects/sample/state.md"
+    assert resp.preview["evidence_path"] == resp.evidence_path
 
 
 def test_subject_resolver_matches_aliases_titles_and_fuzzy_subjects(tmp_path: Path) -> None:

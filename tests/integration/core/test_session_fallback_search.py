@@ -32,6 +32,46 @@ def test_recall_mode_uses_session_plane_only(
     assert all(result.path.startswith("logs/sessions/") for result in response.results)
 
 
+def test_recall_mode_honors_session_scope_filters(
+    tmp_path: Path,
+    sample_corpus_root: Path,
+    fake_embedder,
+) -> None:
+    index_root = tmp_path / "index"
+    reindex_corpus(sample_corpus_root, index_root, fake_embedder)
+    plane = SessionEvidencePlane(index_root / "session_plane.db")
+    plane.upsert_session_chunk(
+        path="logs/sessions/codex/mac/2026-04-12-codex.md",
+        content="We cleaned up shared memory handoff notes.",
+        updated="2026-04-12T10:00:00Z",
+        agent="codex",
+        device="mac",
+        session_id="codex-1",
+        status="done",
+    )
+    plane.upsert_session_chunk(
+        path="logs/sessions/hermes/zima/2026-04-12-hermes.md",
+        content="We cleaned up shared memory handoff notes.",
+        updated="2026-04-12T10:00:00Z",
+        agent="hermes",
+        device="zima",
+        session_id="hermes-1",
+        status="done",
+    )
+
+    engine = SearchEngine(index_root, fake_embedder)
+    response = engine.search(
+        SearchReq(
+            query="cleaned up shared memory",
+            mode="recall",
+            k=5,
+            scope={"agent": ["codex"], "session_id": ["codex-1"]},
+        )
+    )
+
+    assert [result.path for result in response.results] == ["logs/sessions/codex/mac/2026-04-12-codex.md"]
+
+
 def test_durable_hybrid_search_does_not_fallback_to_session_plane(
     tmp_path: Path,
     sample_corpus_root: Path,

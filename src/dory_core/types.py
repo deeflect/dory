@@ -44,6 +44,10 @@ class SearchScope(BaseModel):
     type: list[str] = Field(default_factory=list)
     status: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    agent: list[str] = Field(default_factory=list)
+    device: list[str] = Field(default_factory=list)
+    session_id: list[str] = Field(default_factory=list)
+    session_key: str | None = None
     since: str | None = None
     until: str | None = None
 
@@ -126,8 +130,10 @@ class ActiveMemoryReq(BaseModel):
     prompt: str
     agent: str
     cwd: str | None = None
+    project: str | None = None
+    scope: SearchScope = Field(default_factory=SearchScope)
     profile: ActiveMemoryProfile = "auto"
-    timeout_ms: int = Field(default=1200, ge=100, le=5000)
+    timeout_ms: int = Field(default=3000, ge=100, le=5000)
     budget_tokens: int = Field(default=400, ge=100, le=1200)
     include_wake: bool = True
     rerank: Literal["auto", "true", "false"] = "auto"
@@ -224,6 +230,9 @@ class MemoryWriteReq(BaseModel):
     dry_run: bool = False
     force_inbox: bool = False
     allow_canonical: bool = False
+    agent: str | None = None
+    session_id: str | None = None
+    origin_surface: str | None = None
 
     @field_validator("action", mode="before")
     @classmethod
@@ -246,6 +255,56 @@ class MemoryWriteResp(BaseModel):
     indexed: bool
     quarantined: bool
     message: str | None = None
+    evidence_path: str | None = None
+    matched_by: str | None = None
+    preview: dict[str, Any] | None = None
+
+
+class MemoryProposalCreateReq(BaseModel):
+    action: MemoryWriteAction
+    kind: MemoryWriteKind
+    subject: str
+    content: str
+    scope: Literal["person", "project", "concept", "decision", "core"] | None = None
+    confidence: Literal["high", "medium", "low"] | None = None
+    reason: str | None = None
+    source: str | None = None
+    soft: bool = False
+    force_inbox: bool = False
+    agent: str | None = None
+    session_id: str | None = None
+    origin_surface: str | None = None
+    source_paths: list[str] = Field(default_factory=list)
+    proposal_id: str | None = None
+
+    @field_validator("action", mode="before")
+    @classmethod
+    def normalize_action_aliases(cls, value: object) -> object:
+        return MemoryWriteReq.normalize_action_aliases(value)
+
+
+class MemoryProposalListReq(BaseModel):
+    status: Literal["pending", "applied", "rejected"] = "pending"
+
+
+class MemoryProposalGetReq(BaseModel):
+    proposal_id: str
+    status: Literal["pending", "applied", "rejected"] = "pending"
+
+
+class MemoryProposalApplyReq(BaseModel):
+    proposal_id: str
+    agent: str | None = None
+    session_id: str | None = None
+    origin_surface: str | None = None
+
+
+class MemoryProposalRejectReq(BaseModel):
+    proposal_id: str
+    reason: str | None = None
+    agent: str | None = None
+    session_id: str | None = None
+    origin_surface: str | None = None
 
 
 class RecallEventReq(BaseModel):

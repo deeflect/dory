@@ -90,6 +90,9 @@ def test_hermes_provider_covers_http_verbs(
         scope="person",
         soft=True,
         allow_canonical=True,
+        agent="hermes",
+        session_id="session-123",
+        origin_surface="hermes-test",
     )
     semantic_forget = provider.memory_write(
         action="forget",
@@ -137,7 +140,10 @@ def test_hermes_provider_covers_http_verbs(
     assert "summary" in active_memory
     assert "Casey builds agent infrastructure" in read["content"]
     assert semantic_preview["result"] == "preview"
+    assert semantic_preview["preview"]["target_path"] == "people/alex.md"
     assert semantic_write["resolved"] is True
+    assert semantic_write["evidence_path"].startswith("sources/semantic/")
+    assert semantic_write["matched_by"]
     assert semantic_write["target_path"] == "people/alex.md"
     assert semantic_forget["resolved"] is True
     assert semantic_forget["result"] == "forgotten"
@@ -153,6 +159,10 @@ def test_hermes_provider_covers_http_verbs(
         "forget",
     }
     assert all(frontmatter["source_kind"] == "semantic" for frontmatter in artifact_frontmatters)
+    write_frontmatter = next(frontmatter for frontmatter in artifact_frontmatters if frontmatter["action"] == "write")
+    assert write_frontmatter["agent"] == "hermes"
+    assert write_frontmatter["session_id"] == "session-123"
+    assert write_frontmatter["origin_surface"] == "hermes-test"
     assert write["path"] == "inbox/hermes.md"
     assert purge_preview["action"] == "would_purge"
     assert purge_preview["dry_run"] is True

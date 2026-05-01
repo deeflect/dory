@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from dory_core.session_plane import SessionEvidencePlane
 from dory_cli.main import app
 
 
@@ -43,6 +44,53 @@ def test_cli_search_returns_fixture_hit(cli_runner, indexed_fixture_env) -> None
     payload = json.loads(result.stdout)
     assert payload["count"] >= 1
     assert any(hit["path"] == "core/env.md" for hit in payload["results"])
+
+
+def test_cli_search_can_scope_session_recall(cli_runner, indexed_fixture_env) -> None:
+    index_root = indexed_fixture_env["index_root"]
+    plane = SessionEvidencePlane(index_root / "session_plane.db")
+    plane.upsert_session_chunk(
+        path="logs/sessions/codex/mac/2026-04-30-codex.md",
+        content="Scoped CLI recall found the Dory session-key marker.",
+        updated="2026-04-30T12:00:00Z",
+        agent="codex",
+        device="mac",
+        session_id="codex-cli",
+        status="done",
+    )
+    plane.upsert_session_chunk(
+        path="logs/sessions/hermes/zima/2026-04-30-hermes.md",
+        content="Scoped CLI recall found the Dory session-key marker.",
+        updated="2026-04-30T12:00:00Z",
+        agent="hermes",
+        device="zima",
+        session_id="hermes-cli",
+        status="done",
+    )
+
+    result = cli_runner.invoke(
+        app,
+        [
+            "--corpus-root",
+            str(indexed_fixture_env["corpus_root"]),
+            "--index-root",
+            str(index_root),
+            "search",
+            "Dory session-key marker",
+            "--corpus",
+            "sessions",
+            "--mode",
+            "recall",
+            "--agent",
+            "codex",
+            "--session-key",
+            "codex-cli",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert [hit["path"] for hit in payload["results"]] == ["logs/sessions/codex/mac/2026-04-30-codex.md"]
 
 
 def test_cli_get_returns_requested_slice(cli_runner, indexed_fixture_env) -> None:

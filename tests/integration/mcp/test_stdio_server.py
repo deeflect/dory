@@ -21,6 +21,21 @@ class FakeCore:
     def memory_write(self, req):
         return {"verb": "memory_write", "request": req}
 
+    def memory_propose(self, req):
+        return {"verb": "memory_propose", "request": req}
+
+    def memory_proposals(self, req):
+        return {"verb": "memory_proposals", "request": req}
+
+    def memory_proposal_get(self, req):
+        return {"verb": "memory_proposal_get", "request": req}
+
+    def memory_proposal_apply(self, req):
+        return {"verb": "memory_proposal_apply", "request": req}
+
+    def memory_proposal_reject(self, req):
+        return {"verb": "memory_proposal_reject", "request": req}
+
     def write(self, req):
         return {"verb": "write", "request": req}
 
@@ -92,6 +107,36 @@ def test_stdio_server_calls_semantic_memory_write() -> None:
     response = json.loads(stdout.getvalue().strip())
     assert response["result"]["content"][0]["type"] == "text"
     assert '"verb":"memory_write"' in response["result"]["content"][0]["text"]
+
+
+def test_stdio_server_calls_memory_proposal_apply() -> None:
+    stdin = StringIO(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {
+                            "name": "dory_memory_proposal_apply",
+                            "arguments": {"proposal_id": "proposal-001", "agent": "reviewer"},
+                        },
+                    }
+                )
+            ]
+        )
+        + "\n"
+    )
+    stdout = StringIO()
+
+    serve_stdio(FakeCore(), stdin=stdin, stdout=stdout)
+
+    response = json.loads(stdout.getvalue().strip())
+    text = response["result"]["content"][0]["text"]
+    assert response["result"]["content"][0]["type"] == "text"
+    assert '"verb":"memory_proposal_apply"' in text
+    assert '"proposal_id":"proposal-001"' in text
 
 
 def test_stdio_server_calls_research() -> None:

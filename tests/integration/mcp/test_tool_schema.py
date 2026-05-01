@@ -21,6 +21,40 @@ def test_dory_memory_write_schema_exposes_semantic_fields() -> None:
     assert "dry_run" in write_tool["inputSchema"]["properties"]
     assert "force_inbox" in write_tool["inputSchema"]["properties"]
     assert "allow_canonical" in write_tool["inputSchema"]["properties"]
+    assert "agent" in write_tool["inputSchema"]["properties"]
+    assert "session_id" in write_tool["inputSchema"]["properties"]
+    assert "origin_surface" in write_tool["inputSchema"]["properties"]
+
+
+def test_dory_memory_proposal_schemas_expose_review_queue_fields() -> None:
+    tools = {tool["name"]: tool for tool in build_tool_schemas()}
+
+    assert {
+        "dory_memory_propose",
+        "dory_memory_proposals",
+        "dory_memory_proposal_get",
+        "dory_memory_proposal_apply",
+        "dory_memory_proposal_reject",
+    } <= set(tools)
+
+    propose_schema = tools["dory_memory_propose"]["inputSchema"]
+    assert propose_schema["required"] == ["action", "kind", "subject", "content"]
+    assert "proposal_id" in propose_schema["properties"]
+    assert "source_paths" in propose_schema["properties"]
+    assert "force_inbox" in propose_schema["properties"]
+    assert "origin_surface" in propose_schema["properties"]
+
+    list_schema = tools["dory_memory_proposals"]["inputSchema"]
+    assert list_schema["properties"]["status"]["enum"] == ["pending", "applied", "rejected"]
+
+    apply_schema = tools["dory_memory_proposal_apply"]["inputSchema"]
+    assert apply_schema["required"] == ["proposal_id"]
+    assert "agent" in apply_schema["properties"]
+    assert "origin_surface" in apply_schema["properties"]
+
+    reject_schema = tools["dory_memory_proposal_reject"]["inputSchema"]
+    assert reject_schema["required"] == ["proposal_id"]
+    assert "reason" in reject_schema["properties"]
 
 
 def test_dory_wake_schema_exposes_profiles() -> None:
@@ -44,6 +78,8 @@ def test_dory_active_memory_schema_exposes_include_wake_and_limits() -> None:
     props = active_tool["inputSchema"]["properties"]
 
     assert "include_wake" in props
+    assert "project" in props
+    assert "session_key" in props["scope"]["properties"]
     assert props["rerank"]["enum"] == ["auto", "true", "false"]
     assert props["profile"]["enum"] == ["auto", "general", "coding", "writing", "privacy", "personal"]
     assert props["budget_tokens"]["maximum"] == 1200
@@ -58,6 +94,7 @@ def test_dory_search_schema_exposes_min_relevance_score() -> None:
     assert "corpus" in search_tool["inputSchema"]["properties"]
     assert search_tool["inputSchema"]["properties"]["corpus"]["enum"] == ["durable", "sessions", "all"]
     assert "scope" in search_tool["inputSchema"]["properties"]
+    assert "session_key" in search_tool["inputSchema"]["properties"]["scope"]["properties"]
     assert "include_content" in search_tool["inputSchema"]["properties"]
     assert search_tool["inputSchema"]["properties"]["rerank"]["enum"] == ["auto", "true", "false"]
     assert "debug" in search_tool["inputSchema"]["properties"]

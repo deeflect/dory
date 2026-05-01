@@ -30,7 +30,6 @@ from dory_cli._internals import (
     _require_openrouter_client,
     _resolve_corpus_path,
     _resolve_distilled_path,
-    _resolve_proposal_path,
     _run_interactive_migration_plan,
     _serialize_migration_plan,
     _slice_lines,
@@ -40,8 +39,17 @@ from dory_core.artifacts import ArtifactWriter
 from dory_core.config import DorySettings, resolve_runtime_paths
 from dory_core.dreaming.events import SessionClosedEvent
 from dory_core.dreaming.extract import DistillationWriter, OpenRouterSessionDistiller
-from dory_core.dreaming.proposals import ProposalGenerator, list_proposals, load_proposal
+from dory_core.dreaming.proposals import (
+    ProposalGenerator,
+    ProposalStore,
+    apply_proposal,
+    create_semantic_write_proposal,
+    list_proposals,
+    proposal_to_payload,
+    reject_proposal,
+)
 from dory_core.embedding import EmbeddingConfigurationError, EmbeddingProviderError, build_runtime_embedder
+from dory_core.errors import DoryValidationError
 from dory_core.index.reindex import (
     ReconcilePlan,
     ReindexProgress,
@@ -101,11 +109,15 @@ from dory_core.ops import (
 from dory_core.ops import run_compiled_wiki_refresh, run_wiki_index_refresh
 from dory_core.purge import PurgeEngine
 from dory_core.search import SearchEngine
-from dory_core.semantic_write import SemanticWriteEngine
 from dory_core.session_sync import plan_session_sync, sync_session_files
 from dory_core.status import build_status, format_status
 from dory_core.types import (
     ActiveMemoryReq,
+    MemoryProposalApplyReq,
+    MemoryProposalCreateReq,
+    MemoryProposalGetReq,
+    MemoryProposalListReq,
+    MemoryProposalRejectReq,
     MemoryWriteReq,
     PurgeReq,
     ResearchReq,
@@ -123,6 +135,8 @@ auth_app = typer.Typer(add_completion=False, help="Manage bearer tokens.")
 app.add_typer(auth_app, name="auth")
 dream_app = typer.Typer(add_completion=False, help="Review and apply dreaming proposals.")
 app.add_typer(dream_app, name="dream")
+proposals_app = typer.Typer(add_completion=False, help="Create, review, apply, and reject memory proposals.")
+app.add_typer(proposals_app, name="proposals")
 maintain_app = typer.Typer(add_completion=False, help="Inspect corpus docs and emit maintenance suggestions.")
 app.add_typer(maintain_app, name="maintain")
 ops_app = typer.Typer(add_completion=False, help="Operator-first batch jobs and watch loops.")
@@ -209,6 +223,14 @@ def active_memory(
     prompt: str = typer.Argument(...),
     agent: str = typer.Option("codex", "--agent"),
     cwd: str | None = typer.Option(None, "--cwd"),
+    project: str | None = typer.Option(None, "--project", help="Optional project/entity handle to include."),
+    session_key: str | None = typer.Option(None, "--session-key", help="Optional session key for recall scoping."),
+    session_ids: list[str] = typer.Option([], "--session-id", help="Session id filter for recall evidence."),
+    session_agents: list[str] = typer.Option([], "--session-agent", help="Session agent filter for recall evidence."),
+    devices: list[str] = typer.Option([], "--device", help="Session device filter for recall evidence."),
+    session_statuses: list[str] = typer.Option([], "--session-status", help="Session status filter for recall evidence."),
+    since: str | None = typer.Option(None, "--since", help="Lower updated-time bound for recall evidence."),
+    until: str | None = typer.Option(None, "--until", help="Upper updated-time bound for recall evidence."),
     profile: str = typer.Option("auto", "--profile"),
     include_wake: bool = typer.Option(True, "--include-wake/--no-include-wake"),
 ) -> None:
@@ -218,6 +240,16 @@ def active_memory(
             prompt=prompt,
             agent=agent,
             cwd=cwd,
+            project=project,
+            scope=SearchScope(
+                agent=session_agents,
+                device=devices,
+                session_id=session_ids,
+                session_key=session_key,
+                status=session_statuses,
+                since=since,
+                until=until,
+            ),
             profile=profile,
             include_wake=include_wake,
         )
@@ -236,6 +268,9 @@ def memory_write(
     confidence: str | None = typer.Option(None, "--confidence", help="Optional confidence hint"),
     reason: str | None = typer.Option(None, "--reason", help="Optional reason or context"),
     source: str | None = typer.Option(None, "--source", help="Optional source label"),
+    agent: str | None = typer.Option(None, "--agent", help="Optional agent identity for provenance"),
+    session_id: str | None = typer.Option(None, "--session-id", help="Optional session id for provenance"),
+    origin_surface: str | None = typer.Option(None, "--origin-surface", help="Optional client/tool provenance label"),
     soft: bool = typer.Option(False, "--soft/--no-soft", help="Quarantine instead of rejecting on ambiguity"),
     dry_run: bool = typer.Option(False, "--dry-run/--no-dry-run", help="Preview routing without writing"),
     force_inbox: bool = typer.Option(
@@ -258,6 +293,9 @@ def memory_write(
             "confidence": confidence,
             "reason": reason,
             "source": source,
+            "agent": agent,
+            "session_id": session_id,
+            "origin_surface": origin_surface,
             "soft": soft,
             "dry_run": dry_run,
             "force_inbox": force_inbox,
@@ -778,9 +816,16 @@ def search(
     limit: int = typer.Option(10, "-n", "--limit"),
     corpus: str = typer.Option("durable", "--corpus"),
     mode: str = typer.Option("hybrid", "--mode"),
+    path_glob: str | None = typer.Option(None, "--path-glob"),
     types: list[str] = typer.Option([], "--type"),
     statuses: list[str] = typer.Option([], "--status"),
     tags: list[str] = typer.Option([], "--tag"),
+    agents: list[str] = typer.Option([], "--agent"),
+    devices: list[str] = typer.Option([], "--device"),
+    session_ids: list[str] = typer.Option([], "--session-id"),
+    session_key: str | None = typer.Option(None, "--session-key"),
+    since: str | None = typer.Option(None, "--since"),
+    until: str | None = typer.Option(None, "--until"),
     debug: bool = typer.Option(False, "--debug"),
 ) -> None:
     config = _get_config(ctx)
@@ -802,7 +847,18 @@ def search(
                 k=limit,
                 corpus=corpus,
                 mode=mode,
-                scope=SearchScope(type=types, status=statuses, tags=tags),
+                scope=SearchScope(
+                    path_glob=path_glob,
+                    type=types,
+                    status=statuses,
+                    tags=tags,
+                    agent=agents,
+                    device=devices,
+                    session_id=session_ids,
+                    session_key=session_key,
+                    since=since,
+                    until=until,
+                ),
                 debug=debug,
             )
         )
@@ -1024,6 +1080,131 @@ def auth_new(
     typer.echo(token)
 
 
+@proposals_app.command("create")
+def proposals_create(
+    ctx: typer.Context,
+    content: str = typer.Argument(..., help="Memory content to propose"),
+    subject: str = typer.Option(..., "--subject", help="Fuzzy subject to route the memory to"),
+    action: str = typer.Option("write", "--action", help="Semantic write action"),
+    kind: str = typer.Option("fact", "--kind", help="Semantic memory kind"),
+    scope: str | None = typer.Option(None, "--scope", help="Optional routing scope"),
+    confidence: str | None = typer.Option(None, "--confidence", help="Optional confidence hint"),
+    reason: str | None = typer.Option(None, "--reason", help="Optional reason or context"),
+    source: str | None = typer.Option(None, "--source", help="Optional source label"),
+    agent: str | None = typer.Option(None, "--agent", help="Optional agent identity for provenance"),
+    session_id: str | None = typer.Option(None, "--session-id", help="Optional session id for provenance"),
+    origin_surface: str | None = typer.Option(None, "--origin-surface", help="Optional client/tool provenance label"),
+    source_paths: list[str] = typer.Option([], "--source-path", help="Evidence/source path for review"),
+    proposal_id: str | None = typer.Option(None, "--proposal-id", help="Optional stable proposal id"),
+    soft: bool = typer.Option(False, "--soft/--no-soft", help="Quarantine instead of rejecting on ambiguity"),
+    force_inbox: bool = typer.Option(False, "--force-inbox/--no-force-inbox", help="Capture under inbox/semantic"),
+) -> None:
+    config = _get_config(ctx)
+    req = MemoryProposalCreateReq.model_validate(
+        {
+            "action": action,
+            "kind": kind,
+            "subject": subject,
+            "content": content,
+            "scope": scope,
+            "confidence": confidence,
+            "reason": reason,
+            "source": source,
+            "soft": soft,
+            "force_inbox": force_inbox,
+            "agent": agent,
+            "session_id": session_id,
+            "origin_surface": origin_surface,
+            "source_paths": source_paths,
+            "proposal_id": proposal_id,
+        }
+    )
+    try:
+        proposal, path = create_semantic_write_proposal(
+            root=config.corpus_root,
+            engine=_build_semantic_write_engine(config),
+            req=req,
+        )
+    except (DoryValidationError, EmbeddingConfigurationError, EmbeddingProviderError) as err:
+        _fail_with_runtime_error(str(err))
+    typer.echo(
+        json.dumps(
+            {
+                "proposal_id": proposal.proposal_id,
+                "path": path.relative_to(config.corpus_root).as_posix(),
+                "proposal": proposal_to_payload(proposal),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+
+
+@proposals_app.command("list")
+def proposals_list(
+    ctx: typer.Context,
+    status: str = typer.Option("pending", "--status", help="pending, applied, or rejected"),
+) -> None:
+    config = _get_config(ctx)
+    req = MemoryProposalListReq.model_validate({"status": status})
+    proposals = ProposalStore(config.corpus_root).list(status=req.status)
+    typer.echo(json.dumps({"count": len(proposals), "proposals": proposals, "status": req.status}, indent=2))
+
+
+@proposals_app.command("show")
+def proposals_show(
+    ctx: typer.Context,
+    proposal_id: str = typer.Argument(...),
+    status: str = typer.Option("pending", "--status", help="pending, applied, or rejected"),
+) -> None:
+    config = _get_config(ctx)
+    req = MemoryProposalGetReq.model_validate({"proposal_id": proposal_id, "status": status})
+    try:
+        proposal = ProposalStore(config.corpus_root).load(req.proposal_id, status=req.status)
+    except DoryValidationError as err:
+        _fail_with_runtime_error(str(err))
+    typer.echo(json.dumps(proposal_to_payload(proposal), indent=2, sort_keys=True))
+
+
+@proposals_app.command("apply")
+def proposals_apply(
+    ctx: typer.Context,
+    proposal_id: str = typer.Argument(...),
+    agent: str | None = typer.Option(None, "--agent", help="Optional applying agent"),
+    session_id: str | None = typer.Option(None, "--session-id", help="Optional applying session id"),
+    origin_surface: str | None = typer.Option(None, "--origin-surface", help="Optional applying surface"),
+) -> None:
+    config = _get_config(ctx)
+    req = MemoryProposalApplyReq(proposal_id=proposal_id, agent=agent, session_id=session_id, origin_surface=origin_surface)
+    try:
+        result = apply_proposal(
+            root=config.corpus_root,
+            engine=_build_semantic_write_engine(config),
+            proposal_id=req.proposal_id,
+            agent=req.agent,
+            session_id=req.session_id,
+            origin_surface=req.origin_surface,
+        )
+    except (DoryValidationError, EmbeddingConfigurationError, EmbeddingProviderError) as err:
+        _fail_with_runtime_error(str(err))
+    typer.echo(json.dumps(asdict(result), indent=2, sort_keys=True))
+
+
+@proposals_app.command("reject")
+def proposals_reject(
+    ctx: typer.Context,
+    proposal_id: str = typer.Argument(...),
+    reason: str | None = typer.Option(None, "--reason", help="Reason for rejecting the proposal"),
+) -> None:
+    config = _get_config(ctx)
+    req = MemoryProposalRejectReq(proposal_id=proposal_id, reason=reason)
+    try:
+        target = reject_proposal(root=config.corpus_root, proposal_id=req.proposal_id, reason=req.reason)
+    except DoryValidationError as err:
+        _fail_with_runtime_error(str(err))
+    typer.echo(target)
+
+
 @dream_app.command("list")
 def dream_list(ctx: typer.Context) -> None:
     config = _get_config(ctx)
@@ -1037,42 +1218,15 @@ def dream_apply(
     proposal_id: str = typer.Argument(...),
 ) -> None:
     config = _get_config(ctx)
-    proposal_path = _resolve_proposal_path(config.corpus_root, proposal_id)
-    proposal = load_proposal(proposal_path)
     try:
-        engine = SemanticWriteEngine(
+        result = apply_proposal(
             root=config.corpus_root,
-            index_root=config.index_root,
-            embedder=build_runtime_embedder(),
+            engine=_build_semantic_write_engine(config),
+            proposal_id=proposal_id,
         )
-    except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
+    except (DoryValidationError, EmbeddingConfigurationError, EmbeddingProviderError) as err:
         _fail_with_runtime_error(str(err))
-    applied_targets: list[str] = []
-    for action in proposal.actions:
-        response = engine.write(
-            MemoryWriteReq(
-                action=action.action,
-                kind=action.kind,
-                subject=action.subject,
-                content=action.content,
-                scope=action.scope,
-                confidence=action.confidence,
-                reason=action.reason,
-                source=action.source,
-                soft=action.soft,
-                allow_canonical=True,
-            )
-        )
-        if response.result in {"rejected", "quarantined"}:
-            raise typer.BadParameter(response.message or f"proposal action failed for subject {action.subject}")
-        applied_targets.append(response.target_path or response.subject_ref or action.subject)
-
-    applied_root = config.corpus_root / "inbox" / "applied"
-    applied_root.mkdir(parents=True, exist_ok=True)
-    applied_path = applied_root / proposal_path.name
-    applied_path.write_text(proposal_path.read_text(encoding="utf-8"), encoding="utf-8")
-    proposal_path.unlink()
-    typer.echo(json.dumps({"applied": applied_targets}, indent=2))
+    typer.echo(json.dumps({"applied": list(result.applied)}, indent=2))
 
 
 @dream_app.command("distill")
@@ -1116,13 +1270,11 @@ def dream_reject(
     proposal_id: str = typer.Argument(...),
 ) -> None:
     config = _get_config(ctx)
-    proposal_path = _resolve_proposal_path(config.corpus_root, proposal_id)
-    rejected_root = config.corpus_root / "inbox" / "rejected"
-    rejected_root.mkdir(parents=True, exist_ok=True)
-    target = rejected_root / proposal_path.name
-    target.write_text(proposal_path.read_text(encoding="utf-8"), encoding="utf-8")
-    proposal_path.unlink()
-    typer.echo(str(target.relative_to(config.corpus_root)))
+    try:
+        target = reject_proposal(root=config.corpus_root, proposal_id=proposal_id)
+    except DoryValidationError as err:
+        _fail_with_runtime_error(str(err))
+    typer.echo(target)
 
 
 @maintain_app.command("inspect")

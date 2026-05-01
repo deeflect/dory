@@ -176,15 +176,55 @@ def test_hermes_provider_normalizes_legacy_search_modes_before_http_request() ->
         "debug": True,
     }
 
-    provider.active_memory("benchmark active memory", include_wake=False, rerank="true")
+    provider.active_memory(
+        "benchmark active memory",
+        project="dory",
+        scope={"session_key": "hermes-session"},
+        include_wake=False,
+        rerank="true",
+    )
     assert captured["path"] == "/v1/active-memory"
     assert captured["json"] == {
         "prompt": "benchmark active memory",
         "agent": "hermes",
         "budget_tokens": 600,
         "include_wake": False,
+        "project": "dory",
+        "scope": {"session_key": "hermes-session"},
         "rerank": "true",
     }
+
+
+def test_hermes_prefetch_bundle_forwards_project_to_wake_and_active_memory() -> None:
+    module = _load_provider_module()
+    requests: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"ok": True}
+
+    class _FakeClient:
+        def request(self, method: str, path: str, **kwargs):
+            requests.append({"method": method, "path": path, "json": kwargs.get("json")})
+            return _FakeResponse()
+
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766", client=_FakeClient())
+
+    provider.prefetch_bundle("what changed", project="dory", scope={"session_key": "hermes-session"})
+
+    wake_request = requests[0]
+    search_request = requests[1]
+    active_memory_request = requests[2]
+    assert wake_request["path"] == "/v1/wake"
+    assert wake_request["json"]["project"] == "dory"  # type: ignore[index]
+    assert search_request["path"] == "/v1/search"
+    assert search_request["json"]["scope"] == {"session_key": "hermes-session"}  # type: ignore[index]
+    assert active_memory_request["path"] == "/v1/active-memory"
+    assert active_memory_request["json"]["project"] == "dory"  # type: ignore[index]
+    assert active_memory_request["json"]["scope"] == {"session_key": "hermes-session"}  # type: ignore[index]
 
 
 def test_hermes_provider_accepts_api_native_search_modes() -> None:
@@ -213,8 +253,11 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     assert schemas["dory_search"]["parameters"]["properties"]["rerank"]["enum"] == ["auto", "true", "false"]
     assert "debug" in schemas["dory_search"]["parameters"]["properties"]
     assert "profile" in schemas["dory_wake"]["parameters"]["properties"]
+    assert "project" in schemas["dory_wake"]["parameters"]["properties"]
     assert "agent" not in schemas["dory_wake"]["parameters"].get("required", [])
+    assert "session_key" in schemas["dory_search"]["parameters"]["properties"]["scope"]["properties"]
     assert "include_wake" in schemas["dory_active_memory"]["parameters"]["properties"]
+    assert "project" in schemas["dory_active_memory"]["parameters"]["properties"]
     assert "agent" not in schemas["dory_active_memory"]["parameters"].get("required", [])
     assert schemas["dory_active_memory"]["parameters"]["properties"]["rerank"]["enum"] == [
         "auto",
@@ -232,6 +275,15 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     assert "dry_run" in schemas["dory_memory_write"]["parameters"]["properties"]
     assert "force_inbox" in schemas["dory_memory_write"]["parameters"]["properties"]
     assert "allow_canonical" in schemas["dory_memory_write"]["parameters"]["properties"]
+    assert "origin_surface" in schemas["dory_memory_write"]["parameters"]["properties"]
+    assert "proposal_id" in schemas["dory_memory_propose"]["parameters"]["properties"]
+    assert "source_paths" in schemas["dory_memory_propose"]["parameters"]["properties"]
+    assert schemas["dory_memory_proposals"]["parameters"]["properties"]["status"]["enum"] == [
+        "pending",
+        "applied",
+        "rejected",
+    ]
+    assert "reason" in schemas["dory_memory_proposal_reject"]["parameters"]["properties"]
     assert "from_line" in schemas["dory_get"]["parameters"]["properties"]
     assert "expected_hash" in schemas["dory_write"]["parameters"]["properties"]
     assert "expected_hash" in schemas["dory_write"]["description"]
@@ -308,6 +360,61 @@ def test_hermes_publish_research_writes_knowledge_markdown_dry_run_by_default() 
     assert "## Question\nWhat works?" in request["content"]
     assert "## Research\nMarkdown research body." in request["content"]
     assert "- https://example.test/paper" in request["content"]
+
+
+def test_hermes_provider_routes_memory_proposal_tools() -> None:
+    module = _load_provider_module()
+    requests: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"ok": True}
+
+    class _FakeClient:
+        def request(self, method: str, path: str, **kwargs):
+            requests.append({"method": method, "path": path, "json": kwargs.get("json")})
+            return _FakeResponse()
+
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766", client=_FakeClient())
+
+    provider.handle_tool_call(
+        "dory_memory_propose",
+        {
+            "action": "write",
+            "kind": "fact",
+            "subject": "example",
+            "content": "Example fact.",
+            "proposal_id": "example-proposal",
+        },
+    )
+    provider.handle_tool_call("dory_memory_proposals", {"status": "pending"})
+    provider.handle_tool_call("dory_memory_proposal_get", {"proposal_id": "example-proposal"})
+    provider.handle_tool_call("dory_memory_proposal_apply", {"proposal_id": "example-proposal"})
+    provider.handle_tool_call(
+        "dory_memory_proposal_reject",
+        {"proposal_id": "example-proposal", "reason": "not durable"},
+    )
+
+    assert [request["path"] for request in requests] == [
+        "/v1/memory-proposals",
+        "/v1/memory-proposals/list",
+        "/v1/memory-proposals/get",
+        "/v1/memory-proposals/apply",
+        "/v1/memory-proposals/reject",
+    ]
+    assert requests[0]["json"] == {
+        "action": "write",
+        "kind": "fact",
+        "subject": "example",
+        "content": "Example fact.",
+        "soft": False,
+        "force_inbox": False,
+        "proposal_id": "example-proposal",
+    }
+    assert requests[-1]["json"] == {"proposal_id": "example-proposal", "reason": "not durable"}
 
 
 def test_hermes_provider_tool_errors_are_structured() -> None:

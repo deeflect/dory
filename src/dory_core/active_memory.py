@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
@@ -21,10 +23,14 @@ from dory_core.types import (
     SearchCorpus,
     SearchMode,
     SearchReq,
+    SearchResult,
+    SearchScope,
     SearchResp,
     WakeReq,
     WakeResp,
 )
+from dory_core.frontmatter import load_markdown_document
+from dory_core.slug import slugify_path_segment
 
 _logger = logging.getLogger(__name__)
 _COMPOSER_SNIPPET_CHARS = 360
@@ -132,6 +138,7 @@ class ActiveMemoryEngine:
         planning_context = _planning_context_from_helper(helper)
         plan = self._plan(req, planning_context, deadline=deadline)
         durable_results, session_results = self._retrieve_evidence(req, plan, source_policy, deadline=deadline)
+        durable_results = _with_project_result(req, durable_results, root=self.root, source_policy=source_policy)
         renderable_durable_results = _preferred_active_memory_results(durable_results)
         rendered_wake_block = _wake_block_for_rendering(wake_block, renderable_durable_results, session_results)
         sources = _dedupe_strings(
@@ -190,6 +197,7 @@ class ActiveMemoryEngine:
                 budget_tokens=min(req.budget_tokens, 600),
                 agent=req.agent,
                 profile=source_policy.wake_profile,
+                project=_resolve_project_handle(req, self.root),
                 include_recent_sessions=3 if source_policy.include_session_context else 0,
                 include_pinned_decisions=source_policy.include_pinned_decisions,
             )
@@ -219,7 +227,7 @@ class ActiveMemoryEngine:
             source_policy=source_policy,
         )
         session_results = _filter_active_memory_results(
-            self._retrieve_session_evidence(plan, source_policy, deadline=deadline),
+            self._retrieve_session_evidence(plan, source_policy, session_scope=req.scope, deadline=deadline),
             corpus="sessions",
             source_policy=source_policy,
         )
@@ -230,6 +238,7 @@ class ActiveMemoryEngine:
         plan: ActiveMemoryRetrievalPlan,
         source_policy: SourcePolicy,
         *,
+        session_scope: SearchScope,
         deadline: "_Deadline",
     ) -> list[object]:
         if not source_policy.include_session_context or not plan.include_sessions or plan.session_limit <= 0:
@@ -242,6 +251,7 @@ class ActiveMemoryEngine:
             corpus="sessions",
             include_content=False,
             rerank="false",
+            scope=session_scope,
             deadline=deadline,
         )
 
@@ -494,6 +504,7 @@ def _search_candidates(
     corpus: SearchCorpus,
     include_content: bool,
     rerank: Literal["auto", "true", "false"],
+    scope: SearchScope | None = None,
     deadline: _Deadline | None = None,
 ) -> list[object]:
     scored_results: dict[str, tuple[float, object]] = {}
@@ -508,6 +519,7 @@ def _search_candidates(
                 corpus=corpus,
                 include_content=include_content,
                 rerank=rerank,
+                scope=scope or SearchScope(),
             )
         )
         for result_index, result in enumerate(list(getattr(response, "results", [])), start=1):
@@ -536,6 +548,64 @@ def _search_candidates(
 def _preferred_active_memory_results(results: list[object]) -> list[object]:
     fresh_results = [result for result in results if not str(getattr(result, "stale_warning", "") or "").strip()]
     return fresh_results or results
+
+
+def _with_project_result(
+    req: ActiveMemoryReq,
+    results: list[object],
+    *,
+    root: Path | None,
+    source_policy: SourcePolicy,
+) -> list[object]:
+    project_result = _project_state_result(req, root=root)
+    if project_result is None or not source_policy.allows_result_path(project_result.path, corpus="durable"):
+        return results
+    return _dedupe_results_by_path([project_result, *results])
+
+
+def _dedupe_results_by_path(results: list[object]) -> list[object]:
+    seen: set[str] = set()
+    deduped: list[object] = []
+    for result in results:
+        path = _result_path(result)
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        deduped.append(result)
+    return deduped
+
+
+def _project_state_result(req: ActiveMemoryReq, *, root: Path | None) -> SearchResult | None:
+    if root is None:
+        return None
+    project_path = _resolve_project_path_for_request(req, root)
+    if project_path is None:
+        return None
+    rel_path = project_path.relative_to(root).as_posix()
+    try:
+        text = project_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    snippet = _canonical_file_excerpt(root, rel_path)
+    if not snippet:
+        snippet = _first_content_excerpt(_strip_frontmatter(text))
+    try:
+        frontmatter = load_markdown_document(text).frontmatter
+    except ValueError:
+        frontmatter = {}
+    total_lines = max(1, len(text.splitlines()))
+    return SearchResult(
+        path=rel_path,
+        lines=f"1-{total_lines}",
+        score=1.0,
+        score_normalized=1.0,
+        rank_score=1.0,
+        evidence_class="canonical",
+        snippet=snippet,
+        frontmatter=frontmatter,
+        stale_warning=None,
+        confidence="high",
+    )
 
 
 def _composition_conflicts_with_evidence(composition: object | None, durable_results: list[object]) -> bool:
@@ -652,6 +722,92 @@ def _resolve_active_memory_profile(req: ActiveMemoryReq) -> _ActiveMemoryProfile
     if req.profile != "auto":
         return req.profile
     return _prompt_context(req.prompt)
+
+
+def _resolve_project_handle(req: ActiveMemoryReq, root: Path | None) -> str | None:
+    explicit = (req.project or "").strip()
+    if explicit:
+        return explicit
+    inferred = _infer_project_handle_from_cwd(req.cwd)
+    if inferred and _resolve_project_path(root, inferred) is not None:
+        return inferred
+    return None
+
+
+def _resolve_project_path_for_request(req: ActiveMemoryReq, root: Path) -> Path | None:
+    handle = _resolve_project_handle(req, root)
+    if handle is None:
+        return None
+    return _resolve_project_path(root, handle)
+
+
+def _resolve_project_path(root: Path | None, project: str) -> Path | None:
+    if root is None:
+        return None
+    projects_root = root / "projects"
+    if not projects_root.exists():
+        return None
+    normalized = project.strip()
+    if normalized.startswith("project:"):
+        normalized = normalized.split(":", 1)[1]
+    direct = projects_root / slugify_path_segment(normalized) / "state.md"
+    if direct.exists():
+        return direct
+    wanted = slugify_path_segment(normalized)
+    for path in sorted(projects_root.glob("*/state.md")):
+        try:
+            document = load_markdown_document(path.read_text(encoding="utf-8"))
+        except ValueError:
+            continue
+        values = [
+            str(document.frontmatter.get("title", "")),
+            str(document.frontmatter.get("slug", "")),
+            path.parent.name,
+        ]
+        aliases = document.frontmatter.get("aliases", [])
+        if isinstance(aliases, list):
+            values.extend(str(alias) for alias in aliases)
+        if wanted in {slugify_path_segment(value) for value in values if value.strip()}:
+            return path
+    return None
+
+
+def _infer_project_handle_from_cwd(cwd: str | None) -> str | None:
+    if cwd is None or not cwd.strip():
+        return None
+    path = Path(cwd).expanduser()
+    candidates: list[str] = []
+    candidates.extend(_project_names_from_local_manifests(path))
+    candidates.extend(part for part in reversed(path.parts) if part and part not in {"/", "."})
+    for candidate in candidates:
+        normalized = slugify_path_segment(candidate)
+        if normalized:
+            return normalized
+    return None
+
+
+def _project_names_from_local_manifests(path: Path) -> list[str]:
+    candidates: list[str] = []
+    pyproject = path / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            payload = {}
+        project = payload.get("project") if isinstance(payload, dict) else None
+        name = project.get("name") if isinstance(project, dict) else None
+        if isinstance(name, str) and name.strip():
+            candidates.append(name.strip())
+    package_json = path / "package.json"
+    if package_json.exists():
+        try:
+            payload = json.loads(package_json.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        name = payload.get("name") if isinstance(payload, dict) else None
+        if isinstance(name, str) and name.strip():
+            candidates.append(name.strip().split("/", 1)[-1])
+    return candidates
 
 
 def _prompt_context(prompt: str) -> _PromptContext:

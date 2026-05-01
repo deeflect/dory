@@ -17,6 +17,11 @@ from pydantic import BaseModel
 from dory_core.types import (
     ActiveMemoryReq,
     LinkReq,
+    MemoryProposalApplyReq,
+    MemoryProposalCreateReq,
+    MemoryProposalGetReq,
+    MemoryProposalListReq,
+    MemoryProposalRejectReq,
     MemoryWriteReq,
     PurgeReq,
     ResearchReq,
@@ -118,6 +123,49 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
         ),
         request_model=MemoryWriteReq,
         handler="memory_write",
+    ),
+    DoryTool(
+        name="dory_memory_propose",
+        http_method="POST",
+        http_path="/v1/memory-proposals",
+        description=(
+            "Create a reviewable semantic memory proposal. Dory dry-runs the semantic route, "
+            "stores the preview under inbox/proposed, and requires a later apply or reject."
+        ),
+        request_model=MemoryProposalCreateReq,
+        handler="memory_propose",
+    ),
+    DoryTool(
+        name="dory_memory_proposals",
+        http_method="POST",
+        http_path="/v1/memory-proposals/list",
+        description="List reviewable memory proposals by status.",
+        request_model=MemoryProposalListReq,
+        handler="memory_proposals",
+    ),
+    DoryTool(
+        name="dory_memory_proposal_get",
+        http_method="POST",
+        http_path="/v1/memory-proposals/get",
+        description="Fetch a reviewable memory proposal by id.",
+        request_model=MemoryProposalGetReq,
+        handler="memory_proposal_get",
+    ),
+    DoryTool(
+        name="dory_memory_proposal_apply",
+        http_method="POST",
+        http_path="/v1/memory-proposals/apply",
+        description="Apply a pending memory proposal after checking that its dry-run route is still current.",
+        request_model=MemoryProposalApplyReq,
+        handler="memory_proposal_apply",
+    ),
+    DoryTool(
+        name="dory_memory_proposal_reject",
+        http_method="POST",
+        http_path="/v1/memory-proposals/reject",
+        description="Reject a pending memory proposal and archive it under inbox/rejected.",
+        request_model=MemoryProposalRejectReq,
+        handler="memory_proposal_reject",
     ),
     DoryTool(
         name="dory_write",

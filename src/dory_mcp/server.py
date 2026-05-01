@@ -17,6 +17,13 @@ from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.artifacts import ArtifactWriter
 from dory_core.frontmatter import load_markdown_document
 from dory_core.link import LinkService
+from dory_core.dreaming.proposals import (
+    ProposalStore,
+    apply_proposal,
+    create_semantic_write_proposal,
+    proposal_to_payload,
+    reject_proposal,
+)
 from dory_core.purge import PurgeEngine
 from dory_core.query_expansion import OpenRouterQueryExpander
 from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
@@ -28,6 +35,11 @@ from dory_core.status import build_status, serialize_status
 from dory_core.types import (
     ActiveMemoryReq,
     LinkReq,
+    MemoryProposalApplyReq,
+    MemoryProposalCreateReq,
+    MemoryProposalGetReq,
+    MemoryProposalListReq,
+    MemoryProposalRejectReq,
     MemoryWriteReq,
     PurgeReq,
     ResearchReq,
@@ -60,6 +72,16 @@ class DoryMcpCore(Protocol):
     def get(self, req: Any) -> Any: ...
 
     def memory_write(self, req: Any) -> Any: ...
+
+    def memory_propose(self, req: Any) -> Any: ...
+
+    def memory_proposals(self, req: Any) -> Any: ...
+
+    def memory_proposal_get(self, req: Any) -> Any: ...
+
+    def memory_proposal_apply(self, req: Any) -> Any: ...
+
+    def memory_proposal_reject(self, req: Any) -> Any: ...
 
     def write(self, req: Any) -> Any: ...
 
@@ -172,6 +194,57 @@ class RuntimeCore:
             index_root=self.index_root,
             embedder=self.embedder,
         ).write(MemoryWriteReq.model_validate(req))
+
+    def memory_propose(self, req: dict[str, Any]) -> dict[str, Any]:
+        proposal, path = create_semantic_write_proposal(
+            root=self.corpus_root,
+            engine=SemanticWriteEngine(
+                self.corpus_root,
+                index_root=self.index_root,
+                embedder=self.embedder,
+            ),
+            req=MemoryProposalCreateReq.model_validate(req),
+        )
+        return {
+            "proposal_id": proposal.proposal_id,
+            "path": path.relative_to(self.corpus_root).as_posix(),
+            "proposal": proposal_to_payload(proposal),
+        }
+
+    def memory_proposals(self, req: dict[str, Any]) -> dict[str, Any]:
+        parsed = MemoryProposalListReq.model_validate(req)
+        proposals = ProposalStore(self.corpus_root).list(status=parsed.status)
+        return {"count": len(proposals), "proposals": proposals, "status": parsed.status}
+
+    def memory_proposal_get(self, req: dict[str, Any]) -> dict[str, Any]:
+        parsed = MemoryProposalGetReq.model_validate(req)
+        proposal = ProposalStore(self.corpus_root).load(parsed.proposal_id, status=parsed.status)
+        return proposal_to_payload(proposal)
+
+    def memory_proposal_apply(self, req: dict[str, Any]) -> dict[str, Any]:
+        parsed = MemoryProposalApplyReq.model_validate(req)
+        result = apply_proposal(
+            root=self.corpus_root,
+            engine=SemanticWriteEngine(
+                self.corpus_root,
+                index_root=self.index_root,
+                embedder=self.embedder,
+            ),
+            proposal_id=parsed.proposal_id,
+            agent=parsed.agent,
+            session_id=parsed.session_id,
+            origin_surface=parsed.origin_surface,
+        )
+        return {
+            "proposal_id": result.proposal_id,
+            "applied": list(result.applied),
+            "archived_path": result.archived_path,
+        }
+
+    def memory_proposal_reject(self, req: dict[str, Any]) -> dict[str, Any]:
+        parsed = MemoryProposalRejectReq.model_validate(req)
+        path = reject_proposal(root=self.corpus_root, proposal_id=parsed.proposal_id, reason=parsed.reason)
+        return {"proposal_id": parsed.proposal_id, "path": path, "status": "rejected"}
 
     def write(self, req: dict[str, Any]) -> Any:
         return WriteEngine(

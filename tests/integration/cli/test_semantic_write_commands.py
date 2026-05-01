@@ -38,6 +38,12 @@ def test_cli_memory_write_routes_to_existing_subject(
             "write",
             "--kind",
             "fact",
+            "--agent",
+            "codex",
+            "--session-id",
+            "cli-session-1",
+            "--origin-surface",
+            "cli-test",
             "--allow-canonical",
         ],
     )
@@ -47,6 +53,11 @@ def test_cli_memory_write_routes_to_existing_subject(
     assert payload["resolved"] is True
     assert payload["result"] == "written"
     assert payload["target_path"] == "people/alex.md"
+    assert payload["evidence_path"].startswith("sources/semantic/")
+    evidence = load_markdown_document((corpus_root / payload["evidence_path"]).read_text(encoding="utf-8"))
+    assert evidence.frontmatter["agent"] == "codex"
+    assert evidence.frontmatter["session_id"] == "cli-session-1"
+    assert evidence.frontmatter["origin_surface"] == "cli-test"
     assert "Alex is now tracking memory routing." in (corpus_root / "people" / "alex.md").read_text(encoding="utf-8")
 
 

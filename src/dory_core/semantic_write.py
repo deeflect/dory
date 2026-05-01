@@ -67,6 +67,9 @@ class SemanticWritePlan:
     match_confidence: Literal["high", "medium", "low"]
     reason: str | None
     source: str | None
+    agent: str | None
+    session_id: str | None
+    origin_surface: str | None
     matched_by: str
     target_exists: bool
 
@@ -160,6 +163,7 @@ class SemanticWriteEngine:
                 confidence=req.confidence or plan.match_confidence,
                 indexed=False,
                 quarantined=False,
+                matched_by=plan.matched_by,
                 message=message,
             )
 
@@ -174,6 +178,7 @@ class SemanticWriteEngine:
                 confidence=req.confidence or plan.match_confidence,
                 indexed=False,
                 quarantined=False,
+                matched_by=plan.matched_by,
                 message=(
                     "live semantic write resolves to canonical memory; rerun with dry_run=true "
                     "to preview, allow_canonical=true to commit, or force_inbox=true for a tentative capture"
@@ -202,6 +207,9 @@ class SemanticWriteEngine:
                         action=response.action,
                         evidence_path=semantic_evidence.path,
                     ),
+                    evidence_path=semantic_evidence.path,
+                    matched_by=plan.matched_by,
+                    preview=_semantic_write_preview(plan, action=response.action, evidence_path=semantic_evidence.path),
                 )
             response = self.writer.write(low_level_req)
         except DoryValidationError as err:
@@ -222,6 +230,13 @@ class SemanticWriteEngine:
                         evidence_path=semantic_evidence.path,
                     )
                     + "; rendered target exceeds preview write-size limit",
+                    evidence_path=semantic_evidence.path,
+                    matched_by=plan.matched_by,
+                    preview=_semantic_write_preview(
+                        plan,
+                        action="would_update_large_target",
+                        evidence_path=semantic_evidence.path,
+                    ),
                 )
             return MemoryWriteResp(
                 resolved=True,
@@ -247,6 +262,8 @@ class SemanticWriteEngine:
                 confidence=req.confidence,
                 indexed=response.indexed,
                 quarantined=True,
+                evidence_path=semantic_evidence.path,
+                matched_by=plan.matched_by,
                 message="semantic write content was quarantined",
             )
 
@@ -274,6 +291,8 @@ class SemanticWriteEngine:
             confidence=req.confidence or plan.confidence,
             indexed=response.indexed,
             quarantined=False,
+            evidence_path=semantic_evidence.path,
+            matched_by=plan.matched_by,
             message=None,
         )
 
@@ -293,6 +312,9 @@ class SemanticWriteEngine:
             "original_confidence": req.confidence,
             "original_reason": req.reason,
             "original_source": req.source,
+            "agent": req.agent,
+            "session_id": req.session_id,
+            "origin_surface": req.origin_surface,
             "forced_inbox": True,
         }
         response = self.writer.write(
@@ -374,6 +396,9 @@ class SemanticWriteEngine:
                 "original_scope": req.scope,
                 "original_reason": req.reason,
                 "original_source": req.source,
+                "agent": req.agent,
+                "session_id": req.session_id,
+                "origin_surface": req.origin_surface,
             },
         )
         return MemoryWriteResp(
@@ -438,7 +463,9 @@ class SemanticWriteEngine:
             "action": plan.action,
             "kind": plan.kind,
             "reason": plan.reason,
-            "origin_surface": plan.source or "semantic-write",
+            "origin_surface": plan.origin_surface or plan.source or "semantic-write",
+            "agent": plan.agent,
+            "session_id": plan.session_id,
             "canonical_target": plan.target_path,
         }
         return _SemanticEvidenceArtifact(
@@ -702,6 +729,9 @@ def build_semantic_write_plan(
         match_confidence=match.confidence,
         reason=req.reason,
         source=req.source,
+        agent=req.agent,
+        session_id=req.session_id,
+        origin_surface=req.origin_surface,
         matched_by=match.matched_by,
         target_exists=(root / target_path).exists(),
     )
@@ -790,6 +820,23 @@ def _semantic_write_preview_message(plan: SemanticWritePlan, *, action: str, evi
             "use force_inbox=true for tentative notes or allow_canonical=true after review. "
         )
     return f"{prefix}dry_run: {action}; semantic evidence would be {evidence_path}"
+
+
+def _semantic_write_preview(plan: SemanticWritePlan, *, action: str, evidence_path: str) -> dict[str, object]:
+    return {
+        "action": action,
+        "subject": plan.subject,
+        "subject_ref": plan.subject_ref,
+        "target_subject_ref": plan.target_subject_ref,
+        "target_path": plan.target_path,
+        "family": plan.family,
+        "kind": plan.kind,
+        "resolved_mode": plan.resolved_mode,
+        "matched_by": plan.matched_by,
+        "match_confidence": plan.match_confidence,
+        "evidence_path": evidence_path,
+        "canonical_target": _is_canonical_semantic_target(plan),
+    }
 
 
 def _primary_section_for_plan(plan: SemanticWritePlan) -> str:

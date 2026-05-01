@@ -57,6 +57,51 @@ def test_bridge_routes_semantic_memory_write(monkeypatch) -> None:
     assert "target_path" in result
 
 
+def test_bridge_routes_memory_proposal_tools(monkeypatch) -> None:
+    bridge = _load_bridge_module()
+    captured: list[dict[str, object]] = []
+
+    def fake_http_post(endpoint: str, body=None):
+        captured.append({"endpoint": endpoint, "body": body})
+        return {"ok": True, "endpoint": endpoint}
+
+    monkeypatch.setattr(bridge, "http_post", fake_http_post)
+
+    bridge.handle_tool_call(
+        "dory_memory_propose",
+        {
+            "action": "write",
+            "kind": "fact",
+            "subject": "example",
+            "content": "Example fact.",
+            "proposal_id": "example-proposal",
+        },
+    )
+    bridge.handle_tool_call("dory_memory_proposals", {"status": "pending"})
+    bridge.handle_tool_call("dory_memory_proposal_get", {"proposal_id": "example-proposal"})
+    bridge.handle_tool_call("dory_memory_proposal_apply", {"proposal_id": "example-proposal"})
+    bridge.handle_tool_call(
+        "dory_memory_proposal_reject",
+        {"proposal_id": "example-proposal", "reason": "not durable"},
+    )
+
+    assert [item["endpoint"] for item in captured] == [
+        "/v1/memory-proposals",
+        "/v1/memory-proposals/list",
+        "/v1/memory-proposals/get",
+        "/v1/memory-proposals/apply",
+        "/v1/memory-proposals/reject",
+    ]
+    assert captured[0]["body"] == {
+        "action": "write",
+        "kind": "fact",
+        "subject": "example",
+        "content": "Example fact.",
+        "proposal_id": "example-proposal",
+    }
+    assert captured[-1]["body"] == {"proposal_id": "example-proposal", "reason": "not durable"}
+
+
 def test_bridge_routes_active_memory(monkeypatch) -> None:
     bridge = _load_bridge_module()
     captured: dict[str, object] = {}

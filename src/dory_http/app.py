@@ -5,12 +5,12 @@ import contextvars
 import json
 import logging
 import uuid
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, quote, urlencode
 from dataclasses import asdict, dataclass
 from datetime import date
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -44,6 +44,13 @@ from dory_core.purge import PurgeEngine
 from dory_core.query_expansion import OpenRouterQueryExpander
 from dory_core.runtime import build_query_expander, build_retrieval_planner, build_surface_runtime
 from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
+from dory_core.dreaming.proposals import (
+    ProposalStore,
+    apply_proposal,
+    create_semantic_write_proposal,
+    proposal_to_payload,
+    reject_proposal,
+)
 from dory_core.artifacts import ArtifactWriter
 from dory_core.research import ResearchEngine
 from dory_core.search import SearchEngine
@@ -56,6 +63,11 @@ from dory_core.types import (
     LinkReq,
     RecallEventReq,
     MemoryWriteReq,
+    MemoryProposalApplyReq,
+    MemoryProposalCreateReq,
+    MemoryProposalGetReq,
+    MemoryProposalListReq,
+    MemoryProposalRejectReq,
     ResearchReq,
     SearchReq,
     SessionIngestReq,
@@ -75,6 +87,14 @@ from dory_http.auth import (
     authorize_request,
     authorize_web_request,
     login_web_password,
+)
+from dory_http.app_ui import (
+    proposal_counts,
+    proposal_view_for,
+    render_app_home,
+    render_app_proposals,
+    render_app_settings,
+    wiki_counts,
 )
 from dory_http.metrics import render_metrics
 from dory_http.wiki import render_wiki_login, render_wiki_page, render_wiki_search
@@ -254,9 +274,102 @@ def build_app(
         response.headers["x-request-id"] = request_id
         return response
 
+    @app.get("/")
+    def app_root() -> RedirectResponse:
+        return RedirectResponse("/app", status_code=303)
+
+    @app.get("/app", response_class=HTMLResponse)
+    def app_home(request: Request) -> Response:
+        cookie_token = _authorize_web_or_redirect(request, runtime)
+        if isinstance(cookie_token, RedirectResponse):
+            return cookie_token
+        response = render_app_home(
+            status=build_status(runtime.corpus_root, runtime.index_root, settings),
+            proposal_counts=proposal_counts(runtime.corpus_root),
+            wiki_counts=wiki_counts(runtime.corpus_root),
+        )
+        _set_legacy_web_auth_cookie(response, request, cookie_token)
+        return response
+
+    @app.get("/app/proposals", response_class=HTMLResponse)
+    def app_proposals(
+        request: Request,
+        status: str = Query("pending"),
+        selected: str | None = Query(None),
+        notice: str | None = Query(None),
+    ) -> Response:
+        cookie_token = _authorize_web_or_redirect(request, runtime)
+        if isinstance(cookie_token, RedirectResponse):
+            return cookie_token
+        proposal_status = _proposal_status_param(status)
+        response = render_app_proposals(
+            view=proposal_view_for(runtime.corpus_root, status=proposal_status, selected_id=selected),
+            notice=notice,
+        )
+        _set_legacy_web_auth_cookie(response, request, cookie_token)
+        return response
+
+    @app.post("/app/proposals/{proposal_id}/apply", response_class=HTMLResponse)
+    def app_proposal_apply(proposal_id: str, request: Request) -> Response:
+        cookie_token = _authorize_web_or_redirect(request, runtime)
+        if isinstance(cookie_token, RedirectResponse):
+            return cookie_token
+        try:
+            _apply_memory_proposal_req(
+                MemoryProposalApplyReq(
+                    proposal_id=proposal_id,
+                    agent="dory-web",
+                    origin_surface="dory-web",
+                ),
+                runtime,
+            )
+        except HTTPException as err:
+            response = _proposal_action_error_response(request, runtime, proposal_id, err, cookie_token)
+            return response
+        return RedirectResponse(
+            f"/app/proposals?status=applied&selected={quote(proposal_id, safe='')}&notice=applied",
+            status_code=303,
+        )
+
+    @app.post("/app/proposals/{proposal_id}/reject", response_class=HTMLResponse)
+    def app_proposal_reject(proposal_id: str, request: Request) -> Response:
+        cookie_token = _authorize_web_or_redirect(request, runtime)
+        if isinstance(cookie_token, RedirectResponse):
+            return cookie_token
+        try:
+            _reject_memory_proposal_req(
+                MemoryProposalRejectReq(
+                    proposal_id=proposal_id,
+                    reason="Rejected from Dory web interface.",
+                    agent="dory-web",
+                    origin_surface="dory-web",
+                ),
+                runtime,
+            )
+        except HTTPException as err:
+            response = _proposal_action_error_response(request, runtime, proposal_id, err, cookie_token)
+            return response
+        return RedirectResponse(
+            f"/app/proposals?status=rejected&selected={quote(proposal_id, safe='')}&notice=rejected",
+            status_code=303,
+        )
+
+    @app.get("/app/settings", response_class=HTMLResponse)
+    def app_settings(request: Request) -> Response:
+        cookie_token = _authorize_web_or_redirect(request, runtime)
+        if isinstance(cookie_token, RedirectResponse):
+            return cookie_token
+        response = render_app_settings(
+            status=build_status(runtime.corpus_root, runtime.index_root, settings),
+            settings=settings,
+            tool_count=len(build_tool_schemas()),
+        )
+        _set_legacy_web_auth_cookie(response, request, cookie_token)
+        return response
+
     @app.get("/wiki", response_class=HTMLResponse)
     def wiki_index(request: Request) -> Response:
-        cookie_token = _authorize_wiki_or_redirect(request, runtime)
+        cookie_token = _authorize_web_or_redirect(request, runtime)
         if isinstance(cookie_token, RedirectResponse):
             return cookie_token
         response = render_wiki_page(runtime.corpus_root, "")
@@ -265,13 +378,13 @@ def build_app(
 
     @app.get("/wiki/login", response_class=HTMLResponse)
     def wiki_login(next: str = Query("/wiki")) -> HTMLResponse:
-        return render_wiki_login(next_path=_safe_wiki_next(next))
+        return render_wiki_login(next_path=_safe_web_next(next))
 
     @app.post("/wiki/login")
     async def wiki_login_submit(request: Request) -> Response:
         form = parse_qs((await request.body()).decode("utf-8", errors="replace"))
         password = form.get("password", [""])[0]
-        next_path = _safe_wiki_next(form.get("next", ["/wiki"])[0])
+        next_path = _safe_web_next(form.get("next", ["/wiki"])[0])
         try:
             login = login_web_password(password)
         except HTTPException as err:
@@ -298,7 +411,7 @@ def build_app(
         request: Request,
         q: str = Query(""),
     ) -> Response:
-        cookie_token = _authorize_wiki_or_redirect(request, runtime)
+        cookie_token = _authorize_web_or_redirect(request, runtime)
         if isinstance(cookie_token, RedirectResponse):
             return cookie_token
         response = render_wiki_search(runtime.corpus_root, q)
@@ -307,7 +420,7 @@ def build_app(
 
     @app.get("/wiki/{page:path}", response_class=HTMLResponse)
     def wiki_page(page: str, request: Request) -> Response:
-        cookie_token = _authorize_wiki_or_redirect(request, runtime)
+        cookie_token = _authorize_web_or_redirect(request, runtime)
         if isinstance(cookie_token, RedirectResponse):
             return cookie_token
         response = render_wiki_page(runtime.corpus_root, page)
@@ -486,6 +599,112 @@ def build_app(
                 cause=err,
             )
 
+    @app.post("/v1/memory-proposals")
+    def memory_proposal_create(req: MemoryProposalCreateReq, request: Request) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        try:
+            proposal, path = create_semantic_write_proposal(
+                root=runtime.corpus_root,
+                engine=_build_semantic_write_engine(runtime),
+                req=req,
+            )
+        except DoryValidationError as err:
+            _raise_api_error(
+                status_code=400,
+                code="dory_validation_error",
+                message=str(err),
+                error_type="validation",
+                cause=err,
+            )
+        except EmbeddingProviderError as err:
+            _raise_api_error(
+                status_code=503,
+                code="embedding_provider_error",
+                message=str(err),
+                error_type="backend",
+                cause=err,
+            )
+        return {
+            "proposal_id": proposal.proposal_id,
+            "path": path.relative_to(runtime.corpus_root).as_posix(),
+            "proposal": proposal_to_payload(proposal),
+        }
+
+    @app.get("/v1/memory-proposals")
+    def memory_proposal_list(
+        request: Request,
+        status: str = Query("pending"),
+    ) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        proposal_status = _proposal_status_param(status)
+        proposals = ProposalStore(runtime.corpus_root).list(status=proposal_status)
+        return {"count": len(proposals), "proposals": proposals, "status": proposal_status}
+
+    @app.post("/v1/memory-proposals/list")
+    def memory_proposal_list_post(req: MemoryProposalListReq, request: Request) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        proposals = ProposalStore(runtime.corpus_root).list(status=req.status)
+        return {"count": len(proposals), "proposals": proposals, "status": req.status}
+
+    @app.get("/v1/memory-proposals/{proposal_id}")
+    def memory_proposal_get(
+        proposal_id: str,
+        request: Request,
+        status: str = Query("pending"),
+    ) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        proposal_status = _proposal_status_param(status)
+        try:
+            proposal = ProposalStore(runtime.corpus_root).load(proposal_id, status=proposal_status)
+        except DoryValidationError as err:
+            _raise_api_error(
+                status_code=404,
+                code="proposal_not_found",
+                message=str(err),
+                error_type="not_found",
+                cause=err,
+            )
+        return proposal_to_payload(proposal)
+
+    @app.post("/v1/memory-proposals/get")
+    def memory_proposal_get_post(req: MemoryProposalGetReq, request: Request) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        try:
+            proposal = ProposalStore(runtime.corpus_root).load(req.proposal_id, status=req.status)
+        except DoryValidationError as err:
+            _raise_api_error(
+                status_code=404,
+                code="proposal_not_found",
+                message=str(err),
+                error_type="not_found",
+                cause=err,
+            )
+        return proposal_to_payload(proposal)
+
+    @app.post("/v1/memory-proposals/apply")
+    def memory_proposal_apply(req: MemoryProposalApplyReq, request: Request) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        return _apply_memory_proposal_req(req, runtime)
+
+    @app.post("/v1/memory-proposals/{proposal_id}/apply")
+    def memory_proposal_apply_path(proposal_id: str, request: Request) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        return _apply_memory_proposal_req(MemoryProposalApplyReq(proposal_id=proposal_id), runtime)
+
+    @app.post("/v1/memory-proposals/reject")
+    def memory_proposal_reject(req: MemoryProposalRejectReq, request: Request) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        return _reject_memory_proposal_req(req, runtime)
+
+    @app.post("/v1/memory-proposals/{proposal_id}/reject")
+    def memory_proposal_reject_path(
+        proposal_id: str,
+        request: Request,
+        reason: str | None = Query(None),
+    ) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        return _reject_memory_proposal_req(MemoryProposalRejectReq(proposal_id=proposal_id, reason=reason), runtime)
+
     @app.post("/v1/recall-event")
     def recall_event(req: RecallEventReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
@@ -585,6 +804,49 @@ def build_app(
     return app
 
 
+def _apply_memory_proposal_req(req: MemoryProposalApplyReq, runtime: HttpRuntime) -> dict[str, Any]:
+    try:
+        result = apply_proposal(
+            root=runtime.corpus_root,
+            engine=_build_semantic_write_engine(runtime),
+            proposal_id=req.proposal_id,
+            agent=req.agent,
+            session_id=req.session_id,
+            origin_surface=req.origin_surface,
+        )
+    except DoryValidationError as err:
+        _raise_api_error(
+            status_code=409,
+            code="proposal_apply_failed",
+            message=str(err),
+            error_type="conflict",
+            cause=err,
+        )
+    except EmbeddingProviderError as err:
+        _raise_api_error(
+            status_code=503,
+            code="embedding_provider_error",
+            message=str(err),
+            error_type="backend",
+            cause=err,
+        )
+    return asdict(result)
+
+
+def _reject_memory_proposal_req(req: MemoryProposalRejectReq, runtime: HttpRuntime) -> dict[str, Any]:
+    try:
+        path = reject_proposal(root=runtime.corpus_root, proposal_id=req.proposal_id, reason=req.reason)
+    except DoryValidationError as err:
+        _raise_api_error(
+            status_code=404,
+            code="proposal_not_found",
+            message=str(err),
+            error_type="not_found",
+            cause=err,
+        )
+    return {"proposal_id": req.proposal_id, "path": path, "status": "rejected"}
+
+
 def _resolve_corpus_path(corpus_root: Path, relative_path: str) -> Path:
     root = corpus_root.resolve()
     target = (root / relative_path).resolve()
@@ -612,7 +874,7 @@ def _sse_event(event: str, payload: dict[str, object]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, sort_keys=True)}\n\n"
 
 
-def _authorize_wiki_or_redirect(
+def _authorize_web_or_redirect(
     request: Request,
     runtime: HttpRuntime,
 ) -> str | RedirectResponse | None:
@@ -625,24 +887,61 @@ def _authorize_wiki_or_redirect(
     except HTTPException as err:
         if err.status_code != 401:
             raise
-        next_path = _safe_wiki_next(_request_wiki_next(request))
+        next_path = _safe_web_next(_request_web_next(request))
         return RedirectResponse(
             f"/wiki/login?{urlencode({'next': next_path})}",
             status_code=303,
         )
 
 
-def _request_wiki_next(request: Request) -> str:
+def _request_web_next(request: Request) -> str:
     query = [(key, value) for key, value in request.query_params.multi_items() if key != "token"]
     if not query:
         return request.url.path
     return f"{request.url.path}?{urlencode(query)}"
 
 
-def _safe_wiki_next(next_path: str) -> str:
-    if next_path.startswith("/wiki") and not next_path.startswith("//"):
+def _safe_web_next(next_path: str) -> str:
+    if next_path in {"/wiki", "/app"}:
+        return next_path
+    if (
+        next_path.startswith(("/wiki/", "/wiki?", "/app/", "/app?"))
+        and not next_path.startswith("//")
+    ):
         return next_path
     return "/wiki"
+
+
+def _proposal_status_param(value: str) -> Literal["pending", "applied", "rejected"]:
+    if value in {"pending", "applied", "rejected"}:
+        return value  # type: ignore[return-value]
+    raise HTTPException(status_code=400, detail="status must be pending, applied, or rejected")
+
+
+def _proposal_action_error_response(
+    request: Request,
+    runtime: HttpRuntime,
+    proposal_id: str,
+    err: HTTPException,
+    cookie_token: str | None,
+) -> HTMLResponse:
+    message = _http_error_message(err)
+    response = render_app_proposals(
+        view=proposal_view_for(runtime.corpus_root, status="pending", selected_id=proposal_id),
+        error=message,
+    )
+    response.status_code = err.status_code
+    _set_legacy_web_auth_cookie(response, request, cookie_token)
+    return response
+
+
+def _http_error_message(err: HTTPException) -> str:
+    detail = err.detail
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        if isinstance(message, str):
+            return message
+    return str(detail)
 
 
 def _authorize_request(request: Request, runtime: HttpRuntime) -> None:

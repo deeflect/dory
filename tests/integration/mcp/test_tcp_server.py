@@ -24,6 +24,21 @@ class FakeCore:
     def memory_write(self, req):
         return {"verb": "memory_write", "request": req}
 
+    def memory_propose(self, req):
+        return {"verb": "memory_propose", "request": req}
+
+    def memory_proposals(self, req):
+        return {"verb": "memory_proposals", "request": req}
+
+    def memory_proposal_get(self, req):
+        return {"verb": "memory_proposal_get", "request": req}
+
+    def memory_proposal_apply(self, req):
+        return {"verb": "memory_proposal_apply", "request": req}
+
+    def memory_proposal_reject(self, req):
+        return {"verb": "memory_proposal_reject", "request": req}
+
     def write(self, req):
         return {"verb": "write", "request": req}
 
@@ -109,6 +124,43 @@ def test_tcp_server_calls_semantic_memory_write() -> None:
 
     assert response["result"]["content"][0]["type"] == "text"
     assert '"verb":"memory_write"' in response["result"]["content"][0]["text"]
+
+
+def test_tcp_server_calls_memory_proposal_apply() -> None:
+    server = build_tcp_server(FakeCore(), host="127.0.0.1", port=0, allow_no_auth=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        host, port = server.server_address
+        with socket.create_connection((host, port), timeout=2.0) as connection:
+            connection.sendall(
+                (
+                    json.dumps(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "tools/call",
+                            "params": {
+                                "name": "dory_memory_proposal_apply",
+                                "arguments": {"proposal_id": "proposal-001", "agent": "reviewer"},
+                            },
+                        }
+                    )
+                    + "\n"
+                ).encode("utf-8")
+            )
+            connection.shutdown(socket.SHUT_WR)
+            stream = connection.makefile("r", encoding="utf-8")
+            response = json.loads(stream.readline())
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2.0)
+
+    text = response["result"]["content"][0]["text"]
+    assert response["result"]["content"][0]["type"] == "text"
+    assert '"verb":"memory_proposal_apply"' in text
+    assert '"proposal_id":"proposal-001"' in text
 
 
 def test_tcp_server_calls_research() -> None:

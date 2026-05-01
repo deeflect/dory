@@ -38,6 +38,10 @@ def test_openclaw_plugin_source_exports_sdk_registration_contract() -> None:
     assert "/v1/recall-event" in source
     assert "/v1/active-memory" in source
     assert "/v1/public-artifacts" in source
+    assert "mapDoryCorpus" in source
+    assert 'corpus: mapDoryCorpus(opts?.corpus)' in source
+    assert "session_key: opts.sessionKey" in source
+    assert "scope: opts?.sessionKey ? { session_key: opts.sessionKey } : undefined" in source
     assert "tokenEnv" in source
     assert "subject" in source
     assert "confidence" in source

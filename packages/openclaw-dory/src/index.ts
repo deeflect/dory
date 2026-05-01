@@ -61,6 +61,7 @@ export interface MemorySearchManager {
       maxResults?: number;
       minScore?: number;
       sessionKey?: string;
+      corpus?: "memory" | "wiki" | "all" | "sessions";
       rerank?: DoryRerankMode;
       debug?: boolean;
       qmdSearchModeOverride?: "query" | "search" | "vsearch";
@@ -73,6 +74,8 @@ export interface MemorySearchManager {
       agent?: string;
       budgetTokens?: number;
       cwd?: string;
+      project?: string;
+      sessionKey?: string;
       profile?: "auto" | "general" | "coding" | "writing" | "privacy" | "personal";
       timeoutMs?: number;
       rerank?: DoryRerankMode;
@@ -242,7 +245,7 @@ const MemorySearchSchema = {
     query: { type: "string" },
     maxResults: { type: "number" },
     minScore: { type: "number" },
-    corpus: { enum: ["memory", "wiki", "all"] },
+    corpus: { enum: ["memory", "wiki", "all", "sessions"] },
     rerank: { enum: ["auto", "true", "false"] },
     debug: { type: "boolean" },
   },
@@ -686,6 +689,7 @@ function createMemorySearchTool(
         | "memory"
         | "wiki"
         | "all"
+        | "sessions"
         | undefined;
       const rerank = readStringParam(params, "rerank") as DoryRerankMode | undefined;
       const debug = readBooleanParam(params, "debug") ?? false;
@@ -701,6 +705,7 @@ function createMemorySearchTool(
             maxResults,
             minScore,
             sessionKey: toolCtx.agentSessionKey,
+            corpus: requestedCorpus,
             rerank,
             debug,
           })).map((result, index) => ({
@@ -947,6 +952,7 @@ export class DoryMemorySearchManager implements MemorySearchManager {
       maxResults?: number;
       minScore?: number;
       sessionKey?: string;
+      corpus?: "memory" | "wiki" | "all" | "sessions";
       rerank?: DoryRerankMode;
       debug?: boolean;
       qmdSearchModeOverride?: "query" | "search" | "vsearch";
@@ -957,14 +963,15 @@ export class DoryMemorySearchManager implements MemorySearchManager {
     opts?.onDebug?.({
       provider: "dory-http",
       mode,
-      sessionKeyApplied: false,
-      sessionKeySupported: false,
-      warning: opts?.sessionKey ? "sessionKey is not yet supported by Dory HTTP search" : undefined,
+      sessionKeyApplied: Boolean(opts?.sessionKey),
+      sessionKeySupported: true,
     });
     const payload = await search(this.options, {
       query,
       k: opts?.maxResults ?? 10,
       mode,
+      corpus: mapDoryCorpus(opts?.corpus),
+      scope: opts?.sessionKey ? { session_key: opts.sessionKey } : undefined,
       min_relevance_score: opts?.minScore,
       rerank: opts?.rerank,
       debug: opts?.debug ?? false,
@@ -988,6 +995,8 @@ export class DoryMemorySearchManager implements MemorySearchManager {
       agent?: string;
       budgetTokens?: number;
       cwd?: string;
+      project?: string;
+      sessionKey?: string;
       profile?: "auto" | "general" | "coding" | "writing" | "privacy" | "personal";
       timeoutMs?: number;
       rerank?: DoryRerankMode;
@@ -998,6 +1007,8 @@ export class DoryMemorySearchManager implements MemorySearchManager {
       agent: opts?.agent ?? this.agentId,
       budget_tokens: opts?.budgetTokens,
       cwd: opts?.cwd,
+      project: opts?.project,
+      scope: opts?.sessionKey ? { session_key: opts.sessionKey } : undefined,
       profile: opts?.profile,
       timeout_ms: opts?.timeoutMs,
       rerank: opts?.rerank,
@@ -1123,6 +1134,18 @@ function mapSearchMode(
     return "vector";
   }
   return "hybrid";
+}
+
+function mapDoryCorpus(
+  corpus: "memory" | "wiki" | "all" | "sessions" | undefined,
+): "durable" | "sessions" | "all" {
+  if (corpus === "all") {
+    return "all";
+  }
+  if (corpus === "sessions") {
+    return "sessions";
+  }
+  return "durable";
 }
 
 function getDoryManager(options: DoryClientOptions, agentId: string): DoryMemorySearchManager {
