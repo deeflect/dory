@@ -772,6 +772,64 @@ profiles:
     assert "Dory admin ops" not in result.block
 
 
+def test_active_memory_custom_profile_filters_before_top_k_truncation(tmp_path: Path) -> None:
+    class WindowedSearchEngine:
+        def __init__(self) -> None:
+            self.requests: list[SearchReq] = []
+
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            self.requests.append(req)
+            disallowed = [
+                _make_result(
+                    path=f"projects/dory/high-score-{index}.md",
+                    snippet=f"Disallowed project result {index}.",
+                    score=1.0 - (index * 0.01),
+                    confidence="high",
+                )
+                for index in range(10)
+            ]
+            allowed = _make_result(
+                path="profiles/brand/default.md",
+                snippet="Allowed brand profile context survives filtering.",
+                score=0.1,
+                confidence="high",
+            )
+            return _make_response([*disallowed, allowed][: req.k])
+
+    (tmp_path / "profiles" / "brand").mkdir(parents=True)
+    (tmp_path / "profiles" / "brand" / "default.md").write_text("Brand defaults.\n", encoding="utf-8")
+    (tmp_path / "profiles.yaml").write_text(
+        """
+profiles:
+  brand:
+    retrieval:
+      allow:
+        - profiles/brand/**
+      sessions: never
+""".strip(),
+        encoding="utf-8",
+    )
+    search_engine = WindowedSearchEngine()
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=search_engine,
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="draft brand launch copy",
+            agent="codex",
+            profile="brand",
+            include_wake=False,
+        )
+    )
+
+    assert search_engine.requests[0].k > 6
+    assert "Allowed brand profile context survives filtering." in result.block
+    assert "Disallowed project result" not in result.block
+
+
 def test_active_memory_uses_planner_queries_and_llm_composition(tmp_path: Path) -> None:
     search_engine = _StubSearchEngine()
     engine = ActiveMemoryEngine(

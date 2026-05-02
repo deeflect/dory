@@ -74,7 +74,10 @@ class WakeBuilder:
     def _load_named_section(self, *, name: str, profile: WakeProfile, agent: str) -> HotBlockSection | None:
         if name == "privacy_boundaries":
             return self._load_privacy_boundaries_section(agent=agent)
-        path = self.root / _resolve_wake_section_path(name)
+        rel_path = _resolve_wake_section_path(name)
+        if rel_path is None:
+            return None
+        path = self.root / rel_path
         return self._load_file_section(path, name=name, profile=profile, agent=agent)
 
     def _load_file_section(
@@ -86,6 +89,8 @@ class WakeBuilder:
         agent: str,
     ) -> HotBlockSection | None:
         if not path.exists():
+            return None
+        if not _is_within_root(path, self.root):
             return None
         content = path.read_text(encoding="utf-8").strip()
         return HotBlockSection(
@@ -143,7 +148,8 @@ class WakeBuilder:
             lines.append(line)
 
         excerpt = "\n".join(lines).strip()
-        section_path = _resolve_wake_section_path(name).as_posix()
+        resolved_section_path = _resolve_wake_section_path(name)
+        section_path = resolved_section_path.as_posix() if resolved_section_path is not None else name
         if name in _CORE_SECTION_NAMES:
             suffix = f"<!-- wake excerpt truncated; use dory_get('{section_path}') for the full file -->"
         else:
@@ -440,10 +446,21 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
     return deduped
 
 
-def _resolve_wake_section_path(name: str) -> Path:
+def _resolve_wake_section_path(name: str) -> Path | None:
     if name in _CORE_SECTION_PATHS:
         return _CORE_SECTION_PATHS[name]
-    return Path(name)
+    path = Path(name)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    return path
+
+
+def _is_within_root(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return False
+    return True
 
 
 def _section_budget_key(name: str) -> str:

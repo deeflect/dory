@@ -1429,10 +1429,7 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     "budget_tokens": {"type": "integer"},
                     "agent": {"type": "string"},
                     "project": {"type": "string"},
-                    "profile": {
-                        "type": "string",
-                        "enum": ["default", "casual", "coding", "writing", "privacy"],
-                    },
+                    "profile": {"type": "string"},
                     "include_recent_sessions": {"type": "integer"},
                     "include_pinned_decisions": {"type": "boolean"},
                 },
@@ -1460,10 +1457,7 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                             "until": {"type": "string"},
                         },
                     },
-                    "profile": {
-                        "type": "string",
-                        "enum": ["auto", "general", "coding", "writing", "privacy", "personal"],
-                    },
+                    "profile": {"type": "string"},
                     "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 5000},
                     "budget_tokens": {"type": "integer", "minimum": 100, "maximum": 1200},
                     "include_wake": {"type": "boolean"},

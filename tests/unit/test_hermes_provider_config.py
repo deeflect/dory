@@ -424,6 +424,16 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     ]
 
 
+def test_hermes_fallback_tool_schema_accepts_custom_profile_names(monkeypatch) -> None:
+    module = _load_provider_module()
+    monkeypatch.setattr(module, "_build_canonical_hermes_tool_schemas", lambda: None)
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766")
+    schemas = {schema["name"]: schema for schema in provider.get_tool_schemas()}
+
+    assert schemas["dory_wake"]["parameters"]["properties"]["profile"] == {"type": "string"}
+    assert schemas["dory_active_memory"]["parameters"]["properties"]["profile"] == {"type": "string"}
+
+
 def test_hermes_publish_research_writes_knowledge_markdown_dry_run_by_default() -> None:
     module = _load_provider_module()
     captured: dict[str, object] = {}

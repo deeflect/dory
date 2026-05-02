@@ -44,6 +44,26 @@ profiles:
     assert "Dory maintenance" not in resp.block
 
 
+def test_wake_builder_rejects_custom_profile_sections_outside_corpus(tmp_path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.md"
+    outside.write_text("Outside corpus context must not load.\n", encoding="utf-8")
+    (tmp_path / "profiles.yaml").write_text(
+        f"""
+profiles:
+  unsafe:
+    wake:
+      sections:
+        - ../{outside.name}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(WakeReq(agent="claude-code", profile="unsafe", budget_tokens=200))
+
+    assert resp.block == ""
+    assert resp.sources == []
+
+
 def test_writing_profile_applies_writing_voice_budget(tmp_path) -> None:
     (tmp_path / "core").mkdir(parents=True)
     (tmp_path / "knowledge" / "personal").mkdir(parents=True)

@@ -107,6 +107,11 @@ class SourcePolicy:
     def path_weight(self, path: str) -> float:
         return self.retrieval.path_weight(path)
 
+    def needs_prefilter_expansion(self, *, corpus: str) -> bool:
+        if corpus == "sessions":
+            return False
+        return bool(self.retrieval.allow or self.retrieval.deny or not self.retrieval.include_durable_context)
+
 
 class _WakeBuilder(Protocol):
     def build(self, req: WakeReq) -> WakeResp: ...
@@ -511,13 +516,14 @@ def _search_candidates(
     source_policy: SourcePolicy | None = None,
 ) -> list[object]:
     scored_results: dict[str, tuple[float, object]] = {}
+    request_k = _expanded_candidate_limit(k, source_policy=source_policy, corpus=corpus)
     for query_index, query in enumerate(query for query in queries if query.strip()):
         if deadline is not None and deadline.expired:
             break
         response = search_engine.search(
             SearchReq(
                 query=query,
-                k=k,
+                k=request_k,
                 mode=mode,
                 corpus=corpus,
                 include_content=include_content,
@@ -528,6 +534,10 @@ def _search_candidates(
         for result_index, result in enumerate(list(getattr(response, "results", [])), start=1):
             path = _result_path(result)
             if not path:
+                continue
+            if not _is_active_memory_candidate(result, corpus=corpus):
+                continue
+            if source_policy is not None and not source_policy.allows_result_path(path, corpus=corpus):
                 continue
             raw_score = float(getattr(result, "score", 0.0) or 0.0)
             rank_score = getattr(result, "rank_score", None)
@@ -547,6 +557,12 @@ def _search_candidates(
                 scored_results[path] = (score, result)
     ordered = sorted(scored_results.values(), key=lambda item: (-item[0], _result_path(item[1])))
     return [result for _score, result in ordered[:k]]
+
+
+def _expanded_candidate_limit(k: int, *, source_policy: SourcePolicy | None, corpus: str) -> int:
+    if source_policy is None or not source_policy.needs_prefilter_expansion(corpus=corpus):
+        return k
+    return min(50, max(k, k * 4))
 
 
 def _preferred_active_memory_results(results: list[object]) -> list[object]:
