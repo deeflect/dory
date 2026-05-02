@@ -179,7 +179,7 @@ def test_wake_builder_writing_profile_uses_voice_file_without_full_identity(tmp_
     (tmp_path / "core" / "soul.md").write_text("# Soul\n\nUse direct short sentences.\n", encoding="utf-8")
     (tmp_path / "core" / "user.md").write_text("# User\n\nEmail placeholder@example.invalid.\n", encoding="utf-8")
     (tmp_path / "core" / "identity.md").write_text("# Identity\n\nBirthday 1900-01-01.\n", encoding="utf-8")
-    (tmp_path / "knowledge" / "personal" / "dee-writing-voice.md").write_text(
+    (tmp_path / "knowledge" / "personal" / "writing-voice.md").write_text(
         "# Writing Voice\n\nLowercase by default. No AI buzzwords.\n",
         encoding="utf-8",
     )

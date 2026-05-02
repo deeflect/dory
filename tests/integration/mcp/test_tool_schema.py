@@ -62,13 +62,8 @@ def test_dory_wake_schema_exposes_profiles() -> None:
     wake_tool = next(tool for tool in tools if tool["name"] == "dory_wake")
     props = wake_tool["inputSchema"]["properties"]
 
-    assert props["profile"]["enum"] == [
-        "default",
-        "casual",
-        "coding",
-        "writing",
-        "privacy",
-    ]
+    assert props["profile"]["type"] == "string"
+    assert "enum" not in props["profile"]
     assert "project" in props
 
 
@@ -81,7 +76,8 @@ def test_dory_active_memory_schema_exposes_include_wake_and_limits() -> None:
     assert "project" in props
     assert "session_key" in props["scope"]["properties"]
     assert props["rerank"]["enum"] == ["auto", "true", "false"]
-    assert props["profile"]["enum"] == ["auto", "general", "coding", "writing", "privacy", "personal"]
+    assert props["profile"]["type"] == "string"
+    assert "enum" not in props["profile"]
     assert props["budget_tokens"]["maximum"] == 1200
     assert props["timeout_ms"]["maximum"] == 5000
 

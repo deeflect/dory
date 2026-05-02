@@ -24,8 +24,8 @@ HttpSearchMode = Literal["hybrid", "recall", "bm25", "vector", "exact"]
 SearchCorpus = Literal["durable", "sessions", "all"]
 RerankMode = Literal["auto", "true", "false"]
 MemoryMode = Literal["hybrid", "context", "tools"]
-WakeProfile = Literal["default", "casual", "coding", "writing", "privacy"]
-ActiveMemoryProfile = Literal["auto", "general", "coding", "writing", "privacy", "personal"]
+WakeProfile = str
+ActiveMemoryProfile = str
 ResearchKind = Literal["report", "briefing", "wiki-note", "proposal"]
 ResearchCorpus = Literal["durable", "sessions", "all"]
 SessionStatus = Literal["active", "interrupted", "done"]
@@ -146,6 +146,34 @@ class HermesDoryProviderConfig:
 class SessionTurn:
     role: Literal["user", "assistant"]
     content: str
+
+
+@dataclass(frozen=True, slots=True)
+class PrefetchPlan:
+    profile: ActiveMemoryProfile
+    include_search: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class PrefetchTrace:
+    profile: ActiveMemoryProfile
+    include_search: bool
+    search_skipped: bool
+    wake_sources: list[str]
+    active_memory_sources: list[str]
+    search_result_paths: list[str]
+    injected_paths: list[str]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "profile": self.profile,
+            "include_search": self.include_search,
+            "search_skipped": self.search_skipped,
+            "wake_sources": self.wake_sources,
+            "active_memory_sources": self.active_memory_sources,
+            "search_result_paths": self.search_result_paths,
+            "injected_paths": self.injected_paths,
+        }
 
 
 class _SupportsRequest(Protocol):
@@ -632,9 +660,8 @@ class DoryMemoryProvider(MemoryProvider):
             },
             {
                 "key": "wake_profile",
-                "description": "Default Dory wake profile.",
+                "description": "Default Dory wake/profile name used for prefetch unless Hermes infers casual from short chat greetings.",
                 "default": "coding",
-                "choices": ["default", "casual", "coding", "writing", "privacy"],
             },
             {
                 "key": "active_memory_include_wake",
@@ -1048,8 +1075,9 @@ class DoryMemoryProvider(MemoryProvider):
         scope: dict[str, Any] | None = None,
         timeout_ms: int | None = None,
     ) -> dict[str, Any]:
-        wake_payload = self.wake(agent=agent, budget_tokens=budget_tokens, project=project)
-        search_payload = self.search(prompt, k=k, mode=mode, scope=scope)
+        plan = self._prefetch_plan(prompt, project=project, cwd=cwd)
+        wake_payload = self.wake(agent=agent, budget_tokens=budget_tokens, profile=plan.profile, project=project)
+        search_payload = self.search(prompt, k=k, mode=mode, scope=scope) if plan.include_search else {"results": []}
         active_memory_payload = self.active_memory(
             prompt,
             agent=agent,
@@ -1058,12 +1086,20 @@ class DoryMemoryProvider(MemoryProvider):
             project=project,
             scope=scope,
             timeout_ms=timeout_ms,
+            profile=plan.profile,
             include_wake=False,
+        )
+        trace = self._prefetch_trace(
+            plan=plan,
+            wake_payload=wake_payload,
+            search_payload=search_payload,
+            active_memory_payload=active_memory_payload,
         )
         return {
             "wake": wake_payload,
             "search": search_payload,
             "active_memory": active_memory_payload,
+            "trace": trace.as_dict(),
         }
 
     def build_memory_section(
@@ -1114,6 +1150,68 @@ class DoryMemoryProvider(MemoryProvider):
                 if snippet:
                     lines.append(f"  {snippet}")
         return "\n".join(lines).strip()
+
+    def _prefetch_trace(
+        self,
+        *,
+        plan: PrefetchPlan,
+        wake_payload: dict[str, Any],
+        search_payload: dict[str, Any],
+        active_memory_payload: dict[str, Any],
+    ) -> PrefetchTrace:
+        wake_sources = _string_list(wake_payload.get("sources"))
+        active_memory_sources = _string_list(active_memory_payload.get("sources"))
+        search_result_paths = _search_result_paths(search_payload)
+        injected_paths = _dedupe_strings([*active_memory_sources, *search_result_paths])
+        if not injected_paths:
+            injected_paths = wake_sources
+        return PrefetchTrace(
+            profile=plan.profile,
+            include_search=plan.include_search,
+            search_skipped=not plan.include_search,
+            wake_sources=wake_sources,
+            active_memory_sources=active_memory_sources,
+            search_result_paths=search_result_paths,
+            injected_paths=injected_paths,
+        )
+
+    def _prefetch_plan(
+        self,
+        prompt: str,
+        *,
+        project: str | None = None,
+        cwd: str | None = None,
+    ) -> PrefetchPlan:
+        if project or cwd:
+            return PrefetchPlan(profile="coding", include_search=True)
+        if self.wake_profile != "coding":
+            return PrefetchPlan(profile=self.wake_profile, include_search=self.wake_profile not in {"casual", "privacy"})
+        if self._is_casual_prefetch_prompt(prompt):
+            return PrefetchPlan(profile="casual", include_search=False)
+        return PrefetchPlan(profile="coding", include_search=True)
+
+    @staticmethod
+    def _is_casual_prefetch_prompt(prompt: str) -> bool:
+        normalized = " ".join(prompt.strip().lower().split())
+        stripped = normalized.strip("!?.,;: ")
+        if not stripped:
+            return True
+        casual_exact = {
+            "hi",
+            "hey",
+            "hello",
+            "yo",
+            "sup",
+            "wassup",
+            "what's up",
+            "whats up",
+            "what up",
+            "what's up bro",
+            "whats up bro",
+            "what's good",
+            "whats good",
+        }
+        return stripped in casual_exact
 
     def store_memory(
         self,
@@ -1788,9 +1886,8 @@ def _safe_memory_mode(value: str | None, *, default: MemoryMode) -> MemoryMode:
 
 
 def _safe_wake_profile(value: str | None, *, default: WakeProfile) -> WakeProfile:
-    if value in {"default", "casual", "coding", "writing", "privacy"}:
-        return value
-    return default
+    normalized = _as_optional_string(value)
+    return normalized or default
 
 
 def _normalize_search_mode(mode: SearchMode) -> HttpSearchMode:
@@ -1868,6 +1965,43 @@ def _as_optional_string_list(value: Any) -> list[str] | None:
     return items
 
 
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return _dedupe_strings(str(item).strip() for item in value if str(item).strip())
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    return []
+
+
+def _search_result_paths(payload: dict[str, Any]) -> list[str]:
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return []
+    paths: list[str] = []
+    for result in results:
+        if not isinstance(result, dict):
+            continue
+        path = str(result.get("path", "")).strip()
+        if path:
+            paths.append(path)
+    return _dedupe_strings(paths)
+
+
+def _dedupe_strings(values: list[str] | tuple[str, ...] | Any) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        deduped.append(text)
+        seen.add(text)
+    return deduped
+
+
 def _as_optional_search_mode(value: Any) -> SearchMode | None:
     string_value = _as_optional_string(value)
     if string_value is None:
@@ -1887,21 +2021,11 @@ def _as_optional_rerank_mode(value: Any) -> RerankMode | None:
 
 
 def _as_optional_wake_profile(value: Any) -> WakeProfile | None:
-    string_value = _as_optional_string(value)
-    if string_value is None:
-        return None
-    if string_value in {"default", "casual", "coding", "writing", "privacy"}:
-        return string_value
-    return None
+    return _as_optional_string(value)
 
 
 def _as_optional_active_memory_profile(value: Any) -> ActiveMemoryProfile | None:
-    string_value = _as_optional_string(value)
-    if string_value is None:
-        return None
-    if string_value in {"auto", "general", "coding", "writing", "privacy", "personal"}:
-        return string_value
-    return None
+    return _as_optional_string(value)
 
 
 def _as_optional_research_kind(value: Any) -> ResearchKind | None:

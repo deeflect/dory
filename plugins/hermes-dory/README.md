@@ -79,6 +79,9 @@ Search mode notes:
 Wake/active-memory notes:
 
 - default `wake_profile` is `coding`, because Hermes is normally used for project work
+- Dory also supports corpus-local custom profiles in `profiles.yaml`; use `/v1/profiles` or `dory_status` to inspect available names
+- Hermes hybrid prefetch infers `casual` for short greetings like `hi` / `what's up bro`; that path skips standalone `/v1/search` evidence and asks active-memory with `profile: casual`
+- a custom profile can define wake section files plus retrieval `allow`, `deny`, `boosts`, `sessions`, `use_helper_context`, and pinned-decision policy
 - set `active_memory_include_wake: false` when Hermes already calls wake during prefetch to avoid duplicate context
 - `wake`, `active_memory`, and prefetch helpers can forward `project`; `active_memory` and prefetch helpers can also forward session recall `scope`
 

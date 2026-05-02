@@ -69,6 +69,7 @@ def test_serialize_status_hides_debug_fields_by_default() -> None:
             recall_tracking_enabled=True,
             artifact_listing_enabled=True,
         ),
+        profiles={},
         compat_matrix={"wake": "ok"},
     )
 
@@ -116,6 +117,7 @@ def test_serialize_status_keeps_debug_fields_when_requested() -> None:
             recall_tracking_enabled=True,
             artifact_listing_enabled=True,
         ),
+        profiles={},
         compat_matrix={"wake": "ok"},
     )
 

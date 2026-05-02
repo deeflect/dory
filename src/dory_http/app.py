@@ -40,6 +40,7 @@ from dory_core.migration_engine import MigrationEngine
 from dory_core.migration_llm import MigrationLLM
 from dory_core.index.reindex import reindex_corpus
 from dory_core.openclaw_parity import OpenClawParityStore, list_public_artifacts
+from dory_core.profiles import ProfileRegistry
 from dory_core.purge import PurgeEngine
 from dory_core.query_expansion import OpenRouterQueryExpander
 from dory_core.runtime import build_query_expander, build_retrieval_planner, build_surface_runtime
@@ -766,6 +767,12 @@ def build_app(
     def status(request: Request, debug: bool = Query(False)) -> dict[str, Any]:
         _authorize_request(request, runtime)
         return serialize_status(build_status(runtime.corpus_root, runtime.index_root, settings), debug=debug)
+
+    @app.get("/v1/profiles")
+    def profiles(request: Request) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        profile_list = ProfileRegistry(runtime.corpus_root).describe_profiles()
+        return {"count": len(profile_list), "profiles": profile_list}
 
     @app.get("/v1/tools")
     def tools(request: Request) -> dict[str, Any]:

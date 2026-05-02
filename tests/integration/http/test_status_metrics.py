@@ -36,6 +36,8 @@ def test_status_and_metrics_routes(
     assert payload["embedding_dimensions"] > 0
     assert "query_reranker_enabled" in payload
     assert "query_reranker_model" in payload
+    assert payload["profiles"]
+    assert "coding" in payload["profiles"]
     assert health.status_code == 200
     assert health.json() == {"ok": True}
     assert metrics.status_code == 200

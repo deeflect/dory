@@ -9,6 +9,7 @@ from typing import Any
 from dory_core.config import DorySettings
 from dory_core.markdown_store import MarkdownStore
 from dory_core.openclaw_parity import OpenClawParityStore
+from dory_core.profiles import ProfileRegistry
 from dory_core.session_sync import SESSION_LOG_PREFIX, plan_session_sync
 from dory_core.types import OpenClawParityDiagnostics
 
@@ -43,6 +44,7 @@ class DoryStatus:
     query_reranker_model: str | None
     active_memory_llm_provider: str
     active_memory_llm_stages: str
+    profiles: list[str]
     openclaw: OpenClawParityDiagnostics
     compat_matrix: dict[str, str]
 
@@ -96,6 +98,7 @@ def build_status(corpus_root: Path, index_root: Path, settings: DorySettings | N
         query_reranker_model=_status_reranker_model(resolved_settings),
         active_memory_llm_provider=resolved_settings.active_memory_llm_provider,
         active_memory_llm_stages=resolved_settings.active_memory_llm_stages,
+        profiles=ProfileRegistry(corpus_root).profile_names(),
         openclaw=_load_openclaw_diagnostics(db_path),
         compat_matrix={
             "wake": "ok",

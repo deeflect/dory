@@ -5,48 +5,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from dory_core.frontmatter import load_markdown_document
+from dory_core.profiles import ProfileRegistry
 from dory_core.slug import slugify_path_segment
 from dory_core.token_counting import TokenCounter, build_token_counter
 from dory_core.types import WakeProfile, WakeReq, WakeResp
 
-_WAKE_SECTION_ORDERS: dict[WakeProfile, tuple[str, ...]] = {
-    "default": ("user", "soul", "env", "active", "identity", "defaults"),
-    "casual": ("user", "soul", "identity", "defaults", "active", "env"),
-    "coding": ("active", "env", "defaults"),
-    "writing": ("soul", "writing_voice", "defaults", "active"),
-    "privacy": ("privacy_boundaries", "defaults", "soul"),
+_CORE_SECTION_PATHS = {
+    "active": Path("core/active.md"),
+    "defaults": Path("core/defaults.md"),
+    "env": Path("core/env.md"),
+    "identity": Path("core/identity.md"),
+    "soul": Path("core/soul.md"),
+    "user": Path("core/user.md"),
+    "writing_voice": Path("knowledge/personal/writing-voice.md"),
 }
-_WAKE_PROFILE_SECTION_BUDGETS: dict[WakeProfile, dict[str, int]] = {
-    "default": {
-        "project": 360,
-    },
-    "casual": {
-        "project": 320,
-    },
-    "coding": {
-        "active": 480,
-        "env": 340,
-        "defaults": 260,
-        "project": 360,
-        "user": 220,
-        "soul": 220,
-        "identity": 180,
-    },
-    "writing": {
-        "soul": 520,
-        "writing_voice": 420,
-        "defaults": 180,
-        "active": 180,
-        "project": 260,
-    },
-    "privacy": {
-        "privacy_boundaries": 420,
-        "defaults": 260,
-        "soul": 180,
-        "project": 220,
-    },
-}
-_CORE_SECTION_NAMES = {"active", "defaults", "env", "identity", "soul", "user"}
+_CORE_SECTION_NAMES = set(_CORE_SECTION_PATHS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +32,7 @@ class WakeBuilder:
     def __init__(self, root: Path = Path("."), *, token_counter: TokenCounter | None = None) -> None:
         self.root = Path(root)
         self.token_counter = token_counter or build_token_counter()
+        self.profile_registry = ProfileRegistry(self.root)
 
     def build(self, req: WakeReq) -> WakeResp:
         sections = self._load_hot_block_sections(profile=req.profile, agent=req.agent)
@@ -88,9 +62,9 @@ class WakeBuilder:
 
     def _load_hot_block_sections(self, *, profile: WakeProfile = "default", agent: str) -> list[HotBlockSection]:
         sections: list[HotBlockSection] = []
-        # Profiles keep wake deterministic while letting coding agents spend
-        # their small startup budget on operational context first.
-        for name in _WAKE_SECTION_ORDERS.get(profile, _WAKE_SECTION_ORDERS["default"]):
+        # Profiles keep wake deterministic while letting agents spend their
+        # startup budget on task-specific context first.
+        for name in self.profile_registry.wake_profile(profile).sections:
             section = self._load_named_section(name=name, profile=profile, agent=agent)
             if section is None:
                 continue
@@ -98,14 +72,9 @@ class WakeBuilder:
         return sections
 
     def _load_named_section(self, *, name: str, profile: WakeProfile, agent: str) -> HotBlockSection | None:
-        if name == "writing_voice":
-            path = self.root / "knowledge" / "personal" / "dee-writing-voice.md"
-            return self._load_file_section(path, name=name, profile=profile, agent=agent)
         if name == "privacy_boundaries":
             return self._load_privacy_boundaries_section(agent=agent)
-        if name not in _CORE_SECTION_NAMES:
-            return None
-        path = self.root / "core" / f"{name}.md"
+        path = self.root / _resolve_wake_section_path(name)
         return self._load_file_section(path, name=name, profile=profile, agent=agent)
 
     def _load_file_section(
@@ -157,7 +126,9 @@ class WakeBuilder:
         profile: WakeProfile,
         agent: str,
     ) -> str:
-        section_budget = _WAKE_PROFILE_SECTION_BUDGETS.get(profile, {}).get(name)
+        section_budget = self.profile_registry.wake_profile(profile).section_budgets.get(_section_budget_key(name))
+        if section_budget is None:
+            section_budget = self.profile_registry.wake_profile(profile).section_budgets.get(name)
         if section_budget is None or self._count_tokens(content, agent=agent) <= section_budget:
             return content
 
@@ -172,11 +143,12 @@ class WakeBuilder:
             lines.append(line)
 
         excerpt = "\n".join(lines).strip()
-        if not excerpt:
-            return content
+        section_path = _resolve_wake_section_path(name).as_posix()
         if name in _CORE_SECTION_NAMES:
-            return f"{excerpt}\n\n<!-- wake excerpt truncated; use dory_get('core/{name}.md') for the full file -->"
-        return f"{excerpt}\n\n<!-- wake excerpt truncated; use dory_get on the source path for the full file -->"
+            suffix = f"<!-- wake excerpt truncated; use dory_get('{section_path}') for the full file -->"
+        else:
+            suffix = "<!-- wake excerpt truncated; use dory_get on the source path for the full file -->"
+        return f"{excerpt}\n\n{suffix}".strip()
 
     def _load_recent_sessions(self, limit: int) -> list[HotBlockSection]:
         if limit <= 0:
@@ -466,6 +438,24 @@ def _dedupe_preserve_order(items: list[str]) -> list[str]:
         seen.add(key)
         deduped.append(item)
     return deduped
+
+
+def _resolve_wake_section_path(name: str) -> Path:
+    if name in _CORE_SECTION_PATHS:
+        return _CORE_SECTION_PATHS[name]
+    return Path(name)
+
+
+def _section_budget_key(name: str) -> str:
+    path = Path(name)
+    if name in _CORE_SECTION_NAMES or name == "privacy_boundaries":
+        return name
+    for alias, section_path in _CORE_SECTION_PATHS.items():
+        if path.as_posix() == section_path.as_posix():
+            return alias
+    if path.suffix == ".md":
+        return path.stem
+    return path.as_posix()
 
 
 def _normalize_project_lookup_value(value: str) -> str:

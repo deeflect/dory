@@ -30,6 +30,7 @@ from dory_core.types import (
     WakeResp,
 )
 from dory_core.frontmatter import load_markdown_document
+from dory_core.profiles import ProfileRegistry, RetrievalProfileConfig
 from dory_core.slug import slugify_path_segment
 
 _logger = logging.getLogger(__name__)
@@ -88,29 +89,23 @@ _TOPIC_STOPWORDS = {
     "work",
     "working",
 }
-_PromptContext = Literal["coding", "writing", "privacy", "personal", "general"]
-_ActiveMemoryProfile = Literal["general", "coding", "writing", "privacy", "personal"]
+_PromptContext = str
+_ActiveMemoryProfile = str
 
 
 @dataclass(frozen=True, slots=True)
 class SourcePolicy:
     profile: _ActiveMemoryProfile
-    wake_profile: Literal["default", "coding", "writing", "privacy"]
-    include_pinned_decisions: bool
-    include_durable_context: bool
+    retrieval: RetrievalProfileConfig
     include_session_context: bool
-    use_helper_context: bool
-    blocked_exact_paths: frozenset[str] = frozenset()
-    blocked_path_prefixes: tuple[str, ...] = ()
 
     def allows_result_path(self, path: str, *, corpus: str) -> bool:
         if corpus == "sessions":
             return self.include_session_context
-        if not self.include_durable_context:
-            return False
-        if path in self.blocked_exact_paths:
-            return False
-        return not path.startswith(self.blocked_path_prefixes)
+        return self.retrieval.allows_path(path, corpus=corpus)
+
+    def path_weight(self, path: str) -> float:
+        return self.retrieval.path_weight(path)
 
 
 class _WakeBuilder(Protocol):
@@ -132,7 +127,8 @@ class ActiveMemoryEngine:
     def build(self, req: ActiveMemoryReq) -> ActiveMemoryResp:
         started = monotonic()
         deadline = _Deadline.from_timeout_ms(req.timeout_ms)
-        source_policy = _source_policy_for_request(req)
+        profile_registry = ProfileRegistry(self.root or Path("."))
+        source_policy = _source_policy_for_request(req, profile_registry=profile_registry)
         helper = self._helper_context(req, source_policy)
         wake_block, wake_sources = self._wake_context(req, source_policy)
         planning_context = _planning_context_from_helper(helper)
@@ -186,7 +182,11 @@ class ActiveMemoryEngine:
         )
 
     def _helper_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> "WikiHelperContext":
-        helper = _load_wiki_helper_context(self.root) if source_policy.use_helper_context else _empty_wiki_helper_context()
+        helper = (
+            _load_wiki_helper_context(self.root)
+            if source_policy.retrieval.use_helper_context
+            else _empty_wiki_helper_context()
+        )
         return _topic_scoped_helper_context(helper, prompt=req.prompt, source_policy=source_policy)
 
     def _wake_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> tuple[str, list[str]]:
@@ -196,10 +196,10 @@ class ActiveMemoryEngine:
             WakeReq(
                 budget_tokens=min(req.budget_tokens, 600),
                 agent=req.agent,
-                profile=source_policy.wake_profile,
+                profile=source_policy.retrieval.wake_profile,
                 project=_resolve_project_handle(req, self.root),
                 include_recent_sessions=3 if source_policy.include_session_context else 0,
-                include_pinned_decisions=source_policy.include_pinned_decisions,
+                include_pinned_decisions=source_policy.retrieval.include_pinned_decisions,
             )
         )
         return wake.block, wake.sources
@@ -222,6 +222,7 @@ class ActiveMemoryEngine:
                 include_content=True,
                 rerank="true" if req.rerank == "auto" else req.rerank,
                 deadline=deadline,
+                source_policy=source_policy,
             ),
             corpus="durable",
             source_policy=source_policy,
@@ -253,6 +254,7 @@ class ActiveMemoryEngine:
             rerank="false",
             scope=session_scope,
             deadline=deadline,
+            source_policy=source_policy,
         )
 
     def _trusted_composition(
@@ -506,6 +508,7 @@ def _search_candidates(
     rerank: Literal["auto", "true", "false"],
     scope: SearchScope | None = None,
     deadline: _Deadline | None = None,
+    source_policy: SourcePolicy | None = None,
 ) -> list[object]:
     scored_results: dict[str, tuple[float, object]] = {}
     for query_index, query in enumerate(query for query in queries if query.strip()):
@@ -536,7 +539,8 @@ def _search_candidates(
             else:
                 base_score = raw_score
             stale_penalty = 0.15 if str(getattr(result, "stale_warning", "") or "").strip() else 0.0
-            score = base_score + _active_memory_path_weight(path) - (query_index * 0.06) - (result_index * 0.01)
+            path_weight = source_policy.path_weight(path) if source_policy is not None else _active_memory_path_weight(path)
+            score = base_score + path_weight - (query_index * 0.06) - (result_index * 0.01)
             score -= stale_penalty
             existing = scored_results.get(path)
             if existing is None or score > existing[0]:
@@ -665,57 +669,23 @@ def _is_active_memory_candidate(result: object, *, corpus: str) -> bool:
     return True
 
 
-def _source_policy_for_request(req: ActiveMemoryReq) -> SourcePolicy:
+def _source_policy_for_request(req: ActiveMemoryReq, *, profile_registry: ProfileRegistry) -> SourcePolicy:
     profile = _resolve_active_memory_profile(req)
-    include_session_context = _prompt_needs_session_context(req.prompt)
-    if profile == "privacy":
-        return SourcePolicy(
-            profile="privacy",
-            wake_profile="privacy",
-            include_pinned_decisions=False,
-            include_durable_context=False,
-            include_session_context=False,
-            use_helper_context=False,
-        )
-    if profile == "coding":
-        return SourcePolicy(
-            profile="coding",
-            wake_profile="coding",
-            include_pinned_decisions=False,
-            include_durable_context=True,
-            include_session_context=include_session_context,
-            use_helper_context=True,
-            blocked_exact_paths=frozenset({"core/user.md", "core/soul.md", "core/identity.md"}),
-            blocked_path_prefixes=("people/", "knowledge/personal/"),
-        )
-    if profile == "writing":
-        return SourcePolicy(
-            profile="writing",
-            wake_profile="writing",
-            include_pinned_decisions=True,
-            include_durable_context=True,
-            include_session_context=include_session_context,
-            use_helper_context=True,
-            blocked_exact_paths=frozenset({"core/user.md", "core/identity.md"}),
-            blocked_path_prefixes=("people/",),
-        )
-    if profile == "personal":
-        return SourcePolicy(
-            profile="personal",
-            wake_profile="default",
-            include_pinned_decisions=True,
-            include_durable_context=True,
-            include_session_context=include_session_context,
-            use_helper_context=False,
-        )
+    retrieval = profile_registry.retrieval_profile(profile)
+    include_session_context = _include_session_context(req.prompt, retrieval.sessions)
     return SourcePolicy(
-        profile="general",
-        wake_profile="default",
-        include_pinned_decisions=True,
-        include_durable_context=True,
+        profile=profile,
+        retrieval=retrieval,
         include_session_context=include_session_context,
-        use_helper_context=True,
     )
+
+
+def _include_session_context(prompt: str, sessions_policy: str) -> bool:
+    if sessions_policy == "always":
+        return True
+    if sessions_policy == "never":
+        return False
+    return _prompt_needs_session_context(prompt)
 
 
 def _resolve_active_memory_profile(req: ActiveMemoryReq) -> _ActiveMemoryProfile:

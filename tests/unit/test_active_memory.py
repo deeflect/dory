@@ -705,6 +705,73 @@ def test_active_memory_filters_unrelated_helper_context_for_coding_prompts(tmp_p
     assert "Newsletter positioning" not in result.block
 
 
+def test_active_memory_custom_profile_applies_wake_and_retrieval_policy(tmp_path: Path) -> None:
+    class MixedSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            del req
+            return _make_response(
+                [
+                    _make_result(
+                        path="projects/dory/state.md",
+                        snippet="Dory admin ops should stay out of brand work.",
+                        score=0.99,
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="profiles/brand/default.md",
+                        snippet="Brand profile says use artifact-led written launches.",
+                        score=0.4,
+                        confidence="high",
+                    ),
+                ]
+            )
+
+    (tmp_path / "profiles" / "brand").mkdir(parents=True)
+    (tmp_path / "projects" / "dory").mkdir(parents=True)
+    (tmp_path / "profiles" / "brand" / "active.md").write_text("Brand active wake context.\n", encoding="utf-8")
+    (tmp_path / "profiles" / "brand" / "default.md").write_text("Brand defaults.\n", encoding="utf-8")
+    (tmp_path / "projects" / "dory" / "state.md").write_text("Dory operations.\n", encoding="utf-8")
+    (tmp_path / "profiles.yaml").write_text(
+        """
+profiles:
+  brand:
+    wake:
+      sections:
+        - profiles/brand/active.md
+    retrieval:
+      allow:
+        - profiles/brand/**
+      deny:
+        - projects/dory/**
+      boosts:
+        profiles/brand/**: 0.8
+      sessions: never
+""".strip(),
+        encoding="utf-8",
+    )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=MixedSearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="draft brand launch copy",
+            agent="codex",
+            profile="brand",
+            include_wake=True,
+        )
+    )
+
+    assert result.profile == "brand"
+    assert "profiles/brand/default.md" in result.sources
+    assert "projects/dory/state.md" not in result.sources
+    assert "Brand profile says use artifact-led written launches." in result.block
+    assert "Dory admin ops" not in result.block
+
+
 def test_active_memory_uses_planner_queries_and_llm_composition(tmp_path: Path) -> None:
     search_engine = _StubSearchEngine()
     engine = ActiveMemoryEngine(

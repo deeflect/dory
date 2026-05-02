@@ -227,6 +227,138 @@ def test_hermes_prefetch_bundle_forwards_project_to_wake_and_active_memory() -> 
     assert active_memory_request["json"]["scope"] == {"session_key": "hermes-session"}  # type: ignore[index]
 
 
+def test_hermes_casual_prefetch_uses_casual_profile_and_skips_retrieved_evidence() -> None:
+    module = _load_provider_module()
+    requests: list[dict[str, object]] = []
+
+    class _FakeResponse:
+        status_code = 200
+
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class _FakeClient:
+        def request(self, method: str, path: str, **kwargs):
+            requests.append({"method": method, "path": path, "json": kwargs.get("json")})
+            if path == "/v1/wake":
+                return _FakeResponse({"block": "## Wake\nCasual context only."})
+            if path == "/v1/active-memory":
+                return _FakeResponse({"kind": "none", "block": ""})
+            if path == "/v1/search":
+                return _FakeResponse(
+                    {
+                        "results": [
+                            {"path": "projects/dory/state.md", "snippet": "stale project evidence"},
+                        ]
+                    }
+                )
+            return _FakeResponse({"ok": True})
+
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766", client=_FakeClient())
+    provider.initialize("session-123", platform="telegram")
+
+    memory_section = provider.build_memory_section("what's up bro")
+
+    paths = [request["path"] for request in requests]
+    assert paths == ["/v1/wake", "/v1/active-memory"]
+    wake_request = requests[0]
+    active_memory_request = requests[1]
+    assert wake_request["json"]["profile"] == "casual"  # type: ignore[index]
+    assert active_memory_request["json"]["profile"] == "casual"  # type: ignore[index]
+    assert "Retrieved Evidence" not in memory_section
+    assert "projects/dory/state.md" not in memory_section
+
+
+def test_hermes_prefetch_bundle_exposes_injection_trace() -> None:
+    module = _load_provider_module()
+
+    class _FakeResponse:
+        status_code = 200
+
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class _FakeClient:
+        def request(self, method: str, path: str, **kwargs):
+            if path == "/v1/wake":
+                return _FakeResponse({"block": "## Wake", "sources": ["profiles/coding/active.md"]})
+            if path == "/v1/search":
+                return _FakeResponse(
+                    {
+                        "results": [
+                            {"path": "projects/dory/state.md", "snippet": "Dory status"},
+                            {"path": "projects/dory/state.md", "snippet": "duplicate"},
+                            {"path": "knowledge/dev/hermes.md", "snippet": "Hermes"},
+                        ]
+                    }
+                )
+            if path == "/v1/active-memory":
+                return _FakeResponse(
+                    {
+                        "kind": "memory",
+                        "block": "## Active memory",
+                        "profile": "coding",
+                        "sources": ["core/active.md", "knowledge/dev/hermes.md"],
+                    }
+                )
+            return _FakeResponse({"ok": True})
+
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766", client=_FakeClient())
+
+    prefetched = provider.prefetch_bundle("fix the memory leak", scope={"session_key": "hermes-session"})
+
+    assert prefetched["trace"] == {
+        "profile": "coding",
+        "include_search": True,
+        "search_skipped": False,
+        "wake_sources": ["profiles/coding/active.md"],
+        "active_memory_sources": ["core/active.md", "knowledge/dev/hermes.md"],
+        "search_result_paths": ["projects/dory/state.md", "knowledge/dev/hermes.md"],
+        "injected_paths": ["core/active.md", "knowledge/dev/hermes.md", "projects/dory/state.md"],
+    }
+
+
+def test_hermes_casual_prefetch_trace_records_skipped_search() -> None:
+    module = _load_provider_module()
+
+    class _FakeResponse:
+        status_code = 200
+
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class _FakeClient:
+        def request(self, method: str, path: str, **kwargs):
+            if path == "/v1/wake":
+                return _FakeResponse({"block": "## Wake", "sources": ["profiles/casual/active.md"]})
+            if path == "/v1/active-memory":
+                return _FakeResponse({"kind": "none", "block": "", "profile": "casual", "sources": []})
+            raise AssertionError(f"unexpected request: {method} {path}")
+
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766", client=_FakeClient())
+
+    prefetched = provider.prefetch_bundle("yo")
+
+    assert prefetched["trace"] == {
+        "profile": "casual",
+        "include_search": False,
+        "search_skipped": True,
+        "wake_sources": ["profiles/casual/active.md"],
+        "active_memory_sources": [],
+        "search_result_paths": [],
+        "injected_paths": ["profiles/casual/active.md"],
+    }
+
+
 def test_hermes_provider_accepts_api_native_search_modes() -> None:
     module = _load_provider_module()
     assert module._safe_search_mode("bm25", default="hybrid") == "bm25"
@@ -253,6 +385,7 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     assert schemas["dory_search"]["parameters"]["properties"]["rerank"]["enum"] == ["auto", "true", "false"]
     assert "debug" in schemas["dory_search"]["parameters"]["properties"]
     assert "profile" in schemas["dory_wake"]["parameters"]["properties"]
+    assert "enum" not in schemas["dory_wake"]["parameters"]["properties"]["profile"]
     assert "project" in schemas["dory_wake"]["parameters"]["properties"]
     assert "agent" not in schemas["dory_wake"]["parameters"].get("required", [])
     assert "session_key" in schemas["dory_search"]["parameters"]["properties"]["scope"]["properties"]
@@ -264,14 +397,7 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
         "true",
         "false",
     ]
-    assert schemas["dory_active_memory"]["parameters"]["properties"]["profile"]["enum"] == [
-        "auto",
-        "general",
-        "coding",
-        "writing",
-        "privacy",
-        "personal",
-    ]
+    assert "enum" not in schemas["dory_active_memory"]["parameters"]["properties"]["profile"]
     assert "dry_run" in schemas["dory_memory_write"]["parameters"]["properties"]
     assert "force_inbox" in schemas["dory_memory_write"]["parameters"]["properties"]
     assert "allow_canonical" in schemas["dory_memory_write"]["parameters"]["properties"]

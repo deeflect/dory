@@ -12,8 +12,8 @@ WriteKind = Literal["append", "create", "replace", "forget"]
 ArtifactKind = Literal["report", "briefing", "wiki-note", "proposal"]
 MemoryWriteAction = Literal["write", "replace", "forget"]
 MemoryWriteKind = Literal["fact", "preference", "state", "decision", "note"]
-WakeProfile = Literal["default", "casual", "coding", "writing", "privacy"]
-ActiveMemoryProfile = Literal["auto", "general", "coding", "writing", "privacy", "personal"]
+WakeProfile = str
+ActiveMemoryProfile = str
 
 
 class WakeReq(BaseModel):
@@ -145,7 +145,7 @@ class ActiveMemoryResp(BaseModel):
     block: str
     summary: str
     took_ms: int = 0
-    profile: Literal["general", "coding", "writing", "privacy", "personal"] = "general"
+    profile: str = "general"
     confidence: Literal["low", "medium", "high"] | None = None
     sources: list[str] = Field(default_factory=list)
 
