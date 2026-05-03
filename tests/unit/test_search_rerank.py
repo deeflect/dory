@@ -189,4 +189,4 @@ def test_rerank_limited_only_sends_top_candidates(tmp_path: Path, fake_embedder)
 
     assert [candidate.chunk_id for candidate in reranker.last_candidates] == ["a", "b"]
     assert [row.chunk_id for row in reranked] == ["b", "a", "c"]
-    assert any("Rerank considered the top 2 candidates" in warning for warning in warnings)
+    assert any("Rerank considered 2 diverse candidates" in warning for warning in warnings)
