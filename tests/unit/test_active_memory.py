@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from time import sleep
+from time import monotonic, sleep
 
 from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.retrieval_planner import ActiveMemoryComposition, ActiveMemoryPlanningContext, ActiveMemoryRetrievalPlan
@@ -153,6 +153,7 @@ def test_active_memory_builds_memory_block_for_state_question(tmp_path: Path) ->
             prompt="what are we working on today",
             agent="claude",
             cwd=str(tmp_path),
+            timeout_ms=7000,
         )
     )
 
@@ -358,6 +359,7 @@ def test_active_memory_coding_prompt_excludes_personal_wake_and_search_hits(tmp_
             prompt="Before answering a coding question about Dory agent integrations, retrieve only the memory that matters.",
             agent="codex",
             include_wake=True,
+            timeout_ms=7000,
         )
     )
 
@@ -554,8 +556,8 @@ canonical: true
             prompt="debug Dory Docker MCP setup",
             agent="codex",
             include_wake=False,
-            timeout_ms=5000,
-        ).model_copy(update={"timeout_ms": 7000})
+            timeout_ms=7000,
+        )
     )
 
     assert "Docker MCP setup fails when the daemon URL is stale." in result.block
@@ -845,8 +847,8 @@ def test_active_memory_uses_planner_queries_and_llm_composition_when_budget_allo
             prompt="what are we working on today",
             agent="claude",
             cwd=str(tmp_path),
-            timeout_ms=5000,
-        ).model_copy(update={"timeout_ms": 7000})
+            timeout_ms=7000,
+        )
     )
 
     assert result.summary == "Sample remains the active focus."
@@ -916,8 +918,8 @@ def test_active_memory_logs_composer_failure_and_uses_synthesis(tmp_path: Path, 
             prompt="what are we working on today",
             agent="claude",
             include_wake=False,
-            timeout_ms=5000,
-        ).model_copy(update={"timeout_ms": 7000})
+            timeout_ms=7000,
+        )
     )
 
     assert result.summary.startswith("Sample is the active focus this week.")
@@ -1095,3 +1097,61 @@ def test_active_memory_budgets_search_queries_to_deadline(tmp_path: Path) -> Non
 
     assert 1 <= len(search_engine.requests) < 4
     assert result.kind == "memory"
+
+
+def test_active_memory_disables_rerank_when_total_timeout_cannot_absorb_it(tmp_path: Path) -> None:
+    class ManyQueryPlanner:
+        def plan_active_memory(
+            self,
+            *,
+            prompt: str,
+            context: ActiveMemoryPlanningContext,
+        ) -> ActiveMemoryRetrievalPlan:
+            del prompt, context
+            return ActiveMemoryRetrievalPlan(
+                durable_queries=("one", "two", "three"),
+                session_queries=(),
+                include_sessions=False,
+                durable_limit=8,
+                session_limit=0,
+            )
+
+    class RerankSensitiveSearchEngine(_StubSearchEngine):
+        def search(self, req: SearchReq):
+            self.requests.append(req)
+            if req.rerank != "false":
+                sleep(0.08)
+            return super().search(req)
+
+    search_engine = RerankSensitiveSearchEngine()
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=search_engine,
+        planner=ManyQueryPlanner(),
+    )
+
+    started = monotonic()
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what are we working on today",
+            agent="claude",
+            include_wake=False,
+            timeout_ms=5000,
+        )
+    )
+    elapsed = monotonic() - started
+
+    assert result.kind == "memory"
+    assert search_engine.requests
+    assert {req.rerank for req in search_engine.requests} == {"false"}
+    assert elapsed < 0.08
+
+
+def test_active_memory_request_accepts_larger_timeout_for_slow_local_models() -> None:
+    req = ActiveMemoryReq(
+        prompt="what are we working on today",
+        agent="claude",
+        timeout_ms=12000,
+    )
+
+    assert req.timeout_ms == 12000

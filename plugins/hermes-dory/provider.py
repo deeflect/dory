@@ -1437,7 +1437,7 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
         },
         {
             "name": "dory_active_memory",
-            "description": "Run the bounded active-memory pre-reply pass. Limits: budget_tokens <= 1200, timeout_ms <= 5000. Set include_wake=false if wake was already called.",
+            "description": "Run the bounded active-memory pre-reply pass. Limits: budget_tokens <= 1200, timeout_ms <= 30000. Set include_wake=false if wake was already called.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1458,7 +1458,7 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                         },
                     },
                     "profile": {"type": "string"},
-                    "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 5000},
+                    "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 30000},
                     "budget_tokens": {"type": "integer", "minimum": 100, "maximum": 1200},
                     "include_wake": {"type": "boolean"},
                     "rerank": {"type": "string", "enum": ["auto", "true", "false"]},

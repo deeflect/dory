@@ -82,7 +82,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
         http_path="/v1/active-memory",
         description=(
             "Run the bounded active-memory pre-reply pass. Limits: budget_tokens <= 1200, "
-            "timeout_ms <= 5000. Set include_wake=false if wake was already called."
+            "timeout_ms <= 30000. Set include_wake=false if wake was already called."
         ),
         request_model=ActiveMemoryReq,
         handler="active_memory",

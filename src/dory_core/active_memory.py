@@ -45,6 +45,7 @@ _MIN_BLOCK_CHARS = 700
 _PLANNER_MIN_REMAINING_MS = 1800
 _COMPOSER_MIN_REMAINING_MS = 2200
 _COMPOSER_TIMEOUT_HEADROOM_MS = 6000
+_RERANK_TIMEOUT_HEADROOM_MS = 6000
 _TOPIC_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 _TOPIC_STOPWORDS = {
     "about",
@@ -232,7 +233,7 @@ class ActiveMemoryEngine:
                 mode="hybrid",
                 corpus="durable",
                 include_content=True,
-                rerank="true" if req.rerank == "auto" else req.rerank,
+                rerank=_active_memory_rerank_mode(req.rerank, deadline),
                 deadline=deadline,
                 source_policy=source_policy,
                 min_remaining_ms=_COMPOSER_MIN_REMAINING_MS,
@@ -514,6 +515,16 @@ def _planning_context_from_helper(helper: WikiHelperContext) -> ActiveMemoryPlan
         active_threads=helper.active_threads,
         index_hints=helper.index_hints,
     )
+
+
+def _active_memory_rerank_mode(
+    requested: Literal["auto", "true", "false"], deadline: "_Deadline"
+) -> Literal["auto", "true", "false"]:
+    if requested == "false":
+        return "false"
+    if deadline.total_ms <= _RERANK_TIMEOUT_HEADROOM_MS:
+        return "false"
+    return "true" if requested == "auto" else requested
 
 
 def _search_candidates(

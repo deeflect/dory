@@ -112,3 +112,12 @@ def test_rerank_telemetry_logs_safe_metrics_without_content(caplog) -> None:
     assert "snippet_chars_after=" in messages
     assert sensitive_text not in messages
     assert "needle detail" not in messages
+
+
+def test_rerank_orchestrator_default_candidate_limit_matches_local_latency_budget() -> None:
+    from dory_core.config import DorySettings
+
+    settings = DorySettings()
+
+    assert settings.query_reranker_candidate_limit == 8
+    assert settings.local_reranker_timeout_seconds == 5.0

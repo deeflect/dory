@@ -84,14 +84,14 @@ class DorySettings(BaseSettings):
     query_expansion_max: int = Field(default=2, ge=0, le=5)
     query_reranker_enabled: bool = False
     query_reranker_provider: Literal["openrouter", "local"] = "openrouter"
-    query_reranker_candidate_limit: int = Field(default=40, ge=2, le=100)
+    query_reranker_candidate_limit: int = Field(default=8, ge=2, le=100)
     local_reranker_api_key: str | None = Field(
         default=None,
         validation_alias=AliasChoices("DORY_LOCAL_RERANKER_API_KEY", "DORY_LOCAL_LLM_API_KEY"),
     )
     local_reranker_base_url: str = "http://127.0.0.1:8000/v1"
     local_reranker_model: str = "qwen3-rerank"
-    local_reranker_timeout_seconds: float = Field(default=30.0, gt=0.0, le=300.0)
+    local_reranker_timeout_seconds: float = Field(default=5.0, gt=0.0, le=300.0)
     eval_judge_enabled: bool = True
     max_write_bytes: int = Field(default=10_240, ge=1)
     default_wake_budget_tokens: int = Field(default=600, ge=1, le=1500)

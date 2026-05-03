@@ -133,7 +133,7 @@ class ActiveMemoryReq(BaseModel):
     project: str | None = None
     scope: SearchScope = Field(default_factory=SearchScope)
     profile: ActiveMemoryProfile = "auto"
-    timeout_ms: int = Field(default=3000, ge=100, le=5000)
+    timeout_ms: int = Field(default=3000, ge=100, le=30000)
     budget_tokens: int = Field(default=400, ge=100, le=1200)
     include_wake: bool = True
     rerank: Literal["auto", "true", "false"] = "auto"
