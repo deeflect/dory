@@ -79,7 +79,7 @@ def test_dory_active_memory_schema_exposes_include_wake_and_limits() -> None:
     assert props["profile"]["type"] == "string"
     assert "enum" not in props["profile"]
     assert props["budget_tokens"]["maximum"] == 1200
-    assert props["timeout_ms"]["maximum"] == 5000
+    assert props["timeout_ms"]["maximum"] == 30000
 
 
 def test_dory_search_schema_exposes_min_relevance_score() -> None:

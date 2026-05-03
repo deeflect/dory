@@ -25,7 +25,7 @@ def test_settings_defaults() -> None:
     assert settings.query_expansion_enabled is False
     assert settings.query_reranker_enabled is False
     assert settings.query_reranker_provider == "openrouter"
-    assert settings.query_reranker_candidate_limit == 40
+    assert settings.query_reranker_candidate_limit == 8
     assert settings.local_reranker_base_url == "http://127.0.0.1:8000/v1"
     assert settings.local_reranker_model == "qwen3-rerank"
     assert settings.active_memory_llm_provider == "openrouter"
@@ -158,4 +158,4 @@ def test_settings_ignore_empty_optional_env_values(monkeypatch) -> None:
     assert settings.local_embedding_timeout_seconds == 30.0
     assert settings.active_memory_llm_provider == "openrouter"
     assert settings.local_llm_timeout_seconds == 5.0
-    assert settings.local_reranker_timeout_seconds == 30.0
+    assert settings.local_reranker_timeout_seconds == 5.0
