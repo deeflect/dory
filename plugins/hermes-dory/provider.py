@@ -1321,7 +1321,7 @@ class DoryMemoryProvider(MemoryProvider):
             self._owned_client.close()
             self._owned_client = None
         if self.base_url:
-            self._owned_client = httpx.Client(base_url=self.base_url, timeout=10.0)
+            self._owned_client = httpx.Client(base_url=self.base_url, timeout=30.0)
 
     def _request(
         self,

@@ -371,6 +371,28 @@ def test_hermes_provider_accepts_api_native_search_modes() -> None:
     assert module._normalize_search_mode("exact") == "exact"
 
 
+
+def test_hermes_provider_uses_long_enough_http_timeout_for_active_memory(monkeypatch) -> None:
+    module = _load_provider_module()
+    captured: dict[str, object] = {}
+
+    class FakeHttpxClient:
+        def __init__(self, *, base_url: str, timeout: object) -> None:
+            captured["base_url"] = base_url
+            captured["timeout"] = timeout
+
+        def close(self) -> None:
+            captured["closed"] = True
+
+    monkeypatch.setattr(module.httpx, "Client", FakeHttpxClient)
+
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766")
+
+    assert provider._owned_client is not None
+    assert captured["base_url"] == "http://dory.local:8766"
+    assert captured["timeout"] >= 20.0
+
+
 def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     module = _load_provider_module()
     provider = module.DoryMemoryProvider(base_url="http://dory.local:8766")

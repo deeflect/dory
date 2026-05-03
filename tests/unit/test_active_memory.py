@@ -554,7 +554,8 @@ canonical: true
             prompt="debug Dory Docker MCP setup",
             agent="codex",
             include_wake=False,
-        )
+            timeout_ms=5000,
+        ).model_copy(update={"timeout_ms": 7000})
     )
 
     assert "Docker MCP setup fails when the daemon URL is stale." in result.block
@@ -830,7 +831,7 @@ profiles:
     assert "Disallowed project result" not in result.block
 
 
-def test_active_memory_uses_planner_queries_and_llm_composition(tmp_path: Path) -> None:
+def test_active_memory_uses_planner_queries_and_llm_composition_when_budget_allows(tmp_path: Path) -> None:
     search_engine = _StubSearchEngine()
     engine = ActiveMemoryEngine(
         wake_builder=WakeBuilder(root=tmp_path),
@@ -845,7 +846,7 @@ def test_active_memory_uses_planner_queries_and_llm_composition(tmp_path: Path) 
             agent="claude",
             cwd=str(tmp_path),
             timeout_ms=5000,
-        )
+        ).model_copy(update={"timeout_ms": 7000})
     )
 
     assert result.summary == "Sample remains the active focus."
@@ -916,7 +917,7 @@ def test_active_memory_logs_composer_failure_and_uses_synthesis(tmp_path: Path, 
             agent="claude",
             include_wake=False,
             timeout_ms=5000,
-        )
+        ).model_copy(update={"timeout_ms": 7000})
     )
 
     assert result.summary.startswith("Sample is the active focus this week.")
@@ -982,3 +983,115 @@ def test_active_memory_stops_new_work_after_timeout(tmp_path: Path) -> None:
 
     assert search_engine.requests == []
     assert result.summary.startswith("wake block")
+
+def test_active_memory_skips_composer_when_timeout_cannot_absorb_llm_call(tmp_path: Path) -> None:
+    class RecordingComposer(_StubActiveMemoryComposer):
+        calls = 0
+
+        def compose_active_memory(self, **kwargs) -> ActiveMemoryComposition:
+            self.calls += 1
+            return super().compose_active_memory(**kwargs)
+
+    search_engine = _StubSearchEngine()
+    composer = RecordingComposer()
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=search_engine,
+        composer=composer,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what are we working on today",
+            agent="claude",
+            include_wake=False,
+            timeout_ms=5000,
+        )
+    )
+
+    assert composer.calls == 0
+    assert result.kind == "memory"
+    assert "Sample is the active focus this week." in result.block
+
+
+
+def test_active_memory_low_timeout_uses_snippets_without_loading_file_content(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text(
+        "FILE CONTENT SHOULD NOT BE LOADED FOR LOW TIMEOUTS\n",
+        encoding="utf-8",
+    )
+
+    class SnippetSearchEngine(_StubSearchEngine):
+        def search(self, req: SearchReq):
+            self.requests.append(req)
+            return _make_response(
+                [
+                    _make_result(
+                        path="core/active.md",
+                        snippet="Snippet says Sample is the active focus this week.",
+                        score=0.92,
+                    )
+                ]
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=SnippetSearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what are we working on today",
+            agent="claude",
+            include_wake=False,
+            timeout_ms=5000,
+        )
+    )
+
+    assert "Snippet says Sample is the active focus this week." in result.block
+    assert "FILE CONTENT SHOULD NOT BE LOADED" not in result.block
+    assert "FILE CONTENT SHOULD NOT BE LOADED" not in result.summary
+
+
+def test_active_memory_budgets_search_queries_to_deadline(tmp_path: Path) -> None:
+    class ManyQueryPlanner:
+        def plan_active_memory(
+            self,
+            *,
+            prompt: str,
+            context: ActiveMemoryPlanningContext,
+        ) -> ActiveMemoryRetrievalPlan:
+            del prompt, context
+            return ActiveMemoryRetrievalPlan(
+                durable_queries=("one", "two", "three", "four"),
+                session_queries=(),
+                include_sessions=False,
+                durable_limit=8,
+                session_limit=0,
+            )
+
+    class SlowSearchEngine(_StubSearchEngine):
+        def search(self, req: SearchReq):
+            sleep(0.04)
+            return super().search(req)
+
+    search_engine = SlowSearchEngine()
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=search_engine,
+        planner=ManyQueryPlanner(),
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what are we working on today",
+            agent="claude",
+            include_wake=False,
+            timeout_ms=120,
+        ).model_copy(update={"timeout_ms": 2300})
+    )
+
+    assert 1 <= len(search_engine.requests) < 4
+    assert result.kind == "memory"

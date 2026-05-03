@@ -44,6 +44,7 @@ _MAX_BLOCK_CHARS = 3200
 _MIN_BLOCK_CHARS = 700
 _PLANNER_MIN_REMAINING_MS = 1800
 _COMPOSER_MIN_REMAINING_MS = 2200
+_COMPOSER_TIMEOUT_HEADROOM_MS = 6000
 _TOPIC_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 _TOPIC_STOPWORDS = {
     "about",
@@ -157,14 +158,20 @@ class ActiveMemoryEngine:
             session_results,
             deadline=deadline,
         )
-        synthesized_bullets = _synthesized_bullets(helper, renderable_durable_results, session_results, root=self.root)
+        evidence_root = self.root if deadline.total_ms > _COMPOSER_TIMEOUT_HEADROOM_MS else None
+        synthesized_bullets = _synthesized_bullets(
+            helper,
+            renderable_durable_results,
+            session_results,
+            root=evidence_root,
+        )
         memory_bullets = (
             list(composition.bullets) if composition is not None and composition.bullets else synthesized_bullets
         )
         summary = (
             composition.summary
             if composition is not None and composition.summary
-            else _build_summary(helper, renderable_durable_results, session_results, wake_block, root=self.root)
+            else _build_summary(helper, renderable_durable_results, session_results, wake_block, root=evidence_root)
         )
         block = _build_block(
             helper,
@@ -173,7 +180,7 @@ class ActiveMemoryEngine:
             session_results,
             memory_bullets=memory_bullets,
             budget_tokens=req.budget_tokens,
-            root=self.root,
+            root=evidence_root,
         )
         confidence = _confidence_for_results(renderable_durable_results, session_results)
         return ActiveMemoryResp(
@@ -228,6 +235,7 @@ class ActiveMemoryEngine:
                 rerank="true" if req.rerank == "auto" else req.rerank,
                 deadline=deadline,
                 source_policy=source_policy,
+                min_remaining_ms=_COMPOSER_MIN_REMAINING_MS,
             ),
             corpus="durable",
             source_policy=source_policy,
@@ -260,6 +268,7 @@ class ActiveMemoryEngine:
             scope=session_scope,
             deadline=deadline,
             source_policy=source_policy,
+            min_remaining_ms=_COMPOSER_MIN_REMAINING_MS,
         )
 
     def _trusted_composition(
@@ -304,7 +313,11 @@ class ActiveMemoryEngine:
     ) -> ActiveMemoryComposition | None:
         if not durable_results and not session_results:
             return None
-        if self.composer is None or deadline.remaining_ms < _COMPOSER_MIN_REMAINING_MS:
+        if (
+            self.composer is None
+            or deadline.remaining_ms < _COMPOSER_MIN_REMAINING_MS
+            or deadline.total_ms <= _COMPOSER_TIMEOUT_HEADROOM_MS
+        ):
             return None
         try:
             return self.composer.compose_active_memory(
@@ -334,10 +347,11 @@ class ActiveMemoryEngine:
 @dataclass(frozen=True, slots=True)
 class _Deadline:
     expires_at: float
+    total_ms: int
 
     @classmethod
     def from_timeout_ms(cls, timeout_ms: int) -> "_Deadline":
-        return cls(expires_at=monotonic() + (timeout_ms / 1000))
+        return cls(expires_at=monotonic() + (timeout_ms / 1000), total_ms=timeout_ms)
 
     @property
     def expired(self) -> bool:
@@ -514,11 +528,12 @@ def _search_candidates(
     scope: SearchScope | None = None,
     deadline: _Deadline | None = None,
     source_policy: SourcePolicy | None = None,
+    min_remaining_ms: int = 0,
 ) -> list[object]:
     scored_results: dict[str, tuple[float, object]] = {}
     request_k = _expanded_candidate_limit(k, source_policy=source_policy, corpus=corpus)
     for query_index, query in enumerate(query for query in queries if query.strip()):
-        if deadline is not None and deadline.expired:
+        if deadline is not None and (deadline.expired or deadline.remaining_ms < min_remaining_ms):
             break
         response = search_engine.search(
             SearchReq(
