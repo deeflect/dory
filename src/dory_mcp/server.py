@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from dory_core.config import DorySettings, resolve_runtime_paths
+from dory_core.digests import DigestReader
 from dory_core.embedding import ContentEmbedder, EmbeddingConfigurationError, build_runtime_embedder
 from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.artifacts import ArtifactWriter
@@ -34,6 +35,7 @@ from dory_core.semantic_write import SemanticWriteEngine
 from dory_core.status import build_status, serialize_status
 from dory_core.types import (
     ActiveMemoryReq,
+    DigestReq,
     LinkReq,
     MemoryProposalApplyReq,
     MemoryProposalCreateReq,
@@ -68,6 +70,8 @@ class DoryMcpCore(Protocol):
     def wake(self, req: Any) -> Any: ...
 
     def search(self, req: Any) -> Any: ...
+
+    def digest(self, req: Any) -> Any: ...
 
     def get(self, req: Any) -> Any: ...
 
@@ -162,6 +166,14 @@ class RuntimeCore:
         search_req = SearchReq.model_validate(req)
         response = self.search_engine.search(search_req)
         return serialize_search_response(response, debug=search_req.debug)
+
+    def digest(self, req: dict[str, Any]) -> dict[str, Any]:
+        digest_req = DigestReq.model_validate(req)
+        payload = DigestReader(self.corpus_root).read(digest_req).model_dump(mode="json")
+        if not digest_req.debug:
+            for field in ("frontmatter", "hash"):
+                payload.pop(field, None)
+        return payload
 
     def get(self, req: dict[str, Any]) -> dict[str, Any]:
         path = _resolve_corpus_path(self.corpus_root, str(req["path"]))

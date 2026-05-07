@@ -404,6 +404,7 @@ class DoryMemoryProvider(MemoryProvider):
             "dory_research": self._handle_research_tool,
             "dory_publish_research": self._handle_publish_research_tool,
             "dory_search": self._handle_search_tool,
+            "dory_digest": self._handle_digest_tool,
             "dory_get": self._handle_get_tool,
             "dory_memory_write": self._handle_memory_write_tool,
             "dory_memory_propose": self._handle_memory_propose_tool,
@@ -472,6 +473,16 @@ class DoryMemoryProvider(MemoryProvider):
             include_content=_as_optional_bool(args.get("include_content")),
             min_relevance_score=_as_optional_float(args.get("min_relevance_score")),
             rerank=_as_optional_rerank_mode(args.get("rerank")),
+            debug=_as_optional_bool(args.get("debug")),
+        )
+
+    def _handle_digest_tool(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.digest(
+            kind=_as_optional_string(args.get("kind")),
+            date_selector=_as_optional_string(args.get("date")),
+            week_selector=_as_optional_string(args.get("week")),
+            from_line=_as_optional_int(args.get("from_line")),
+            lines=_as_optional_int(args.get("lines")),
             debug=_as_optional_bool(args.get("debug")),
         )
 
@@ -756,6 +767,31 @@ class DoryMemoryProvider(MemoryProvider):
         if debug is not None:
             payload["debug"] = debug
         return self._request("POST", "/v1/search", json=payload)
+
+    def digest(
+        self,
+        *,
+        kind: str | None = None,
+        date_selector: str | None = None,
+        week_selector: str | None = None,
+        from_line: int | None = None,
+        lines: int | None = None,
+        debug: bool | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if kind is not None:
+            payload["kind"] = kind
+        if date_selector is not None:
+            payload["date"] = date_selector
+        if week_selector is not None:
+            payload["week"] = week_selector
+        if from_line is not None:
+            payload["from_line"] = from_line
+        if lines is not None:
+            payload["lines"] = lines
+        if debug is not None:
+            payload["debug"] = debug
+        return self._request("POST", "/v1/digest", json=payload)
 
     def get(self, path: str, *, from_line: int = 1, lines: int | None = None) -> dict[str, Any]:
         params = {"path": path, "from": from_line}
@@ -1543,6 +1579,21 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     "debug": {"type": "boolean"},
                 },
                 "required": ["query"],
+            },
+        },
+        {
+            "name": "dory_digest",
+            "description": "Fetch a daily or weekly digest recap directly by period, without relying on tags or search.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["daily", "weekly"], "default": "daily"},
+                    "date": {"type": "string"},
+                    "week": {"type": "string"},
+                    "from_line": {"type": "integer", "minimum": 1, "default": 1},
+                    "lines": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 240},
+                    "debug": {"type": "boolean"},
+                },
             },
         },
         {

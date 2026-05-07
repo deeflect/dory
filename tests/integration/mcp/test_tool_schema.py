@@ -98,6 +98,21 @@ def test_dory_search_schema_exposes_min_relevance_score() -> None:
     assert "text" in search_tool["inputSchema"]["properties"]["mode"]["enum"]
 
 
+def test_dory_digest_schema_exposes_direct_recap_fields() -> None:
+    tools = build_tool_schemas()
+    digest_tool = next(tool for tool in tools if tool["name"] == "dory_digest")
+    props = digest_tool["inputSchema"]["properties"]
+
+    assert props["kind"]["enum"] == ["daily", "weekly"]
+    assert props["kind"]["default"] == "daily"
+    assert "date" in props
+    assert "week" in props
+    assert "from_line" in props
+    assert "lines" in props
+    assert props["lines"]["default"] == 240
+    assert "without relying on tags or search" in digest_tool["description"]
+
+
 def test_dory_get_schema_keeps_legacy_from_line_alias() -> None:
     tools = build_tool_schemas()
     get_tool = next(tool for tool in tools if tool["name"] == "dory_get")

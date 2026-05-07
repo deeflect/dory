@@ -8,13 +8,15 @@ description: Search Dory memory before factual claims about people, projects, de
 Use `dory search` before answering factual questions about people, projects, decisions, dates, or prior sessions.
 
 Workflow:
-1. Start with `uv run dory --corpus-root <corpus> --index-root <index> search "<query>"`
-2. If needed, follow with `dory get <path>` on the best hit
-3. If a result has `stale_warning`, treat it as possibly outdated and look for fresher evidence
+1. If the task asks for a fast recent recap, use `dory_digest` first instead of searching for a `digest` tag.
+2. Start normal fact retrieval with `uv run dory --corpus-root <corpus> --index-root <index> search "<query>"`
+3. If needed, follow with `dory get <path>` on the best hit
+4. If a result has `stale_warning`, treat it as possibly outdated and look for fresher evidence
 
 Rules:
 - Prefer retrieval over guessing
 - Use search even if wake seems related; wake is cached context, search is live evidence
+- Do not assume digest files have a searchable `digest` tag; `dory_digest` resolves `digests/daily`, `digests/weekly`, and legacy `logs/**` paths directly
 - Use `mode=exact` for cleanup markers, unique strings, and artifact existence checks
 - Use `mode=text`, `mode=keyword`, or `mode=lexical` when you want BM25-only search; all three normalize to `bm25`
 - Use `mode=semantic` when you want vector-only search; it normalizes to `vector`

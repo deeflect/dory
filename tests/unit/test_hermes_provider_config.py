@@ -398,7 +398,7 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     provider = module.DoryMemoryProvider(base_url="http://dory.local:8766")
     schemas = {schema["name"]: schema for schema in provider.get_tool_schemas()}
 
-    assert {"dory_research", "dory_publish_research", "dory_purge"} <= set(schemas)
+    assert {"dory_research", "dory_publish_research", "dory_digest", "dory_purge"} <= set(schemas)
     assert "exact" in schemas["dory_search"]["parameters"]["properties"]["mode"]["enum"]
     assert "text" in schemas["dory_search"]["parameters"]["properties"]["mode"]["enum"]
     assert schemas["dory_search"]["parameters"]["properties"]["corpus"]["enum"] == ["durable", "sessions", "all"]
@@ -432,6 +432,8 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
         "rejected",
     ]
     assert "reason" in schemas["dory_memory_proposal_reject"]["parameters"]["properties"]
+    assert schemas["dory_digest"]["parameters"]["properties"]["kind"]["enum"] == ["daily", "weekly"]
+    assert schemas["dory_digest"]["parameters"]["properties"]["lines"]["default"] == 240
     assert "from_line" in schemas["dory_get"]["parameters"]["properties"]
     assert "expected_hash" in schemas["dory_write"]["parameters"]["properties"]
     assert "expected_hash" in schemas["dory_write"]["description"]
@@ -454,6 +456,46 @@ def test_hermes_fallback_tool_schema_accepts_custom_profile_names(monkeypatch) -
 
     assert schemas["dory_wake"]["parameters"]["properties"]["profile"] == {"type": "string"}
     assert schemas["dory_active_memory"]["parameters"]["properties"]["profile"] == {"type": "string"}
+    assert "dory_digest" in schemas
+
+
+def test_hermes_provider_routes_digest_tool() -> None:
+    module = _load_provider_module()
+    captured: dict[str, object] = {}
+
+    class _FakeResponse:
+        status_code = 200
+
+        @staticmethod
+        def json() -> dict[str, object]:
+            return {"found": True, "path": "digests/weekly/2026-W18.md"}
+
+    class _FakeClient:
+        def request(self, method: str, path: str, **kwargs):
+            captured["method"] = method
+            captured["path"] = path
+            captured["json"] = kwargs.get("json")
+            return _FakeResponse()
+
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766", client=_FakeClient())
+
+    payload = json.loads(
+        provider.handle_tool_call(
+            "dory_digest",
+            {"kind": "weekly", "week": "2026-W18", "from_line": 2, "lines": 20, "debug": True},
+        )
+    )
+
+    assert payload["path"] == "digests/weekly/2026-W18.md"
+    assert captured["method"] == "POST"
+    assert captured["path"] == "/v1/digest"
+    assert captured["json"] == {
+        "kind": "weekly",
+        "week": "2026-W18",
+        "from_line": 2,
+        "lines": 20,
+        "debug": True,
+    }
 
 
 def test_hermes_publish_research_writes_knowledge_markdown_dry_run_by_default() -> None:

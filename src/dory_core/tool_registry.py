@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from dory_core.types import (
     ActiveMemoryReq,
+    DigestReq,
     LinkReq,
     MemoryProposalApplyReq,
     MemoryProposalCreateReq,
@@ -102,6 +103,18 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
         description="Search the memory tree.",
         request_model=SearchReq,
         handler="search",
+    ),
+    DoryTool(
+        name="dory_digest",
+        http_method="POST",
+        http_path="/v1/digest",
+        description=(
+            "Fetch a daily or weekly digest recap directly by period, without relying on tags or search. "
+            "Use kind='daily' with date='YYYY-MM-DD'|'today'|'yesterday'|'latest', or kind='weekly' "
+            "with week='YYYY-Www'|'current'|'previous'|'latest'. Defaults to the latest daily digest."
+        ),
+        request_model=DigestReq,
+        handler="digest",
     ),
     DoryTool(
         name="dory_get",

@@ -25,6 +25,7 @@ from fastapi.responses import (
 import uvicorn
 
 from dory_core.config import DorySettings, resolve_runtime_paths
+from dory_core.digests import DigestReader
 from dory_core.embedding import (
     ContentEmbedder,
     EmbeddingConfigurationError,
@@ -60,6 +61,7 @@ from dory_core.session_ingest import SessionIngestService
 from dory_core.status import build_status, serialize_status
 from dory_core.types import (
     ActiveMemoryReq,
+    DigestReq,
     MigrateReq,
     LinkReq,
     RecallEventReq,
@@ -445,6 +447,24 @@ def build_app(
             return serialize_search_response(response, debug=req.debug)
         except EmbeddingProviderError as err:
             raise HTTPException(status_code=503, detail=str(err)) from err
+
+    @app.post("/v1/digest")
+    def digest(req: DigestReq, request: Request) -> dict[str, Any]:
+        _authorize_request(request, runtime)
+        try:
+            payload = DigestReader(runtime.corpus_root).read(req).model_dump(mode="json")
+        except ValueError as err:
+            _raise_api_error(
+                status_code=400,
+                code="bad_digest_selector",
+                message=str(err),
+                error_type="validation",
+                cause=err,
+            )
+        if not req.debug:
+            for field in ("frontmatter", "hash"):
+                payload.pop(field, None)
+        return payload
 
     @app.post("/v1/active-memory")
     def active_memory(req: ActiveMemoryReq, request: Request) -> dict[str, Any]:

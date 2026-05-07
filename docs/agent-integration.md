@@ -29,6 +29,7 @@ Claude Code, Codex CLI, and opencode are rule and MCP clients. OpenClaw and Herm
 | `dory_wake` | ✓ | ✓ | ✓ | New session, post-compaction continuation, or real task switch — loads bounded hot context. |
 | `dory_active_memory` | ✓ | ✓ | ✓ | High-stakes or ambiguous replies — staged, task-specific retrieval. |
 | `dory_search` | ✓ | ✓ | ✓ | Find candidate sources. Use `mode="exact"` for unique markers. |
+| `dory_digest` | ✓ | ✓ | — | Fast recap lookup. Fetch latest or dated daily/weekly digests directly from `digests/**` or legacy `logs/**`, without tag/search assumptions. |
 | `dory_get` | ✓ | ✓ | ✓ | Read exact paths and hashes after search. |
 | `dory_link` | ✓ | ✓ | equivalents | Inspect neighbors, backlinks, or wikilink lint. CLI equivalents are `neighbors`, `backlinks`, and `lint`. |
 | `dory_memory_write` | ✓ | ✓ | ✓ | Preferred semantic write — subject is resolved, not path-first. |
@@ -45,10 +46,11 @@ Claude Code, Codex CLI, and opencode are rule and MCP clients. OpenClaw and Herm
 ## Read loop
 
 1. `dory_wake` once at new session start, after context compaction, or at a real task switch. Pick the profile: `coding` for project work (operational only), `writing` for voice/content work (voice-first), `privacy` for boundary-sensitive questions (boundary-only; do not treat it as a profile dump). Pass `project` when the current project is known. If the wake block is still in context and the task has not changed, reuse it instead of calling wake again.
-2. `dory_search` before any factual claim about projects, people, priorities, decisions, or current environment.
-3. `dory_get` on exact result paths before quoting or acting. It reads paths inside the configured Dory corpus, not arbitrary repo files cited as external evidence.
-4. `dory_link` only when relationships or backlinks matter. Bound dense project/core queries with `max_edges`, and drop noisy families like `logs/sessions/` via `exclude_prefixes`. Responses include `count`, `total_count`, and `truncated` so you can tell when the graph was capped.
-5. `dory_active_memory(profile="coding|writing|privacy|personal|general", include_wake=false)` when wake already ran and the reply needs task-specific retrieval. Prefer an explicit profile, pass `project` or `cwd` so project state can be included, and pass `scope.session_key` when the reply should use only the current session's recall evidence. If you pass `include_wake=true`, active memory uses the profile's wake policy and avoids inlining unrelated personal context.
+2. `dory_digest` when the task needs a fast recap of recent work. With no arguments it returns the latest daily digest. Use `kind="weekly"` for the latest weekly digest, `date="YYYY-MM-DD"` for a specific day, or `week="YYYY-Www"` for a specific ISO week. This is path-based and does not depend on a `digest` tag being indexed.
+3. `dory_search` before any factual claim about projects, people, priorities, decisions, or current environment.
+4. `dory_get` on exact result paths before quoting or acting. It reads paths inside the configured Dory corpus, not arbitrary repo files cited as external evidence.
+5. `dory_link` only when relationships or backlinks matter. Bound dense project/core queries with `max_edges`, and drop noisy families like `logs/sessions/` via `exclude_prefixes`. Responses include `count`, `total_count`, and `truncated` so you can tell when the graph was capped.
+6. `dory_active_memory(profile="coding|writing|privacy|personal|general", include_wake=false)` when wake already ran and the reply needs task-specific retrieval. Prefer an explicit profile, pass `project` or `cwd` so project state can be included, and pass `scope.session_key` when the reply should use only the current session's recall evidence. If you pass `include_wake=true`, active memory uses the profile's wake policy and avoids inlining unrelated personal context.
 
 Treat wake as framing, not proof that every canonical file was loaded. Search + get is the authoritative read path.
 

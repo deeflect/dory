@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 SearchMode = Literal["bm25", "text", "keyword", "lexical", "vector", "semantic", "hybrid", "recall", "exact"]
 SearchCorpus = Literal["durable", "sessions", "all"]
+DigestKind = Literal["daily", "weekly"]
 WriteKind = Literal["append", "create", "replace", "forget"]
 ArtifactKind = Literal["report", "briefing", "wiki-note", "proposal"]
 MemoryWriteAction = Literal["write", "replace", "forget"]
@@ -78,6 +79,43 @@ class SearchReq(BaseModel):
         if value == "semantic":
             return "vector"
         return value
+
+
+class DigestReq(BaseModel):
+    kind: DigestKind = Field(default="daily", description="Digest family to fetch.")
+    date: str | None = Field(
+        default=None,
+        description="Daily digest selector: YYYY-MM-DD, today, yesterday, or latest. Defaults to latest.",
+    )
+    week: str | None = Field(
+        default=None,
+        description="Weekly digest selector: YYYY-Www, current, previous, or latest. Defaults to latest.",
+    )
+    from_line: int = Field(default=1, ge=1)
+    lines: int | None = Field(default=240, ge=1, le=1000)
+    debug: bool = False
+
+    @field_validator("date", "week")
+    @classmethod
+    def strip_selector(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
+
+class DigestResp(BaseModel):
+    found: bool
+    kind: DigestKind
+    period: str
+    path: str | None = None
+    content: str = ""
+    from_line: int = 1
+    lines_returned: int = 0
+    total_lines: int = 0
+    frontmatter: dict[str, object] = Field(default_factory=dict)
+    hash: str | None = None
+    available: list[str] = Field(default_factory=list)
 
 
 class SearchResult(BaseModel):

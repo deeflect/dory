@@ -16,11 +16,13 @@ separate durable memory silos.
    includes that project state page.
 2. Before making factual claims about projects, people, decisions, priorities,
    or current environment, use `dory_search`.
-3. Use `dory_get` for exact source text and hashes, then cite the source path
+3. For a fast recent recap, use `dory_digest` directly. It resolves daily and
+   weekly digest files by path; do not search for or require a `digest` tag.
+4. Use `dory_get` for exact source text and hashes, then cite the source path
    when an answer depends on memory.
-4. Use `dory_link` for neighbors/backlinks only when relationships matter.
-5. Use `dory_search(mode="exact")` for cleanup markers or unique strings.
-6. Use `dory_active_memory(include_wake=false)` when wake already ran and the
+5. Use `dory_link` for neighbors/backlinks only when relationships matter.
+6. Use `dory_search(mode="exact")` for cleanup markers or unique strings.
+7. Use `dory_active_memory(include_wake=false)` when wake already ran and the
    reply needs task-specific retrieval.
 
 Search mode notes: `text`, `keyword`, and `lexical` normalize to BM25;
