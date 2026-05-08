@@ -59,8 +59,8 @@ uv run pytest -q
 (cd packages/openclaw-dory && npm ci && npm run build)
 uv build --wheel --sdist
 uv run python eval/validate.py
-python3 scripts/release/check-public-safety.py
-python3 scripts/release/check-public-safety.py --path dist
+uv run python scripts/release/check-public-safety.py
+uv run python scripts/release/check-public-safety.py --path dist
 ```
 
 For focused changes, run the smallest test that proves the behavior. For broad changes, run the full unit or full CI-equivalent checks.
@@ -81,7 +81,7 @@ CI uses `npm ci` before the Python package build. `packages/openclaw-dory/dist/i
 - Use Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `perf:`, `ci:`, `build:`, `chore:`, `security:`.
 - Keep the subject imperative, specific, and under 72 characters.
 - Put one logical change in one commit. Do not mix behavior, docs, formatting, and release churn unless they are inseparable.
-- Before committing, run relevant tests and leak checks. For public docs/evals/examples, run `python3 scripts/release/check-public-safety.py` on the touched paths.
+- Before committing, run relevant tests and leak checks. For public docs/evals/examples, run `uv run python scripts/release/check-public-safety.py` on the touched paths.
 - Never commit `.env`, `.dory/`, `.index/`, `data/`, private corpora, raw session logs, real tokens, or local machine paths.
 
 ## Pull Request Expectations

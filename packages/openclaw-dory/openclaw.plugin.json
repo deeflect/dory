@@ -19,6 +19,10 @@
       "tokenEnv": {
         "type": "string",
         "description": "Optional environment variable name containing the Dory bearer token."
+      },
+      "timeoutMs": {
+        "type": "number",
+        "description": "HTTP request timeout in milliseconds."
       }
     },
     "required": [

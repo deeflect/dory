@@ -48,14 +48,14 @@ uv run pytest -q
 uv build --wheel --sdist
 docker build -t dory:local .
 uv run python eval/validate.py
-python3 scripts/release/check-public-safety.py
-python3 scripts/release/check-public-safety.py --path dist
+uv run python scripts/release/check-public-safety.py
+uv run python scripts/release/check-public-safety.py --path dist
 ```
 
 For public docs, examples, evals, fixtures, or release artifacts, run the safety scan on the touched paths:
 
 ```bash
-python3 scripts/release/check-public-safety.py --path README.md --path docs
+uv run python scripts/release/check-public-safety.py --path README.md --path docs
 ```
 
 ## Testing Expectations

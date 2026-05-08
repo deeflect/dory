@@ -4,6 +4,14 @@ import json
 from pathlib import Path
 
 
+OPENCLAW_PACKAGE_ROOT = Path("packages/openclaw-dory")
+EXPECTED_CONFIG_FIELDS = {"baseUrl", "token", "tokenEnv", "timeoutMs"}
+
+
+def _read_package_text(relative: str) -> str:
+    return (OPENCLAW_PACKAGE_ROOT / relative).read_text(encoding="utf-8")
+
+
 def test_openclaw_plugin_manifest_declares_memory_slot() -> None:
     manifest_path = Path("packages/openclaw-dory/openclaw.plugin.json")
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -11,7 +19,7 @@ def test_openclaw_plugin_manifest_declares_memory_slot() -> None:
     assert payload["id"] == "dory-memory"
     assert payload["kind"] == "memory"
     assert payload["configSchema"]["required"] == ["baseUrl"]
-    assert "tokenEnv" in payload["configSchema"]["properties"]
+    assert EXPECTED_CONFIG_FIELDS <= set(payload["configSchema"]["properties"])
     assert "entry" not in payload
     assert (manifest_path.parent / "dist" / "index.js").exists()
 
@@ -25,7 +33,7 @@ def test_openclaw_plugin_package_declares_sdk_entrypoint() -> None:
 
 
 def test_openclaw_plugin_source_exports_sdk_registration_contract() -> None:
-    source = Path("packages/openclaw-dory/src/index.ts").read_text(encoding="utf-8")
+    source = _read_package_text("src/index.ts")
 
     assert 'from "openclaw/plugin-sdk/plugin-entry"' in source
     assert "definePluginEntry({" in source
@@ -54,8 +62,44 @@ def test_openclaw_plugin_source_exports_sdk_registration_contract() -> None:
 
 
 def test_openclaw_plugin_does_not_request_search_debug_by_default() -> None:
-    source = Path("packages/openclaw-dory/src/index.ts").read_text(encoding="utf-8")
+    source = _read_package_text("src/index.ts")
 
     assert "debug: opts?.debug ?? false" in source
     assert "debug: opts?.debug ?? true" not in source
     assert "delete cleaned._doryOrder" in source
+
+
+def test_openclaw_source_and_dist_preserve_session_search_contract() -> None:
+    surfaces = {
+        "source": _read_package_text("src/index.ts"),
+        "dist": _read_package_text("dist/index.js"),
+    }
+
+    for surface, text in surfaces.items():
+        assert 'corpus: { enum: ["memory", "wiki", "all", "sessions"] }' in text, surface
+        assert "corpus: requestedCorpus" in text, surface
+        assert "function mapDoryCorpus" in text, surface
+        assert 'if (corpus === "sessions")' in text, surface
+        assert "sessionKeyApplied: Boolean(opts?.sessionKey)" in text, surface
+        assert "sessionKeySupported: true" in text, surface
+        assert "sessionKeySupported: false" not in text, surface
+        assert "sessionKey is not yet supported" not in text, surface
+        assert text.count("scope: opts?.sessionKey ? { session_key: opts.sessionKey } : undefined") >= 2, surface
+        assert "project: opts?.project" in text, surface
+
+
+def test_openclaw_manifest_readme_source_and_dist_config_contract_match() -> None:
+    manifest = json.loads((OPENCLAW_PACKAGE_ROOT / "openclaw.plugin.json").read_text(encoding="utf-8"))
+    manifest_fields = set(manifest["configSchema"]["properties"])
+    readme = _read_package_text("README.md")
+    source = _read_package_text("src/index.ts")
+    dist = _read_package_text("dist/index.js")
+
+    assert manifest_fields == EXPECTED_CONFIG_FIELDS
+    for field in EXPECTED_CONFIG_FIELDS:
+        assert field in readme, field
+        assert field in source, field
+        assert field in dist, field
+
+    assert "timeout_ms" in source
+    assert "timeout_ms" in dist

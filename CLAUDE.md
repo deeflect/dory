@@ -22,7 +22,7 @@ Claude agents should follow `AGENTS.md`. This file adds Claude-specific reminder
 - No real tokens, API keys, bearer values, private hostnames, personal identifiers, or local absolute paths.
 - No real private memories in fixtures. Use names like `Atlas`, `Demo User`, `Example Project`, and placeholder domains like `example.com`.
 - Do not add raw session logs or private corpus material to the public tree.
-- Run `python3 scripts/release/check-public-safety.py --path <path>` for changed public docs, fixtures, evals, examples, or release artifacts.
+- Run `uv run python scripts/release/check-public-safety.py --path <path>` for changed public docs, fixtures, evals, examples, or release artifacts.
 
 ## Commit And PR Rules
 

@@ -7,8 +7,9 @@ content/
 !.env.example
 .worktrees/
 
-# claude code project metadata
+# agent/project-local metadata
 .claude/
+.pi/
 
 # python
 __pycache__/
