@@ -1,5 +1,5 @@
 id: q04
-question: "What changed on 2026-04-18 in the public eval work?"
+question: "In the 2026-04-18 public eval work note, what changed about validator defaults and the private corpus?"
 expected_sources:
   - logs/daily/2026-04-18-public-eval.md
 expected_keywords:

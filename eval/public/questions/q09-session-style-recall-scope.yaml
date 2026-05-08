@@ -1,0 +1,15 @@
+id: q09
+question: "In synthetic session-style recall case relay-4242, what retry and warning behavior was recorded?"
+expected_sources:
+  - logs/digests/2026-04-21-session-style-recall.md
+expected_keywords:
+  - "relay-4242"
+  - "retry HTTP 409 conflicts"
+  - "exponential backoff"
+  - "scope-filter-skipped"
+type: cross-agent
+freshness_sensitive: true
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards scoped/session-style recall without shipping raw session logs. The durable digest stands in for a session summary.

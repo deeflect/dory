@@ -1,0 +1,14 @@
+id: q13
+question: "In the Relay handoff, what checklist item did Ben add to track retrieval quality?"
+expected_sources:
+  - logs/agents/2026-04-20-relay-handoff.md
+expected_keywords:
+  - "source-hit counters"
+  - "chunked summaries short"
+  - "before indexing"
+type: task-grounded
+freshness_sensitive: false
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards source-hit relevance and retrieval-quality language that later regression metrics can assert more directly.

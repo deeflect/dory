@@ -1,0 +1,14 @@
+id: q08
+question: "Which Beacon release gate should be visible in the public wake hot block?"
+expected_sources:
+  - core/active.md
+expected_keywords:
+  - "beacon release gate"
+  - "WAKE-BEACON-2026"
+  - "release-note work"
+type: hot-block
+freshness_sensitive: false
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards wake/hot-block coverage. The answer should be available from core/active.md without relying only on search retrieval.

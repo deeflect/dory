@@ -1,0 +1,15 @@
+id: q14
+question: "For synthetic coding tasks, which paths should profile-scoped retrieval prioritize and avoid?"
+expected_sources:
+  - references/profile-scoping.md
+expected_keywords:
+  - "core/active.md"
+  - "core/env.md"
+  - "people/**"
+  - "knowledge/personal/**"
+type: task-grounded
+freshness_sensitive: false
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards profile path filtering expectations before adding stronger context-budget regression tests.

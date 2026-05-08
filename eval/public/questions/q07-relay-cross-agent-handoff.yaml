@@ -1,0 +1,15 @@
+id: q07
+question: "What did Ada and Ben contribute to the Relay handoff?"
+expected_sources:
+  - logs/agents/2026-04-20-relay-handoff.md
+expected_keywords:
+  - "Demo Agent Ada"
+  - "Demo Agent Ben"
+  - "source-hit counters"
+  - "malformed markdown"
+type: cross-agent
+freshness_sensitive: false
+task_grounded: false
+difficulty: medium
+notes: >
+  Guards cross-agent continuity in a synthetic handoff note with contributions from two named demo agents.

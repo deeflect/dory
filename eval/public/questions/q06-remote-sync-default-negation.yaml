@@ -1,0 +1,14 @@
+id: q06
+question: "Did we decide to enable remote sync by default for the public demo memory daemon?"
+expected_sources:
+  - decisions/2026-04-no-remote-sync.md
+expected_keywords:
+  - "do not enable remote sync by default"
+  - "local-first"
+  - "explicit opt-in"
+type: negation
+freshness_sensitive: false
+task_grounded: false
+difficulty: medium
+notes: >
+  Guards negation handling and prevents agents from hallucinating that optional remote sync is enabled by default.

@@ -1,0 +1,15 @@
+id: q15
+question: "What should an agent do when a semantic write target is ambiguous?"
+expected_sources:
+  - references/proposal-safety.md
+expected_keywords:
+  - "create a proposal"
+  - "ambiguous_subject"
+  - "candidate subjects"
+  - "confirmation"
+type: task-grounded
+freshness_sensitive: false
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards safer agent UX for brittle heuristic write decisions by preferring proposal flow over direct canonical writes.

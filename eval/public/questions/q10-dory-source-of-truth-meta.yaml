@@ -1,0 +1,14 @@
+id: q10
+question: "What is Dory's source of truth, and what role do SQLite indexes play?"
+expected_sources:
+  - knowledge/system/dory-principles.md
+expected_keywords:
+  - "markdown as the source of truth"
+  - "SQLite indexes are disposable sidecars"
+  - "rebuilt"
+type: meta
+freshness_sensitive: false
+task_grounded: false
+difficulty: easy
+notes: >
+  Guards meta knowledge about Dory's storage model using public-safe synthetic principles.

@@ -80,15 +80,17 @@ Public docs and release notes should quote private evals only as aggregate pass/
 
 ## Categories
 
+The public synthetic suite currently has 15 questions. It covers:
+
 - `decision-recall` — find the right decision file for "why did we do X"
 - `entity-recall` — pull facts about a specific person/project/tool
-- `freshness` — return the current version, not a stale one
+- `freshness` — return the current version, not a stale one; q05 guards current Beacon state over a superseded archive note
 - `temporal` — time-bounded queries
-- `negation` — handle "never" / "not" / absence cleanly
-- `task-grounded` — memory has to shape a concrete action (config values, paths, env)
-- `cross-agent` — answer requires content written by multiple agents or sessions
-- `hot-block` — answer should be in the frozen wake block (no retrieval needed)
-- `meta` — questions about the memory system itself
+- `negation` — handle "never" / "not" / absence cleanly; q06 uses source-grounded negation so public runs do not require a live judge
+- `task-grounded` — memory has to shape a concrete action (config values, paths, env); q11/q13/q14/q15 cover recovery, source-hit, profile-scope, and proposal-safety actions
+- `cross-agent` — answer requires content written by multiple agents or sessions; q07 and q09 use synthetic handoff/session-style digest fixtures
+- `hot-block` — answer should be in the frozen wake block (no retrieval needed); q08 guards `core/active.md` wake coverage
+- `meta` — questions about the memory system itself; q10/q12 cover storage model and observability warnings
 
 ## How to extend
 

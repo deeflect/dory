@@ -1,5 +1,5 @@
 id: q02
-question: "Why did we keep the public eval suite synthetic?"
+question: "What does the public eval suite split decision say?"
 expected_sources:
   - decisions/2026-04-public-eval-suite.md
 expected_keywords:

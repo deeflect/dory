@@ -1,0 +1,15 @@
+id: q12
+question: "Which structured retrieval warnings should agents surface instead of hiding ambiguity?"
+expected_sources:
+  - references/observability.md
+expected_keywords:
+  - "planner_skipped"
+  - "rerank_unavailable"
+  - "session_fallback_used"
+  - "scope_filter_skipped"
+type: meta
+freshness_sensitive: false
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards observability vocabulary for planner, rerank, fallback, and session-scope behavior.

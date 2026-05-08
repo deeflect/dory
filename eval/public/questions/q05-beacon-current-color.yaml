@@ -1,0 +1,14 @@
+id: q05
+question: "What is Beacon's current launch color?"
+expected_sources:
+  - projects/beacon/state.md
+expected_keywords:
+  - "current Beacon launch color is cobalt"
+  - "retired launch color was amber"
+  - "beacon-cobalt-check"
+type: freshness
+freshness_sensitive: true
+task_grounded: false
+difficulty: medium
+notes: >
+  Guards stale-vs-current retrieval. The corpus includes a superseded amber note, but the expected answer should use the current cobalt state file.

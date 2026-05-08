@@ -1,0 +1,14 @@
+id: q11
+question: "What should an agent do when eval validation reports DORY_VALIDATION_MISSING_SOURCE?"
+expected_sources:
+  - references/agent-recovery.md
+expected_keywords:
+  - "uv run python eval/validate.py"
+  - "expected_sources"
+  - "must not satisfy a missing public source by copying from a private corpus"
+type: task-grounded
+freshness_sensitive: false
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards agent UX recovery behavior for a validation failure mode and keeps public/private corpus boundaries explicit.

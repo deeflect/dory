@@ -15,6 +15,17 @@ The public suite ships with the repo. The private suite is never described quest
 | `q02` | `decision-recall` | Explain why the public suite is synthetic. |
 | `q03` | `task-grounded` | Recover the validation command for a private suite. |
 | `q04` | `temporal` | Retrieve a dated synthetic eval note. |
+| `q05` | `freshness` | Prefer Beacon's current cobalt launch state over a superseded amber archive note. |
+| `q06` | `negation` | Recover the explicit decision not to enable remote sync by default. |
+| `q07` | `cross-agent` | Recall a Relay handoff with contributions from two demo agents. |
+| `q08` | `hot-block` | Check that wake can carry the Beacon release-gate marker from `core/active.md`. |
+| `q09` | `cross-agent` | Use a durable synthetic session-style digest for scoped recall behavior. |
+| `q10` | `meta` | Explain Dory's markdown source-of-truth and disposable SQLite sidecar model. |
+| `q11` | `task-grounded` | Give an agent recovery path for a missing expected eval source. |
+| `q12` | `meta` | Surface structured retrieval warning names for planner/rerank/fallback/scope ambiguity. |
+| `q13` | `task-grounded` | Recall source-hit counter guidance for retrieval-quality handoffs. |
+| `q14` | `task-grounded` | State profile-scoped retrieval paths to prioritize and avoid for coding tasks. |
+| `q15` | `task-grounded` | Prefer proposal flow when semantic write target resolution is ambiguous. |
 
 ## Private suite policy
 
@@ -50,4 +61,4 @@ Private suite:
 python3 eval/validate.py --questions-root /path/to/private/questions --corpus-root /path/to/private/corpus
 ```
 
-Negation and temporal questions can use empty `expected_sources` when testing abstention or time-bound behavior.
+Negation and temporal questions can use empty `expected_sources` when testing abstention or time-bound behavior. The current public suite uses source-grounded negation so it can run without a live judge.

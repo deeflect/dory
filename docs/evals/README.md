@@ -8,6 +8,8 @@ Lives in `eval/public/questions/`, runs against `examples/corpus/`.
 
 Synthetic by design. The goal is to prove the eval harness, validator, and doc workflow without exposing a real user corpus.
 
+The public question bank now covers entity recall, decision recall, freshness, temporal lookup, negation, task-grounded recovery, cross-agent/session-style recall, hot-block context, and meta/observability behavior. Keep additions compact and artificial.
+
 ```bash
 python3 eval/validate.py
 uv run dory eval run --questions-root eval/public/questions --runs-root /tmp/dory-public-eval --list-only
