@@ -275,4 +275,6 @@ Built by [Dee](https://deeflect.com) — AI Engineer & Product Designer in LA. M
 
 Star if Dory saves you from re-explaining your life every morning. [Open an issue](https://github.com/deeflect/dory/issues) if it doesn't, or if it's quietly forgetting things.
 
+Need a memory layer (or any real product) shipped solo? [dee.agency](https://dee.agency?utm_source=dory&utm_medium=readme).
+
 [deeflect.com](https://deeflect.com) · [Wikidata](https://www.wikidata.org/entity/Q138828544) · [LinkedIn](https://www.linkedin.com/in/dkargaev/) · [X](https://x.com/deeflectcom)
