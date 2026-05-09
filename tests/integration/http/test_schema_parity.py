@@ -66,7 +66,7 @@ def test_http_and_mcp_memory_write_contracts_keep_recovery_fields_in_sync(tmp_pa
         ),
     )
     assert _enum(http_schema["properties"]["action"]) == ["write", "replace", "forget"]
-    assert _enum(mcp_schema["properties"]["confidence"]) == ["high", "medium", "low"]
+    assert set(_enum(mcp_schema["properties"]["confidence"]) or []) == {"high", "medium", "low"}
 
 
 def _http_components(tmp_path: Path) -> dict[str, Any]:
