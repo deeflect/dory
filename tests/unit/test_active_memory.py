@@ -708,6 +708,59 @@ def test_active_memory_filters_unrelated_helper_context_for_coding_prompts(tmp_p
     assert "Newsletter positioning" not in result.block
 
 
+def test_active_memory_coding_profile_filters_denied_paths_before_top_k_truncation(tmp_path: Path) -> None:
+    class WindowedSearchEngine:
+        def __init__(self) -> None:
+            self.requests: list[SearchReq] = []
+
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            self.requests.append(req)
+            denied_people = [
+                _make_result(
+                    path=f"people/demo-{index}.md",
+                    snippet=f"Personal note {index} should not enter coding memory.",
+                    score=1.0 - (index * 0.01),
+                    confidence="high",
+                )
+                for index in range(8)
+            ]
+            denied_voice = _make_result(
+                path="knowledge/personal/writing-voice.md",
+                snippet="Personal writing voice should not enter coding memory.",
+                score=0.9,
+                confidence="high",
+            )
+            allowed_project = _make_result(
+                path="projects/dory/state.md",
+                snippet="Dory coding context survives profile filtering.",
+                score=0.2,
+                confidence="high",
+            )
+            return _make_response([*denied_people, denied_voice, allowed_project][: req.k])
+
+    search_engine = WindowedSearchEngine()
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=search_engine,
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="fix Dory coding tests",
+            agent="codex",
+            profile="coding",
+            include_wake=False,
+        )
+    )
+
+    assert search_engine.requests[0].k > 6
+    assert "Dory coding context survives profile filtering." in result.block
+    assert "Personal note" not in result.block
+    assert "Personal writing voice" not in result.block
+    assert result.sources == ["projects/dory/state.md"]
+
+
 def test_active_memory_custom_profile_applies_wake_and_retrieval_policy(tmp_path: Path) -> None:
     class MixedSearchEngine:
         def search(self, req: SearchReq):  # pragma: no cover - test stub

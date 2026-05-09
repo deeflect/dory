@@ -54,6 +54,31 @@ def test_wake_builder_truncates_when_budget_is_tight(sample_corpus_root) -> None
     assert resp.sources == ["core/user.md"]
 
 
+def test_wake_builder_suppresses_duplicate_profile_sections(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nUnique wake marker.\n", encoding="utf-8")
+    (tmp_path / "core" / "defaults.md").write_text("# Defaults\n\nDefault instruction.\n", encoding="utf-8")
+    (tmp_path / "profiles.yaml").write_text(
+        """
+profiles:
+  duplicate:
+    wake:
+      sections:
+        - core/active.md
+        - active
+        - core/defaults.md
+""".strip(),
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="duplicate", budget_tokens=300, include_pinned_decisions=False)
+    )
+
+    assert resp.block.count("Unique wake marker.") == 1
+    assert resp.sources == ["core/active.md", "core/defaults.md"]
+
+
 def test_wake_builder_includes_recent_sessions_when_budget_allows(sample_corpus_root) -> None:
     resp = WakeBuilder(sample_corpus_root).build(WakeReq(agent="codex", budget_tokens=200, include_recent_sessions=1))
 

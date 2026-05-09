@@ -282,15 +282,19 @@ class WakeBuilder:
     ) -> tuple[str, list[str]]:
         rendered_sections: list[str] = []
         sources: list[str] = []
+        seen_sources: set[Path] = set()
         current_tokens = 0
 
         for section in sections:
+            if section.path in seen_sources:
+                continue
             section_tokens = self._count_tokens(section.content, agent=agent)
             separator_tokens = self._count_tokens("\n\n", agent=agent) if rendered_sections else 0
             if rendered_sections and current_tokens + separator_tokens + section_tokens > budget_tokens:
                 break
             rendered_sections.append(section.content)
             sources.append(str(section.path))
+            seen_sources.add(section.path)
             current_tokens += section_tokens + separator_tokens
 
         return "\n\n".join(rendered_sections), sources
