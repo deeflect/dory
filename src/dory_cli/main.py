@@ -209,10 +209,11 @@ def wake(
     agent: str = typer.Option("codex", "--agent"),
     profile: str = typer.Option("default", "--profile"),
     project: str | None = typer.Option(None, "--project", help="Optional project/entity handle to include in wake."),
+    cwd: str | None = typer.Option(None, "--cwd", help="Optional working directory for project inference."),
 ) -> None:
     config = _get_config(ctx)
     resp = WakeBuilder(config.corpus_root).build(
-        WakeReq(budget_tokens=budget, agent=agent, profile=profile, project=project)
+        WakeReq(budget_tokens=budget, agent=agent, profile=profile, project=project, cwd=cwd)
     )
     typer.echo(resp.block)
 

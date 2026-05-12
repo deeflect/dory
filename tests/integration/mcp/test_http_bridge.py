@@ -105,6 +105,7 @@ def test_bridge_routes_memory_proposal_tools(monkeypatch) -> None:
 def test_bridge_routes_active_memory(monkeypatch) -> None:
     bridge = _load_bridge_module()
     captured: dict[str, object] = {}
+    monkeypatch.setattr(bridge.os, "getcwd", lambda: "/tmp/current-project")
 
     def fake_http_post(endpoint: str, body=None):
         captured["endpoint"] = endpoint
@@ -138,6 +139,7 @@ def test_bridge_routes_active_memory(monkeypatch) -> None:
         "profile": "coding",
         "include_wake": False,
         "rerank": "false",
+        "cwd": "/tmp/current-project",
     }
     assert "summary" in result
 
@@ -145,6 +147,7 @@ def test_bridge_routes_active_memory(monkeypatch) -> None:
 def test_bridge_syncs_local_sessions_before_wake(monkeypatch) -> None:
     bridge = _load_bridge_module()
     captured: dict[str, object] = {}
+    monkeypatch.setattr(bridge.os, "getcwd", lambda: "/tmp/current-project")
 
     def fake_http_post(endpoint: str, body=None):
         captured["endpoint"] = endpoint
@@ -177,6 +180,7 @@ def test_bridge_syncs_local_sessions_before_wake(monkeypatch) -> None:
         "agent": "claude-code",
         "profile": "coding",
         "include_recent_sessions": 1,
+        "cwd": "/tmp/current-project",
     }
     assert '"session_sync"' in result
     assert '"sent":1' in result

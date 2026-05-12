@@ -6,7 +6,7 @@ from pathlib import Path
 
 from dory_core.frontmatter import load_markdown_document
 from dory_core.profiles import ProfileRegistry
-from dory_core.slug import slugify_path_segment
+from dory_core.project_context import resolve_project_handle, resolve_project_path
 from dory_core.token_counting import TokenCounter, build_token_counter
 from dory_core.types import WakeProfile, WakeReq, WakeResp
 
@@ -36,9 +36,13 @@ class WakeBuilder:
 
     def build(self, req: WakeReq) -> WakeResp:
         sections = self._load_hot_block_sections(profile=req.profile, agent=req.agent)
-        project_section = self._load_project_section(req.project, profile=req.profile, agent=req.agent)
+        project_section = self._load_project_section(
+            resolve_project_handle(project=req.project, cwd=req.cwd, root=self.root),
+            profile=req.profile,
+            agent=req.agent,
+        )
         if project_section is not None:
-            sections.append(project_section)
+            sections.insert(0, project_section)
         if req.include_pinned_decisions:
             sections.extend(self._load_pinned_decisions())
         recent_sessions = self._load_recent_sessions(req.include_recent_sessions)
@@ -235,43 +239,10 @@ class WakeBuilder:
     ) -> HotBlockSection | None:
         if project is None or not project.strip():
             return None
-        path = self._resolve_project_path(project)
+        path = resolve_project_path(self.root, project)
         if path is None:
             return None
         return self._load_file_section(path, name="project", profile=profile, agent=agent)
-
-    def _resolve_project_path(self, project: str) -> Path | None:
-        projects_root = self.root / "projects"
-        if not projects_root.exists():
-            return None
-
-        normalized = project.strip()
-        if normalized.startswith("project:"):
-            normalized = normalized.split(":", 1)[1]
-
-        direct = projects_root / slugify_path_segment(normalized) / "state.md"
-        if direct.exists():
-            return direct
-
-        wanted = _normalize_project_lookup_value(normalized)
-        for path in sorted(projects_root.glob("*/state.md")):
-            text = path.read_text(encoding="utf-8").strip()
-            try:
-                document = load_markdown_document(text)
-            except ValueError:
-                continue
-            values = [
-                str(document.frontmatter.get("title", "")),
-                str(document.frontmatter.get("slug", "")),
-                path.parent.name,
-            ]
-            aliases = document.frontmatter.get("aliases", [])
-            if isinstance(aliases, list):
-                values.extend(str(alias) for alias in aliases)
-            if wanted in {_normalize_project_lookup_value(value) for value in values if value.strip()}:
-                return path
-
-        return None
 
     def _assemble_block(
         self,
@@ -477,7 +448,3 @@ def _section_budget_key(name: str) -> str:
     if path.suffix == ".md":
         return path.stem
     return path.as_posix()
-
-
-def _normalize_project_lookup_value(value: str) -> str:
-    return slugify_path_segment(value.removeprefix("project:").strip())

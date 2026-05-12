@@ -12,8 +12,9 @@ separate durable memory silos.
    the profile from the task: `profile="coding"` for software/project
    implementation, `profile="writing"` for content/copy/voice work, and
    `profile="privacy"` for boundary-sensitive questions. If the current task or
-   repo clearly maps to a known project, pass `project="<name-or-slug>"` so wake
-   includes that project state page.
+   repo clearly maps to a known project, pass `project="<name-or-slug-or-path>"`
+   or `cwd="<current-working-directory>"` so wake includes that project state
+   page. Project matching is exact first and then unambiguous fuzzy/path-based.
 2. Before making factual claims about projects, people, decisions, priorities,
    or current environment, use `dory_search`.
 3. For a fast recent recap, use `dory_digest` directly. It resolves daily and

@@ -83,7 +83,7 @@ Wake/active-memory notes:
 - Hermes hybrid prefetch infers `casual` for short greetings like `hi` / `what's up bro`; that path skips standalone `/v1/search` evidence and asks active-memory with `profile: casual`
 - a custom profile can define wake section files plus retrieval `allow`, `deny`, `boosts`, `sessions`, `use_helper_context`, and pinned-decision policy
 - set `active_memory_include_wake: false` when Hermes already calls wake during prefetch to avoid duplicate context
-- `wake`, `active_memory`, and prefetch helpers can forward `project`; `active_memory` and prefetch helpers can also forward session recall `scope`
+- `wake`, `active_memory`, and prefetch helpers can forward `project` or `cwd`; `active_memory` and prefetch helpers can also forward session recall `scope`
 
 Write safety notes:
 

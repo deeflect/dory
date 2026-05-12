@@ -191,6 +191,8 @@ def handle_tool_call(name: str, args: dict[str, Any]) -> str:
         pre_call_result = sync_sessions_before_wake()
 
     merged_args = {**_CLIENT_DEFAULTS.get(name, {}), **args}
+    if name in {"dory_wake", "dory_active_memory"} and not merged_args.get("cwd"):
+        merged_args["cwd"] = os.getcwd()
 
     if name in _GET_TOOLS:
         endpoint = _GET_TOOLS[name]

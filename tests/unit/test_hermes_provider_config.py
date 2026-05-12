@@ -409,6 +409,7 @@ def test_hermes_provider_tool_schema_exposes_finalized_dory_surface() -> None:
     assert "profile" in schemas["dory_wake"]["parameters"]["properties"]
     assert "enum" not in schemas["dory_wake"]["parameters"]["properties"]["profile"]
     assert "project" in schemas["dory_wake"]["parameters"]["properties"]
+    assert "cwd" in schemas["dory_wake"]["parameters"]["properties"]
     assert "agent" not in schemas["dory_wake"]["parameters"].get("required", [])
     assert "session_key" in schemas["dory_search"]["parameters"]["properties"]["scope"]["properties"]
     assert "include_wake" in schemas["dory_active_memory"]["parameters"]["properties"]

@@ -45,7 +45,7 @@ Claude Code, Codex CLI, and opencode are rule and MCP clients. OpenClaw and Herm
 
 ## Read loop
 
-1. `dory_wake` once at new session start, after context compaction, or at a real task switch. Pick the profile: `coding` for project work (operational only), `writing` for voice/content work (voice-first), `privacy` for boundary-sensitive questions (boundary-only; do not treat it as a profile dump). Pass `project` when the current project is known. If the wake block is still in context and the task has not changed, reuse it instead of calling wake again.
+1. `dory_wake` once at new session start, after context compaction, or at a real task switch. Pick the profile: `coding` for project work (operational only), `writing` for voice/content work (voice-first), `privacy` for boundary-sensitive questions (boundary-only; do not treat it as a profile dump). Pass `project` when the current project is known, or `cwd` so Dory can infer a matching `projects/<slug>/state.md` from local manifests. Project handles accept exact slug/title/alias matches, relative or absolute path-like values, and unambiguous fuzzy matches. If the wake block is still in context and the task has not changed, reuse it instead of calling wake again.
 2. `dory_digest` when the task needs a fast recap of recent work. With no arguments it returns the latest daily digest. Use `kind="weekly"` for the latest weekly digest, `date="YYYY-MM-DD"` for a specific day, or `week="YYYY-Www"` for a specific ISO week. This is path-based and does not depend on a `digest` tag being indexed.
 3. `dory_search` before any factual claim about projects, people, priorities, decisions, or current environment.
 4. `dory_get` on exact result paths before quoting or acting. It reads paths inside the configured Dory corpus, not arbitrary repo files cited as external evidence.
@@ -140,7 +140,7 @@ OpenClaw lives under `packages/openclaw-dory/`. Hermes lives under `plugins/herm
 curl -X POST "$DORY_HTTP_URL/v1/wake" \
   -H "Authorization: Bearer $DORY_CLIENT_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"budget_tokens":1200,"profile":"coding","agent":"codex"}'
+  -d '{"budget_tokens":1200,"profile":"coding","agent":"codex","cwd":"/path/to/project"}'
 
 curl -X POST "$DORY_HTTP_URL/v1/search" \
   -H "Authorization: Bearer $DORY_CLIENT_AUTH_TOKEN" \

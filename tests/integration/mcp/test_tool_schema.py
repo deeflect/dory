@@ -65,6 +65,7 @@ def test_dory_wake_schema_exposes_profiles() -> None:
     assert props["profile"]["type"] == "string"
     assert "enum" not in props["profile"]
     assert "project" in props
+    assert "cwd" in props
 
 
 def test_dory_active_memory_schema_exposes_include_wake_and_limits() -> None:

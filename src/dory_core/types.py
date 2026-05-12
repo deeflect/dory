@@ -22,6 +22,7 @@ class WakeReq(BaseModel):
     agent: str = Field(min_length=1)
     profile: WakeProfile = "default"
     project: str | None = None
+    cwd: str | None = None
     include_recent_sessions: int = Field(default=5, ge=0)
     include_pinned_decisions: bool = True
     debug: bool = False

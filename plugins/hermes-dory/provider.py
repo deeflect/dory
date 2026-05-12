@@ -717,6 +717,7 @@ class DoryMemoryProvider(MemoryProvider):
         budget_tokens: int | None = None,
         profile: WakeProfile | None = None,
         project: str | None = None,
+        cwd: str | None = None,
         include_recent_sessions: int | None = None,
         include_pinned_decisions: bool | None = None,
     ) -> dict[str, Any]:
@@ -733,6 +734,8 @@ class DoryMemoryProvider(MemoryProvider):
         }
         if project is not None:
             payload["project"] = project
+        if cwd is not None:
+            payload["cwd"] = cwd
         return self._request("POST", "/v1/wake", json=payload)
 
     def search(
@@ -1112,7 +1115,13 @@ class DoryMemoryProvider(MemoryProvider):
         timeout_ms: int | None = None,
     ) -> dict[str, Any]:
         plan = self._prefetch_plan(prompt, project=project, cwd=cwd)
-        wake_payload = self.wake(agent=agent, budget_tokens=budget_tokens, profile=plan.profile, project=project)
+        wake_payload = self.wake(
+            agent=agent,
+            budget_tokens=budget_tokens,
+            profile=plan.profile,
+            project=project,
+            cwd=cwd,
+        )
         search_payload = self.search(prompt, k=k, mode=mode, scope=scope) if plan.include_search else {"results": []}
         active_memory_payload = self.active_memory(
             prompt,
@@ -1465,6 +1474,7 @@ def _build_tool_schemas() -> list[dict[str, Any]]:
                     "budget_tokens": {"type": "integer"},
                     "agent": {"type": "string"},
                     "project": {"type": "string"},
+                    "cwd": {"type": "string"},
                     "profile": {"type": "string"},
                     "include_recent_sessions": {"type": "integer"},
                     "include_pinned_decisions": {"type": "boolean"},

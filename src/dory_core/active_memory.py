@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import logging
-import json
 import re
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from time import monotonic
@@ -31,7 +29,7 @@ from dory_core.types import (
 )
 from dory_core.frontmatter import load_markdown_document
 from dory_core.profiles import ProfileRegistry, RetrievalProfileConfig
-from dory_core.slug import slugify_path_segment
+from dory_core.project_context import resolve_project_handle, resolve_project_path
 
 _logger = logging.getLogger(__name__)
 _COMPOSER_SNIPPET_CHARS = 360
@@ -210,7 +208,7 @@ class ActiveMemoryEngine:
                 budget_tokens=min(req.budget_tokens, 600),
                 agent=req.agent,
                 profile=source_policy.retrieval.wake_profile,
-                project=_resolve_project_handle(req, self.root),
+                project=resolve_project_handle(project=req.project, cwd=req.cwd, root=self.root),
                 include_recent_sessions=3 if source_policy.include_session_context else 0,
                 include_pinned_decisions=source_policy.retrieval.include_pinned_decisions,
             )
@@ -737,13 +735,7 @@ def _resolve_active_memory_profile(req: ActiveMemoryReq) -> _ActiveMemoryProfile
 
 
 def _resolve_project_handle(req: ActiveMemoryReq, root: Path | None) -> str | None:
-    explicit = (req.project or "").strip()
-    if explicit:
-        return explicit
-    inferred = _infer_project_handle_from_cwd(req.cwd)
-    if inferred and _resolve_project_path(root, inferred) is not None:
-        return inferred
-    return None
+    return resolve_project_handle(project=req.project, cwd=req.cwd, root=root)
 
 
 def _resolve_project_path_for_request(req: ActiveMemoryReq, root: Path) -> Path | None:
@@ -754,72 +746,7 @@ def _resolve_project_path_for_request(req: ActiveMemoryReq, root: Path) -> Path 
 
 
 def _resolve_project_path(root: Path | None, project: str) -> Path | None:
-    if root is None:
-        return None
-    projects_root = root / "projects"
-    if not projects_root.exists():
-        return None
-    normalized = project.strip()
-    if normalized.startswith("project:"):
-        normalized = normalized.split(":", 1)[1]
-    direct = projects_root / slugify_path_segment(normalized) / "state.md"
-    if direct.exists():
-        return direct
-    wanted = slugify_path_segment(normalized)
-    for path in sorted(projects_root.glob("*/state.md")):
-        try:
-            document = load_markdown_document(path.read_text(encoding="utf-8"))
-        except ValueError:
-            continue
-        values = [
-            str(document.frontmatter.get("title", "")),
-            str(document.frontmatter.get("slug", "")),
-            path.parent.name,
-        ]
-        aliases = document.frontmatter.get("aliases", [])
-        if isinstance(aliases, list):
-            values.extend(str(alias) for alias in aliases)
-        if wanted in {slugify_path_segment(value) for value in values if value.strip()}:
-            return path
-    return None
-
-
-def _infer_project_handle_from_cwd(cwd: str | None) -> str | None:
-    if cwd is None or not cwd.strip():
-        return None
-    path = Path(cwd).expanduser()
-    candidates: list[str] = []
-    candidates.extend(_project_names_from_local_manifests(path))
-    candidates.extend(part for part in reversed(path.parts) if part and part not in {"/", "."})
-    for candidate in candidates:
-        normalized = slugify_path_segment(candidate)
-        if normalized:
-            return normalized
-    return None
-
-
-def _project_names_from_local_manifests(path: Path) -> list[str]:
-    candidates: list[str] = []
-    pyproject = path / "pyproject.toml"
-    if pyproject.exists():
-        try:
-            payload = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-        except (OSError, tomllib.TOMLDecodeError):
-            payload = {}
-        project = payload.get("project") if isinstance(payload, dict) else None
-        name = project.get("name") if isinstance(project, dict) else None
-        if isinstance(name, str) and name.strip():
-            candidates.append(name.strip())
-    package_json = path / "package.json"
-    if package_json.exists():
-        try:
-            payload = json.loads(package_json.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            payload = {}
-        name = payload.get("name") if isinstance(payload, dict) else None
-        if isinstance(name, str) and name.strip():
-            candidates.append(name.strip().split("/", 1)[-1])
-    return candidates
+    return resolve_project_path(root, project)
 
 
 def _prompt_context(prompt: str) -> _PromptContext:

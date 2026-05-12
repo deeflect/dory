@@ -72,7 +72,7 @@ TOOL_REGISTRY: tuple[DoryTool, ...] = (
         description=(
             "Build the frozen wake-up block. Use profile='coding' for agent work, "
             "'writing' for voice/content, or 'privacy' for boundary questions. "
-            "Set project to include a matching projects/<slug>/state.md page by slug, title, or alias."
+            "Set project or cwd to include a matching projects/<slug>/state.md page."
         ),
         request_model=WakeReq,
         handler="wake",

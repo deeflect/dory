@@ -111,6 +111,29 @@ def test_wake_builder_includes_project_context_by_slug(tmp_path: Path) -> None:
 
     assert "Dory project context." in resp.block
     assert "projects/dory/state.md" in resp.sources
+    assert resp.sources[0] == "projects/dory/state.md"
+
+
+def test_wake_builder_infers_project_context_from_cwd_manifest(tmp_path: Path) -> None:
+    corpus_root = tmp_path / "corpus"
+    workspace = tmp_path / "workspace"
+    nested = workspace / "src" / "feature"
+    nested.mkdir(parents=True)
+    (workspace / "pyproject.toml").write_text('[project]\nname = "dory"\n', encoding="utf-8")
+    (corpus_root / "core").mkdir(parents=True)
+    (corpus_root / "projects" / "dory").mkdir(parents=True)
+    (corpus_root / "core" / "active.md").write_text("# Active\n\nGlobal Dory ops.\n", encoding="utf-8")
+    (corpus_root / "projects" / "dory" / "state.md").write_text(
+        "---\ntitle: Dory\ntype: project\n---\n\n## Summary\n- Cwd-routed project context.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(corpus_root).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=400, include_recent_sessions=0, cwd=str(nested))
+    )
+
+    assert "Cwd-routed project context." in resp.block
+    assert resp.sources[0] == "projects/dory/state.md"
 
 
 def test_wake_builder_resolves_project_context_by_title_or_alias(tmp_path: Path) -> None:
@@ -138,6 +161,73 @@ aliases:
 
     assert "Alias-routed project context." in resp.block
     assert "projects/palace/state.md" in resp.sources
+
+
+def test_wake_builder_resolves_fuzzy_project_handle(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "projects" / "agent-mission-control").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nGlobal context.\n", encoding="utf-8")
+    (tmp_path / "projects" / "agent-mission-control" / "state.md").write_text(
+        "---\ntitle: Agent Mission Control\ntype: project\n---\n\n## Summary\n- Fuzzy-routed project context.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=400, include_recent_sessions=0, project="mission control")
+    )
+
+    assert "Fuzzy-routed project context." in resp.block
+    assert resp.sources[0] == "projects/agent-mission-control/state.md"
+
+
+def test_wake_builder_ignores_ambiguous_fuzzy_project_handle(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "projects" / "agent-control").mkdir(parents=True)
+    (tmp_path / "projects" / "mission-control").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nGlobal context.\n", encoding="utf-8")
+    (tmp_path / "projects" / "agent-control" / "state.md").write_text(
+        "---\ntitle: Agent Control\ntype: project\n---\n\n## Summary\n- First fuzzy context.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "projects" / "mission-control" / "state.md").write_text(
+        "---\ntitle: Mission Control\ntype: project\n---\n\n## Summary\n- Second fuzzy context.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=400, include_recent_sessions=0, project="control")
+    )
+
+    assert "First fuzzy context." not in resp.block
+    assert "Second fuzzy context." not in resp.block
+    assert resp.sources[0] == "core/active.md"
+
+
+def test_wake_builder_resolves_project_from_relative_path_handle(tmp_path: Path) -> None:
+    corpus_root = tmp_path / "corpus"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (corpus_root / "core").mkdir(parents=True)
+    (corpus_root / "projects" / "atlas").mkdir(parents=True)
+    (corpus_root / "core" / "active.md").write_text("# Active\n\nGlobal context.\n", encoding="utf-8")
+    (corpus_root / "projects" / "atlas" / "state.md").write_text(
+        "---\ntitle: Atlas\ntype: project\n---\n\n## Summary\n- Relative-path project context.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(corpus_root).build(
+        WakeReq(
+            agent="codex",
+            profile="coding",
+            budget_tokens=400,
+            include_recent_sessions=0,
+            project="apps/atlas",
+            cwd=str(workspace),
+        )
+    )
+
+    assert "Relative-path project context." in resp.block
+    assert resp.sources[0] == "projects/atlas/state.md"
 
 
 def test_wake_builder_skips_unpinned_decisions(tmp_path: Path) -> None:
