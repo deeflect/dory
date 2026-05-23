@@ -23,7 +23,7 @@ from dory_core.errors import DoryValidationError
 from dory_core.frontmatter import dump_markdown_document, load_markdown_document
 from dory_core.fs import atomic_write_text, resolve_corpus_target
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
-from dory_core.migration_normalize import canonical_target_for_subject, normalize_migration_slug
+from dory_core.slug import canonical_target_for_subject, normalize_migration_slug
 from dory_core.metadata import normalize_frontmatter
 from dory_core.config import DorySettings
 from dory_core.subject_resolver import (

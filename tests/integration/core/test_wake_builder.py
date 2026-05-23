@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from dory_core.types import WakeReq
 from dory_core.wake import WakeBuilder
 
@@ -89,3 +91,16 @@ profiles:
 
     assert "wake excerpt truncated" in resp.block
     assert "Voice line two should be truncated." not in resp.block
+
+
+def test_wake_builder_unknown_profile_raises(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+
+    from dory_core.errors import DoryValidationError
+    import pytest
+
+    with pytest.raises(DoryValidationError, match="Unknown wake profile"):
+        WakeBuilder(tmp_path).build(
+            WakeReq(agent="codex", profile="nonexistent", budget_tokens=200, include_recent_sessions=0)
+        )

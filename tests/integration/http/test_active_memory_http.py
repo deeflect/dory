@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from dory_core.embedding import EmbeddingProviderError
+from dory_core.errors import DoryValidationError
 from dory_core.types import ActiveMemoryResp
 from dory_http.app import build_app
 
@@ -98,4 +99,25 @@ def test_active_memory_http_returns_503_for_embedding_provider_errors(tmp_path: 
 
     assert result.status_code == 503
     assert result.json()["error"]["message"] == "embedding backend unavailable"
-    assert result.json()["error"]["code"] == "service_unavailable"
+
+
+def test_active_memory_http_unknown_profile_returns_validation_error(tmp_path: Path, monkeypatch) -> None:
+    class _BrokenActiveMemoryEngine:
+        def build(self, req):
+            raise DoryValidationError("Unknown retrieval profile: 'nonexistent'")
+
+    monkeypatch.setattr("dory_http.app._build_active_memory_engine", lambda runtime: _BrokenActiveMemoryEngine())
+
+    client = TestClient(build_app(tmp_path / "corpus", tmp_path / "index"))
+    result = client.post(
+        "/v1/active-memory",
+        json={
+            "prompt": "what are we working on today",
+            "agent": "claude",
+            "profile": "nonexistent",
+        },
+    )
+
+    assert result.status_code == 400
+    assert result.json()["error"]["code"] == "dory_validation_error"
+    assert "Unknown retrieval profile" in result.json()["error"]["message"]

@@ -10,7 +10,7 @@ from typing import Iterable
 
 from watchdog.observers import Observer
 
-from dory_cli.eval import run_eval
+from dory_core.eval_runner import run_eval
 from dory_core.claim_store import ClaimRecord, ClaimStore
 from dory_core.claims import Claim, EvidenceRef
 from dory_core.dreaming.events import SessionClosedEvent

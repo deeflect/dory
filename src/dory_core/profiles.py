@@ -7,6 +7,8 @@ from typing import Any, Literal
 
 import yaml
 
+from dory_core.errors import DoryValidationError
+
 BuiltinWakeProfile = Literal["default", "casual", "coding", "writing", "privacy"]
 BuiltinActiveMemoryProfile = Literal["general", "coding", "writing", "privacy", "personal"]
 SessionsPolicy = Literal["intent_only", "always", "never"]
@@ -119,14 +121,20 @@ class ProfileRegistry:
         self._sources.update(dict.fromkeys(custom_profiles, "custom"))
 
     def wake_profile(self, name: str) -> WakeProfileConfig:
-        profile = self._profiles.get(name) or self._profiles["default"]
+        if not name:
+            name = "default"
+        profile = self._profiles.get(name)
+        if profile is None:
+            raise DoryValidationError(f"Unknown wake profile: {name!r}")
         return profile.wake
 
     def retrieval_profile(self, name: str) -> RetrievalProfileConfig:
+        if not name:
+            name = "general"
         profile = self._profiles.get(name)
-        if profile is not None:
-            return profile.retrieval
-        return self._profiles["general"].retrieval
+        if profile is None:
+            raise DoryValidationError(f"Unknown retrieval profile: {name!r}")
+        return profile.retrieval
 
     def profile_names(self) -> list[str]:
         return sorted(self._profiles)

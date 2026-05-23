@@ -80,6 +80,23 @@ def test_http_routes_cover_core_verbs(
     assert "compat_matrix" not in status.json()
 
 
+def test_wake_http_unknown_profile_returns_validation_error(tmp_path: Path) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    (corpus_root / "core").mkdir(parents=True)
+    (corpus_root / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+
+    client = TestClient(build_app(corpus_root, index_root))
+    response = client.post(
+        "/v1/wake",
+        json={"agent": "codex", "profile": "nonexistent", "budget_tokens": 200},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "dory_validation_error"
+    assert "Unknown wake profile" in response.json()["error"]["message"]
+
+
 def test_http_purge_requires_hash_for_live_delete(
     tmp_path: Path,
     fake_embedder,

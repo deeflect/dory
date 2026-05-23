@@ -437,7 +437,16 @@ def build_app(
     @app.post("/v1/wake")
     def wake(req: WakeReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
-        return serialize_wake_response(WakeBuilder(runtime.corpus_root).build(req), debug=req.debug)
+        try:
+            return serialize_wake_response(WakeBuilder(runtime.corpus_root).build(req), debug=req.debug)
+        except DoryValidationError as err:
+            _raise_api_error(
+                status_code=400,
+                code="dory_validation_error",
+                message=str(err),
+                error_type="validation",
+                cause=err,
+            )
 
     @app.post("/v1/search")
     def search(req: SearchReq, request: Request) -> dict[str, Any]:
@@ -471,6 +480,14 @@ def build_app(
         _authorize_request(request, runtime)
         try:
             return serialize_active_memory_response(_build_active_memory_engine(runtime).build(req), debug=req.debug)
+        except DoryValidationError as err:
+            _raise_api_error(
+                status_code=400,
+                code="dory_validation_error",
+                message=str(err),
+                error_type="validation",
+                cause=err,
+            )
         except EmbeddingProviderError as err:
             raise HTTPException(status_code=503, detail=str(err)) from err
 

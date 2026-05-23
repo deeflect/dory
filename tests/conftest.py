@@ -27,15 +27,15 @@ def fake_embedder() -> FakeEmbedder:
 
 @pytest.fixture(autouse=True)
 def patch_runtime_embedder_factories(monkeypatch) -> None:
-    from dory_cli import eval as cli_eval
     from dory_cli import _internals as cli_internals
     from dory_cli import main as cli_main
+    from dory_core import eval_runner as core_eval_runner
     from dory_core.llm import openrouter as openrouter_module
     from dory_http import app as http_app
     from dory_mcp import server as mcp_server
 
-    monkeypatch.setattr(cli_eval, "build_runtime_embedder", lambda settings=None: FakeEmbedder())
-    monkeypatch.setattr(cli_eval, "build_reranker", lambda settings=None: None)
+    monkeypatch.setattr(core_eval_runner, "build_runtime_embedder", lambda settings=None: FakeEmbedder())
+    monkeypatch.setattr(core_eval_runner, "build_reranker", lambda settings=None: None)
     monkeypatch.setattr(cli_internals, "build_runtime_embedder", lambda: FakeEmbedder())
     monkeypatch.setattr(cli_internals, "build_openrouter_client", lambda settings=None, purpose=None: None)
     monkeypatch.setattr(cli_internals, "build_reranker", lambda settings=None: None)

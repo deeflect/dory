@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dory_cli.eval import EvalQuestion, _decide_outcome, _maybe_judge
+from dory_core.eval_runner import EvalQuestion, _decide_outcome, _maybe_judge
 from dory_core.eval_judge import EvalJudgeDecision
 
 

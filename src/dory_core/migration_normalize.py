@@ -1,44 +1,10 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from dory_core.canonical_pages import render_canonical_markdown, render_core_markdown
 from dory_core.migration_types import ClassifiedDocument
-from dory_core.slug import slugify_path_segment
-
-_HYPHENS = re.compile(r"-{2,}")
-
-_SUBJECT_FAMILY_TARGETS: dict[str, str] = {
-    "core": "core/{slug}.md",
-    "decision": "decisions/{slug}.md",
-    "decisions": "decisions/{slug}.md",
-    "person": "people/{slug}.md",
-    "people": "people/{slug}.md",
-    "project": "projects/{slug}/state.md",
-    "projects": "projects/{slug}/state.md",
-    "concept": "concepts/{slug}.md",
-    "concepts": "concepts/{slug}.md",
-}
-
-
-def normalize_migration_slug(value: str) -> str:
-    slug = slugify_path_segment(value).replace("/", "-").replace("_", "-")
-    return _HYPHENS.sub("-", slug).strip("-")
-
-
-def canonical_target_for_subject(subject_ref: str) -> str:
-    if ":" not in subject_ref:
-        raise ValueError(f"invalid subject ref: {subject_ref}")
-
-    family, raw_slug = subject_ref.split(":", 1)
-    template = _SUBJECT_FAMILY_TARGETS.get(family)
-    if template is None:
-        raise ValueError(f"unsupported subject ref family: {family}")
-    slug = normalize_migration_slug(raw_slug)
-    if not slug:
-        raise ValueError(f"empty subject slug: {subject_ref}")
-    return template.format(slug=slug)
+from dory_core.slug import canonical_target_for_subject, normalize_migration_slug
 
 
 def concept_kind_for_legacy_path(path: str) -> str:

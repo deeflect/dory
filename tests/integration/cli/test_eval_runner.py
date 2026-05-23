@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from dory_cli.eval import app, run_eval
+from dory_core.eval_runner import run_eval
+from dory_cli.eval import app
 from dory_core.index.reindex import reindex_corpus
 
 
