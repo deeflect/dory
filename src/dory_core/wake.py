@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from dory_core.compiled_wiki import collect_compiled_cards
 from dory_core.frontmatter import load_markdown_document
 from dory_core.profiles import ProfileRegistry
 from dory_core.project_context import resolve_project_handle, resolve_project_path
@@ -35,14 +36,25 @@ class WakeBuilder:
         self.profile_registry = ProfileRegistry(self.root)
 
     def build(self, req: WakeReq) -> WakeResp:
-        sections = self._load_hot_block_sections(profile=req.profile, agent=req.agent)
+        project_handle = resolve_project_handle(project=req.project, cwd=req.cwd, root=self.root)
+
+        # L0: Compiled wiki cards (project card + general hot cards) — high-priority context
+        compiled_sections = self._collect_compiled_cards(project=project_handle, profile=req.profile)
+
+        sections = list(compiled_sections)  # compiled cards first (L0)
+
+        # L1: Profile hot sections
+        sections.extend(self._load_hot_block_sections(profile=req.profile, agent=req.agent))
+
+        # L1: Raw project state after compiled cards
         project_section = self._load_project_section(
-            resolve_project_handle(project=req.project, cwd=req.cwd, root=self.root),
+            project_handle,
             profile=req.profile,
             agent=req.agent,
         )
         if project_section is not None:
-            sections.insert(0, project_section)
+            # Insert just after compiled cards, before profile sections
+            sections.insert(len(compiled_sections), project_section)
         if req.include_pinned_decisions:
             sections.extend(self._load_pinned_decisions())
         recent_sessions = self._load_recent_sessions(req.include_recent_sessions)
@@ -243,6 +255,24 @@ class WakeBuilder:
         if path is None:
             return None
         return self._load_file_section(path, name="project", profile=profile, agent=agent)
+
+    def _collect_compiled_cards(
+        self,
+        *,
+        project: str | None = None,
+        profile: WakeProfile = "default",
+    ) -> list[HotBlockSection]:
+        """Collect compiled wiki cards as high-priority L0 context.
+
+        Delegates to ``compiled_wiki.collect_compiled_cards`` and wraps the
+        results into ``HotBlockSection`` objects used by the assemble pipeline.
+        """
+        raw = collect_compiled_cards(
+            self.root,
+            project=project,
+            retrieval_profile=self.profile_registry.retrieval_profile(profile),
+        )
+        return [HotBlockSection(path=rel, content=content) for rel, content in raw]
 
     def _assemble_block(
         self,

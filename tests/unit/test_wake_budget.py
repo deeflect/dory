@@ -346,3 +346,185 @@ Birthday 1900-01-01.
     assert "Birthday" not in resp.block
     assert "identity-placeholder@example.invalid" not in resp.block
     assert "core/identity.md" not in resp.sources
+
+
+def test_wake_builder_includes_compiled_project_card_before_raw_state(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "projects" / "palace").mkdir(parents=True)
+    (tmp_path / "wiki" / "projects").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    (tmp_path / "projects" / "palace" / "state.md").write_text(
+        "---\ntitle: Palace\ntype: project\n---\n\n## Summary\n- Raw project state content.\n",
+        encoding="utf-8",
+    )
+    # Compiled project card (active + canonical + warm)
+    (tmp_path / "wiki" / "projects" / "palace.md").write_text(
+        "---\ntitle: Palace\ntype: wiki\nstatus: active\ncanonical: true\n"
+        "temperature: warm\nsource_kind: generated\n---\n\n# Palace\n\n## Summary\n- Compiled project card content.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=800, include_recent_sessions=0, project="palace")
+    )
+
+    assert "Compiled project card content." in resp.block
+    assert "Raw project state content." in resp.block
+    # Compiled project card should appear before raw project state
+    compiled_pos = resp.block.index("Compiled project card content.")
+    raw_pos = resp.block.index("Raw project state content.")
+    assert compiled_pos < raw_pos, "Compiled project card must appear before raw project state"
+    # Both should be in sources
+    assert "wiki/projects/palace.md" in resp.sources
+    assert "projects/palace/state.md" in resp.sources
+
+
+def test_wake_builder_includes_general_compiled_concept_cards(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "people").mkdir(parents=True)
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+
+    # Compiled person card (active + canonical + hot)
+    (tmp_path / "wiki" / "people" / "alice.md").write_text(
+        "---\ntitle: Alice\ntype: wiki\nstatus: active\ncanonical: true\n"
+        "temperature: hot\nsource_kind: generated\n---\n\n# Alice\n\nAlice is a key collaborator.\n",
+        encoding="utf-8",
+    )
+    # Compiled concept card (active + canonical + warm)
+    (tmp_path / "wiki" / "concepts" / "dory.md").write_text(
+        "---\ntitle: Dory\ntype: wiki\nstatus: active\ncanonical: true\n"
+        "temperature: warm\nsource_kind: generated\n---\n\n# Dory\n\nDory is the memory system.\n",
+        encoding="utf-8",
+    )
+    # Cold card should NOT be included
+    (tmp_path / "wiki" / "people" / "bob.md").write_text(
+        "---\ntitle: Bob\ntype: wiki\nstatus: active\ncanonical: true\n"
+        "temperature: cold\nsource_kind: generated\n---\n\n# Bob\n\nBob is a minor contact.\n",
+        encoding="utf-8",
+    )
+    # Non-canonical card should NOT be included
+    (tmp_path / "wiki" / "concepts" / "old.md").write_text(
+        "---\ntitle: Old concept\ntype: wiki\nstatus: active\ncanonical: false\n"
+        "temperature: warm\nsource_kind: human\n---\n\n# Old\n\nOld concept.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=800, include_recent_sessions=0)
+    )
+
+    assert "Dory is the memory system." in resp.block
+    # Coding retrieval denies people/**, so person cards stay out even if hot.
+    assert "Alice is a key collaborator." not in resp.block
+    # Cold card excluded
+    assert "Bob is a minor contact." not in resp.block
+    # Non-canonical excluded
+    assert "Old concept." not in resp.block
+
+    assert "wiki/people/alice.md" not in resp.sources
+    assert "wiki/concepts/dory.md" in resp.sources
+    assert "wiki/people/bob.md" not in resp.sources
+    assert "wiki/concepts/old.md" not in resp.sources
+
+
+def test_wake_builder_general_compiled_cards_respect_profile(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "people").mkdir(parents=True)
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    (tmp_path / "wiki" / "people" / "alice.md").write_text(
+        "---\ntitle: Alice\ntype: wiki\nstatus: active\ncanonical: true\n"
+        "temperature: hot\nupdated: 2026-05-01\nsource_kind: generated\n---\n\n# Alice\n\nAlice is a key collaborator.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "wiki" / "concepts" / "dory.md").write_text(
+        "---\ntitle: Dory\ntype: wiki\nstatus: active\ncanonical: true\n"
+        "temperature: warm\nupdated: 2026-05-02\nsource_kind: generated\n---\n\n# Dory\n\nDory is the memory system.\n",
+        encoding="utf-8",
+    )
+
+    privacy_resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="privacy", budget_tokens=800, include_recent_sessions=0)
+    )
+    default_resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="default", budget_tokens=800, include_recent_sessions=0)
+    )
+
+    assert "Alice is a key collaborator." not in privacy_resp.block
+    assert "Dory is the memory system." not in privacy_resp.block
+    assert "wiki/people/alice.md" not in privacy_resp.sources
+    assert "wiki/concepts/dory.md" not in privacy_resp.sources
+    assert "Alice is a key collaborator." in default_resp.block
+    assert "Dory is the memory system." in default_resp.block
+
+def test_wake_builder_noop_when_no_compiled_wiki_exists(tmp_path: Path) -> None:
+    """Verify that wake behaves identically when no wiki/projects|people|concepts exist."""
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=400, include_recent_sessions=0)
+    )
+
+    assert "Current work." in resp.block
+    assert resp.sources == ["core/active.md"]
+    # No wiki cards
+    assert "wiki/" not in " ".join(resp.sources)
+
+
+def test_wake_builder_rejects_project_card_path_traversal(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "projects").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text(
+        "---\ntitle: Active\ntype: wiki\nstatus: active\ncanonical: true\ntemperature: hot\n---\n\nLeaked active context.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="default", budget_tokens=800, include_recent_sessions=0, project="../../core/active")
+    )
+
+    assert resp.block.count("Leaked active context.") == 1
+    assert "wiki/projects/../../core/active.md" not in resp.sources
+    assert resp.sources == ["core/active.md"]
+
+def test_wake_builder_skips_compiled_card_symlink_outside_root(tmp_path: Path) -> None:
+    outside_root = tmp_path.parent / "outside-compiled-card.md"
+    outside_root.write_text(
+        "---\ntitle: Outside\ntype: wiki\nstatus: active\ncanonical: true\ntemperature: hot\n---\n\nLeaked outside content.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    (tmp_path / "wiki" / "concepts" / "outside.md").symlink_to(outside_root)
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="default", budget_tokens=800, include_recent_sessions=0)
+    )
+
+    assert "Leaked outside content." not in resp.block
+    assert "wiki/concepts/outside.md" not in resp.sources
+
+def test_wake_builder_limits_general_compiled_cards(tmp_path: Path) -> None:
+    """Only up to max_general_cards (default 3) general compiled cards are included."""
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "people").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+
+    for name in ("avery", "bob", "charlie", "diana", "eve"):
+        (tmp_path / "wiki" / "people" / f"{name}.md").write_text(
+            "---\ntitle: " + name.capitalize() + "\ntype: wiki\nstatus: active\ncanonical: true\n"
+            "temperature: hot\nsource_kind: generated\n---\n\n# " + name.capitalize() + "\n\n" + name.capitalize() + " info.\n",
+            encoding="utf-8",
+        )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="default", budget_tokens=2000, include_recent_sessions=0)
+    )
+
+    # Should have at most 3 general compiled cards (default max_general_cards)
+    card_sources = [s for s in resp.sources if s.startswith("wiki/people/")]
+    assert len(card_sources) <= 3, f"Expected at most 3 compiled cards, got {len(card_sources)}: {card_sources}"
+    assert resp.block.count("info.") <= 3

@@ -100,7 +100,7 @@ def test_wake_builder_unknown_profile_raises(tmp_path: Path) -> None:
     from dory_core.errors import DoryValidationError
     import pytest
 
-    with pytest.raises(DoryValidationError, match="Unknown wake profile"):
+    with pytest.raises(DoryValidationError, match="Unknown retrieval profile"):
         WakeBuilder(tmp_path).build(
             WakeReq(agent="codex", profile="nonexistent", budget_tokens=200, include_recent_sessions=0)
         )

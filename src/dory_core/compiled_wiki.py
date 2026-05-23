@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 from dory_core.claim_store import ClaimEvent, ClaimRecord
 from dory_core.claims import Claim
 from dory_core.claims import EvidenceRef
+from dory_core.frontmatter import MarkdownDocument, load_markdown_document
+from dory_core.profiles import RetrievalProfileConfig
 
 
 def render_compiled_page(
@@ -208,6 +211,114 @@ def _render_event_evidence(
         for item in _dedupe_strings(grouped[label]):
             lines.append(f"- {item}")
     return tuple(lines)
+
+
+def collect_compiled_cards(
+    root: Path,
+    *,
+    project: str | None = None,
+    retrieval_profile: RetrievalProfileConfig | None = None,
+    max_general_cards: int = 3,
+) -> list[tuple[Path, str]]:
+    """Collect allowed compiled wiki cards under ``wiki/projects/``, ``wiki/people/``, and ``wiki/concepts/``.
+
+    Returns ``(relative_path, content)`` tuples. The project-specific card (if one
+    exists at ``wiki/projects/<project>.md`` and the retrieval profile allows it)
+    appears first, followed by general cards that are ``status: active``,
+    ``canonical: true``, and have a ``temperature`` of ``hot`` or ``warm``.
+
+    Preserves old behaviour when no wiki directory or no matching cards exist
+    (returns an empty list).
+    """
+    resolved_root = root.resolve()
+    wiki_root = (resolved_root / "wiki").resolve()
+    cards: list[tuple[Path, str]] = []
+    if not wiki_root.exists():
+        return cards
+
+    # 1. Project-specific compiled card — wiki/projects/<slug>.md
+    if project:
+        project_card = wiki_root / "projects" / f"{project}.md"
+        project_loaded = _load_compiled_card(project_card, root=resolved_root, base=wiki_root)
+        if project_loaded is not None:
+            rel_path, text, _doc = project_loaded
+            if _profile_allows_compiled_path(rel_path, retrieval_profile):
+                cards.append((rel_path, text))
+
+    # 2. General hot cards from people and concepts. Sorted by newest updated
+    # frontmatter first, then path, so the cap is stable but not purely alphabetical.
+    candidates: list[tuple[str, str, Path, str]] = []
+    for subdir in ("people", "concepts"):
+        dir_path = wiki_root / subdir
+        if not dir_path.exists():
+            continue
+        for path in sorted(dir_path.glob("*.md")):
+            loaded = _load_compiled_card(path, root=resolved_root, base=wiki_root)
+            if loaded is None:
+                continue
+            rel_path, text, doc = loaded
+            if not _profile_allows_compiled_path(rel_path, retrieval_profile):
+                continue
+            if not _is_hot_compiled_card(doc):
+                continue
+            updated = str(doc.frontmatter.get("updated", "")).strip()
+            candidates.append((updated, rel_path.as_posix(), rel_path, text))
+
+    for _updated, _path_key, rel_path, text in sorted(candidates, reverse=True)[:max_general_cards]:
+        cards.append((rel_path, text))
+
+    return cards
+
+
+def _load_compiled_card(path: Path, *, root: Path, base: Path) -> tuple[Path, str, MarkdownDocument] | None:
+    """Safely load one compiled wiki card inside ``base`` and return a root-relative path."""
+    try:
+        resolved_root = root.resolve()
+        resolved_base = base.resolve()
+        resolved_path = path.resolve(strict=True)
+        resolved_path.relative_to(resolved_root)
+        resolved_path.relative_to(resolved_base)
+    except (OSError, ValueError):
+        return None
+    if not resolved_path.is_file():
+        return None
+    text = resolved_path.read_text(encoding="utf-8").strip()
+    if not text:
+        return None
+    try:
+        doc = load_markdown_document(text)
+    except ValueError:
+        return None
+    return resolved_path.relative_to(resolved_root), text, doc
+
+
+def _is_hot_compiled_card(document: MarkdownDocument) -> bool:
+    frontmatter = document.frontmatter
+    status = str(frontmatter.get("status", "")).strip().lower()
+    canonical = frontmatter.get("canonical", False)
+    temperature = str(frontmatter.get("temperature", "")).strip().lower()
+    return status == "active" and canonical is True and temperature in {"hot", "warm"}
+
+
+def _profile_allows_compiled_path(path: Path, retrieval_profile: RetrievalProfileConfig | None) -> bool:
+    if retrieval_profile is None:
+        return True
+    path_key = path.as_posix()
+    if not retrieval_profile.allows_path(path_key, corpus="durable"):
+        return False
+    legacy_key = _legacy_compiled_card_path(path_key)
+    if legacy_key is not None and not retrieval_profile.allows_path(legacy_key, corpus="durable"):
+        return False
+    return True
+
+
+def _legacy_compiled_card_path(path: str) -> str | None:
+    """Map generated wiki cards to their source-domain path for profile policy checks."""
+    if path.startswith("wiki/people/"):
+        return path.removeprefix("wiki/")
+    if path.startswith("wiki/projects/"):
+        return "projects/" + path.removeprefix("wiki/projects/").removesuffix(".md") + "/state.md"
+    return None
 
 
 def _event_detail(event: ClaimEvent, claim_lookup: dict[str, str]) -> str:
