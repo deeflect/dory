@@ -20,7 +20,6 @@ from dory_core.config import DorySettings
 from dory_core.embedding import (
     build_runtime_embedder,
 )
-from dory_core.llm.active_memory import build_active_memory_components
 from dory_core.llm.openrouter import build_openrouter_client
 from dory_core.llm_rerank import build_reranker
 from dory_core.migration_engine import MigrationEngine, MigrationProgress
@@ -30,9 +29,8 @@ from dory_core.migration_plan import MigrationPlan, MigrationPlanner, MigrationS
 from dory_core.query_expansion import OpenRouterQueryExpander
 from dory_core.research import ResearchEngine
 from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
-from dory_core.search import SearchEngine
+from dory_core.runtime import DoryRuntime, build_dory_runtime
 from dory_core.semantic_write import SemanticWriteEngine
-from dory_core.wake import WakeBuilder
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,25 +117,23 @@ def _build_openrouter_client_for_purpose(settings: DorySettings, *, purpose: str
         return build_openrouter_client(settings)
 
 
-def _build_active_memory_engine(config: RuntimeConfig) -> ActiveMemoryEngine:
+def _build_dory_runtime(config: RuntimeConfig) -> DoryRuntime:
     settings = DorySettings()
-    planner, composer = build_active_memory_components(settings)
-    query_planner = _build_retrieval_planner(settings, purpose="query")
-    return ActiveMemoryEngine(
-        wake_builder=WakeBuilder(config.corpus_root),
-        search_engine=SearchEngine(
-            config.index_root,
-            build_runtime_embedder(),
-            query_expander=_build_query_expander(settings),
-            retrieval_planner=query_planner,
-            result_selector=query_planner,
-            reranker=build_reranker(settings),
-            rerank_candidate_limit=settings.query_reranker_candidate_limit,
-        ),
-        root=config.corpus_root,
-        planner=planner,
-        composer=composer,
+    planner = _build_retrieval_planner(settings, purpose="query")
+    return build_dory_runtime(
+        corpus_root=config.corpus_root,
+        index_root=config.index_root,
+        settings=settings,
+        embedder=build_runtime_embedder(),
+        query_expander=_build_query_expander(settings),
+        retrieval_planner=planner,
+        reranker=build_reranker(settings),
+        rerank_candidate_limit=settings.query_reranker_candidate_limit,
     )
+
+
+def _build_active_memory_engine(config: RuntimeConfig) -> ActiveMemoryEngine:
+    return _build_dory_runtime(config).active_memory_engine
 
 
 def _build_retrieval_planner(settings: DorySettings, *, purpose: str) -> OpenRouterRetrievalPlanner | None:
@@ -383,19 +379,7 @@ def _serialize_migration_plan(plan: MigrationPlan) -> dict[str, object]:
 
 
 def _build_research_engine(config: RuntimeConfig) -> ResearchEngine:
-    settings = DorySettings()
-    planner = _build_retrieval_planner(settings, purpose="query")
-    return ResearchEngine(
-        search_engine=SearchEngine(
-            config.index_root,
-            build_runtime_embedder(),
-            query_expander=_build_query_expander(settings),
-            retrieval_planner=planner,
-            result_selector=planner,
-            reranker=build_reranker(settings),
-            rerank_candidate_limit=settings.query_reranker_candidate_limit,
-        )
-    )
+    return ResearchEngine(search_engine=_build_dory_runtime(config).search_engine)
 
 
 def _infer_agent_from_session_path(session_path: str) -> str:

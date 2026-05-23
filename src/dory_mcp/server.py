@@ -29,7 +29,7 @@ from dory_core.purge import PurgeEngine
 from dory_core.query_expansion import OpenRouterQueryExpander
 from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
 from dory_core.research import ResearchEngine
-from dory_core.runtime import build_query_expander, build_retrieval_planner, build_surface_runtime
+from dory_core.runtime import DoryRuntime, build_dory_runtime, build_query_expander, build_retrieval_planner
 from dory_core.search import SearchEngine
 from dory_core.semantic_write import SemanticWriteEngine
 from dory_core.status import build_status, serialize_status
@@ -122,7 +122,7 @@ class RuntimeCore:
     active_memory_engine: ActiveMemoryEngine = field(init=False)
 
     def __post_init__(self) -> None:
-        surface_runtime = build_surface_runtime(
+        dory_runtime: DoryRuntime = build_dory_runtime(
             corpus_root=self.corpus_root,
             index_root=self.index_root,
             embedder=self.embedder,
@@ -131,8 +131,8 @@ class RuntimeCore:
             reranker=self.reranker,
             rerank_candidate_limit=self.rerank_candidate_limit,
         )
-        object.__setattr__(self, "search_engine", surface_runtime.search_engine)
-        object.__setattr__(self, "active_memory_engine", surface_runtime.active_memory_engine)
+        object.__setattr__(self, "search_engine", dory_runtime.search_engine)
+        object.__setattr__(self, "active_memory_engine", dory_runtime.active_memory_engine)
 
     def wake(self, req: dict[str, Any]) -> Any:
         wake_req = WakeReq.model_validate(req)

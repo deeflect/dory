@@ -17,7 +17,13 @@ from dory_core.wake import WakeBuilder
 
 
 @dataclass(frozen=True, slots=True)
-class SurfaceRuntime:
+class DoryRuntime:
+    """Unified runtime for all Dory surfaces (HTTP, MCP, CLI).
+
+    Consolidates components that each surface needs: embedder, search,
+    query expansion, retrieval planning, reranking, and active memory.
+    """
+
     corpus_root: Path
     index_root: Path
     embedder: ContentEmbedder
@@ -29,7 +35,7 @@ class SurfaceRuntime:
     active_memory_engine: ActiveMemoryEngine
 
 
-def build_surface_runtime(
+def build_dory_runtime(
     *,
     corpus_root: Path,
     index_root: Path,
@@ -39,7 +45,7 @@ def build_surface_runtime(
     retrieval_planner: OpenRouterRetrievalPlanner | None = None,
     reranker: Any = None,
     rerank_candidate_limit: int | None = None,
-) -> SurfaceRuntime:
+) -> DoryRuntime:
     resolved_settings = settings or DorySettings()
     runtime_embedder = embedder or build_runtime_embedder()
     resolved_query_expander = query_expander if query_expander is not None else build_query_expander(resolved_settings)
@@ -67,7 +73,7 @@ def build_surface_runtime(
         planner=active_memory_planner,
         composer=active_memory_composer,
     )
-    return SurfaceRuntime(
+    return DoryRuntime(
         corpus_root=Path(corpus_root),
         index_root=Path(index_root),
         embedder=runtime_embedder,
@@ -78,6 +84,13 @@ def build_surface_runtime(
         search_engine=search_engine,
         active_memory_engine=active_memory_engine,
     )
+
+
+# ---------------------------------------------------------------------------
+# Backward-compatible aliases
+# ---------------------------------------------------------------------------
+SurfaceRuntime = DoryRuntime
+build_surface_runtime = build_dory_runtime
 
 
 def build_query_expander(settings: DorySettings) -> OpenRouterQueryExpander | None:

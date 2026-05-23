@@ -12,14 +12,14 @@ import typer
 from dory_cli._internals import (
     RuntimeConfig,
     _build_active_memory_engine,
+    _build_dory_runtime,
     _build_migrate_route_progress_reporter,
     _build_migration_engine,
     _build_migration_planner,
     _build_migration_progress_reporter,
     _build_migration_scope,
-    _build_query_expander,
+    _build_retrieval_planner as _build_retrieval_planner,  # noqa: F401 - compatibility for tests/patching
     _build_research_engine,
-    _build_retrieval_planner,
     _build_semantic_write_engine,
     _fail_with_runtime_error,
     _get_config,
@@ -61,7 +61,7 @@ from dory_core.index.reindex import (
 from dory_core.link import LinkService
 from dory_core.llm.dream import build_dream_llm, require_dream_llm
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
-from dory_core.llm_rerank import build_reranker
+from dory_core.llm_rerank import build_reranker as build_reranker  # noqa: F401 - compatibility for tests/patching
 from dory_core.maintenance import MaintenanceReportWriter, OpenRouterMaintenanceInspector, PrivacyMetadataBackfiller
 from dory_core.claim_store import ClaimStore
 from dory_core.digest_mining import (
@@ -108,7 +108,6 @@ from dory_core.ops import (
 )
 from dory_core.ops import run_compiled_wiki_refresh, run_wiki_index_refresh
 from dory_core.purge import PurgeEngine
-from dory_core.search import SearchEngine
 from dory_core.session_sync import plan_session_sync, sync_session_files
 from dory_core.status import build_status, format_status
 from dory_core.types import (
@@ -831,17 +830,7 @@ def search(
 ) -> None:
     config = _get_config(ctx)
     try:
-        settings = DorySettings()
-        planner = _build_retrieval_planner(settings, purpose="query")
-        engine = SearchEngine(
-            config.index_root,
-            build_runtime_embedder(),
-            query_expander=_build_query_expander(settings),
-            retrieval_planner=planner,
-            result_selector=planner,
-            reranker=build_reranker(settings),
-            rerank_candidate_limit=settings.query_reranker_candidate_limit,
-        )
+        engine = _build_dory_runtime(config).search_engine
         resp = engine.search(
             SearchReq(
                 query=query,

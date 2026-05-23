@@ -44,7 +44,7 @@ from dory_core.openclaw_parity import OpenClawParityStore, list_public_artifacts
 from dory_core.profiles import ProfileRegistry
 from dory_core.purge import PurgeEngine
 from dory_core.query_expansion import OpenRouterQueryExpander
-from dory_core.runtime import build_query_expander, build_retrieval_planner, build_surface_runtime
+from dory_core.runtime import DoryRuntime, build_dory_runtime, build_query_expander, build_retrieval_planner
 from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
 from dory_core.dreaming.proposals import (
     ProposalStore,
@@ -206,7 +206,7 @@ def build_app(
     app = FastAPI()
     settings = DorySettings()
     runtime_embedder = embedder or build_runtime_embedder()
-    surface_runtime = build_surface_runtime(
+    surface_runtime: DoryRuntime = build_dory_runtime(
         corpus_root=Path(corpus_root),
         index_root=Path(index_root),
         settings=settings,
