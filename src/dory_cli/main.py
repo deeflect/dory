@@ -23,13 +23,10 @@ from dory_cli._internals import (
     _build_semantic_write_engine,
     _fail_with_runtime_error,
     _get_config,
-    _infer_agent_from_session_path,
     _init_directories,
     _init_seed_documents,
     _planner_with_pricing_overrides,
-    _require_openrouter_client,
     _resolve_corpus_path,
-    _resolve_distilled_path,
     _run_interactive_migration_plan,
     _serialize_migration_plan,
     _slice_lines,
@@ -37,50 +34,30 @@ from dory_cli._internals import (
 from dory_cli.eval import app as eval_app
 from dory_core.artifacts import ArtifactWriter
 from dory_core.config import DorySettings, resolve_runtime_paths
-from dory_core.dreaming.events import SessionClosedEvent
-from dory_core.dreaming.extract import DistillationWriter, OpenRouterSessionDistiller
-from dory_core.dreaming.proposals import (
-    ProposalGenerator,
-    ProposalStore,
-    apply_proposal,
-    create_semantic_write_proposal,
-    list_proposals,
-    proposal_to_payload,
-    reject_proposal,
-)
 from dory_core.embedding import EmbeddingConfigurationError, EmbeddingProviderError, build_runtime_embedder
-from dory_core.errors import DoryValidationError
 from dory_core.index.reindex import (
     ReconcilePlan,
     ReindexProgress,
     plan_reconcile,
     reconcile_corpus,
     reindex_corpus,
-    reindex_paths,
 )
 from dory_core.link import LinkService
-from dory_core.llm.dream import build_dream_llm, require_dream_llm
-from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
+from dory_core.llm.dream import (
+    build_dream_llm as build_dream_llm,  # noqa: F401 - compatibility for tests/patching
+    require_dream_llm as require_dream_llm,  # noqa: F401 - compatibility for tests/patching
+)
 from dory_core.llm_rerank import build_reranker as build_reranker  # noqa: F401 - compatibility for tests/patching
-from dory_core.maintenance import MaintenanceReportWriter, OpenRouterMaintenanceInspector, PrivacyMetadataBackfiller
-from dory_core.claim_store import ClaimStore
-from dory_core.digest_mining import (
-    OpenRouterDigestExtractor,
-    format_mining_summary,
-    mine_digest_file,
-    mine_digest_tree,
-)
-from dory_core.digest_writer import (
-    DailyDigestWriter,
-    OpenRouterDailyDigestGenerator,
-    OpenRouterWeeklyDigestGenerator,
-    WeeklyDigestWriter,
-    current_iso_week,
-    previous_day,
-    previous_iso_week,
-)
-from dory_core.migration_batching import build_batches, format_batching_summary
+from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
+from dory_core.ops import OpsWatchRunner as OpsWatchRunner  # noqa: F401 - compatibility for tests/patching
+from dory_core.purge import PurgeEngine
+from dory_core.session_sync import plan_session_sync, sync_session_files
+from dory_core.status import build_status, format_status
+from dory_core.migration_source_router import build_manifest, walk_source_tree
+from dory_core.migration_executor import execute_manifest, execute_source_tree
+from dory_core.migration_review_router import OpenRouterReviewRouter
 from dory_core.migration_core_seed import format_seed_summary, seed_core_from_root
+from dory_core.migration_batching import build_batches, format_batching_summary
 from dory_core.migration_entity_discovery import (
     discover_entities,
     format_discovery_summary,
@@ -92,31 +69,15 @@ from dory_core.migration_entity_synthesis import (
     synthesize_entities,
 )
 from dory_core.migration_idea_promotion import format_promotion_summary, promote_ideas
-from dory_core.migration_executor import (
-    execute_manifest,
-    execute_source_tree,
+from dory_core.claim_store import ClaimStore
+from dory_core.digest_mining import (
+    OpenRouterDigestExtractor,
+    format_mining_summary,
+    mine_digest_file,
+    mine_digest_tree,
 )
-from dory_core.migration_review_router import OpenRouterReviewRouter
-from dory_core.migration_source_router import build_manifest, walk_source_tree
-from dory_core.ops import (
-    DreamOnceRunner,
-    EvalOnceRunner,
-    MaintenanceOnceRunner,
-    OpsWatchRunner,
-    WikiHealthRunner,
-    serialize_result,
-)
-from dory_core.ops import run_compiled_wiki_refresh, run_wiki_index_refresh
-from dory_core.purge import PurgeEngine
-from dory_core.session_sync import plan_session_sync, sync_session_files
-from dory_core.status import build_status, format_status
 from dory_core.types import (
     ActiveMemoryReq,
-    MemoryProposalApplyReq,
-    MemoryProposalCreateReq,
-    MemoryProposalGetReq,
-    MemoryProposalListReq,
-    MemoryProposalRejectReq,
     MemoryWriteReq,
     PurgeReq,
     ResearchReq,
@@ -126,7 +87,6 @@ from dory_core.types import (
     serialize_search_response,
 )
 from dory_core.wake import WakeBuilder
-from dory_http.auth import issue_token
 
 app = typer.Typer(add_completion=False, help="Dory CLI")
 app.add_typer(eval_app, name="eval")
@@ -140,6 +100,19 @@ maintain_app = typer.Typer(add_completion=False, help="Inspect corpus docs and e
 app.add_typer(maintain_app, name="maintain")
 ops_app = typer.Typer(add_completion=False, help="Operator-first batch jobs and watch loops.")
 app.add_typer(ops_app, name="ops")
+
+# Register subcommand groups from external command modules.
+from dory_cli.commands.auth import register as _register_auth  # noqa: E402
+from dory_cli.commands.dream import register as _register_dream  # noqa: E402
+from dory_cli.commands.maintain import register as _register_maintain  # noqa: E402
+from dory_cli.commands.ops import register as _register_ops  # noqa: E402
+from dory_cli.commands.proposals import register as _register_proposals  # noqa: E402
+
+_register_auth(auth_app)
+_register_dream(dream_app)
+_register_maintain(maintain_app)
+_register_ops(ops_app)
+_register_proposals(proposals_app)
 
 
 def run() -> None:
@@ -1059,516 +1032,6 @@ def lint(ctx: typer.Context) -> None:
     result = LinkService(config.corpus_root, config.index_root).lint()
     typer.echo(json.dumps(result, indent=2, sort_keys=True))
 
-
-@auth_app.command("new")
-def auth_new(
-    ctx: typer.Context,
-    name: str = typer.Argument(...),
-) -> None:
-    config = _get_config(ctx)
-    token = issue_token(name, config.auth_tokens_path)
-    typer.echo(token)
-
-
-@proposals_app.command("create")
-def proposals_create(
-    ctx: typer.Context,
-    content: str = typer.Argument(..., help="Memory content to propose"),
-    subject: str = typer.Option(..., "--subject", help="Fuzzy subject to route the memory to"),
-    action: str = typer.Option("write", "--action", help="Semantic write action"),
-    kind: str = typer.Option("fact", "--kind", help="Semantic memory kind"),
-    scope: str | None = typer.Option(None, "--scope", help="Optional routing scope"),
-    confidence: str | None = typer.Option(None, "--confidence", help="Optional confidence hint"),
-    reason: str | None = typer.Option(None, "--reason", help="Optional reason or context"),
-    source: str | None = typer.Option(None, "--source", help="Optional source label"),
-    agent: str | None = typer.Option(None, "--agent", help="Optional agent identity for provenance"),
-    session_id: str | None = typer.Option(None, "--session-id", help="Optional session id for provenance"),
-    origin_surface: str | None = typer.Option(None, "--origin-surface", help="Optional client/tool provenance label"),
-    source_paths: list[str] = typer.Option([], "--source-path", help="Evidence/source path for review"),
-    proposal_id: str | None = typer.Option(None, "--proposal-id", help="Optional stable proposal id"),
-    soft: bool = typer.Option(False, "--soft/--no-soft", help="Quarantine instead of rejecting on ambiguity"),
-    force_inbox: bool = typer.Option(False, "--force-inbox/--no-force-inbox", help="Capture under inbox/semantic"),
-) -> None:
-    config = _get_config(ctx)
-    req = MemoryProposalCreateReq.model_validate(
-        {
-            "action": action,
-            "kind": kind,
-            "subject": subject,
-            "content": content,
-            "scope": scope,
-            "confidence": confidence,
-            "reason": reason,
-            "source": source,
-            "soft": soft,
-            "force_inbox": force_inbox,
-            "agent": agent,
-            "session_id": session_id,
-            "origin_surface": origin_surface,
-            "source_paths": source_paths,
-            "proposal_id": proposal_id,
-        }
-    )
-    try:
-        proposal, path = create_semantic_write_proposal(
-            root=config.corpus_root,
-            engine=_build_semantic_write_engine(config),
-            req=req,
-        )
-    except (DoryValidationError, EmbeddingConfigurationError, EmbeddingProviderError) as err:
-        _fail_with_runtime_error(str(err))
-    typer.echo(
-        json.dumps(
-            {
-                "proposal_id": proposal.proposal_id,
-                "path": path.relative_to(config.corpus_root).as_posix(),
-                "proposal": proposal_to_payload(proposal),
-            },
-            indent=2,
-            sort_keys=True,
-        )
-    )
-
-
-@proposals_app.command("list")
-def proposals_list(
-    ctx: typer.Context,
-    status: str = typer.Option("pending", "--status", help="pending, applied, or rejected"),
-) -> None:
-    config = _get_config(ctx)
-    req = MemoryProposalListReq.model_validate({"status": status})
-    proposals = ProposalStore(config.corpus_root).list(status=req.status)
-    typer.echo(json.dumps({"count": len(proposals), "proposals": proposals, "status": req.status}, indent=2))
-
-
-@proposals_app.command("show")
-def proposals_show(
-    ctx: typer.Context,
-    proposal_id: str = typer.Argument(...),
-    status: str = typer.Option("pending", "--status", help="pending, applied, or rejected"),
-) -> None:
-    config = _get_config(ctx)
-    req = MemoryProposalGetReq.model_validate({"proposal_id": proposal_id, "status": status})
-    try:
-        proposal = ProposalStore(config.corpus_root).load(req.proposal_id, status=req.status)
-    except DoryValidationError as err:
-        _fail_with_runtime_error(str(err))
-    typer.echo(json.dumps(proposal_to_payload(proposal), indent=2, sort_keys=True))
-
-
-@proposals_app.command("apply")
-def proposals_apply(
-    ctx: typer.Context,
-    proposal_id: str = typer.Argument(...),
-    agent: str | None = typer.Option(None, "--agent", help="Optional applying agent"),
-    session_id: str | None = typer.Option(None, "--session-id", help="Optional applying session id"),
-    origin_surface: str | None = typer.Option(None, "--origin-surface", help="Optional applying surface"),
-) -> None:
-    config = _get_config(ctx)
-    req = MemoryProposalApplyReq(proposal_id=proposal_id, agent=agent, session_id=session_id, origin_surface=origin_surface)
-    try:
-        result = apply_proposal(
-            root=config.corpus_root,
-            engine=_build_semantic_write_engine(config),
-            proposal_id=req.proposal_id,
-            agent=req.agent,
-            session_id=req.session_id,
-            origin_surface=req.origin_surface,
-        )
-    except (DoryValidationError, EmbeddingConfigurationError, EmbeddingProviderError) as err:
-        _fail_with_runtime_error(str(err))
-    typer.echo(json.dumps(asdict(result), indent=2, sort_keys=True))
-
-
-@proposals_app.command("reject")
-def proposals_reject(
-    ctx: typer.Context,
-    proposal_id: str = typer.Argument(...),
-    reason: str | None = typer.Option(None, "--reason", help="Reason for rejecting the proposal"),
-) -> None:
-    config = _get_config(ctx)
-    req = MemoryProposalRejectReq(proposal_id=proposal_id, reason=reason)
-    try:
-        target = reject_proposal(root=config.corpus_root, proposal_id=req.proposal_id, reason=req.reason)
-    except DoryValidationError as err:
-        _fail_with_runtime_error(str(err))
-    typer.echo(target)
-
-
-@dream_app.command("list")
-def dream_list(ctx: typer.Context) -> None:
-    config = _get_config(ctx)
-    proposals = list_proposals(config.corpus_root)
-    typer.echo(json.dumps({"count": len(proposals), "proposals": proposals}, indent=2))
-
-
-@dream_app.command("apply")
-def dream_apply(
-    ctx: typer.Context,
-    proposal_id: str = typer.Argument(...),
-) -> None:
-    config = _get_config(ctx)
-    try:
-        result = apply_proposal(
-            root=config.corpus_root,
-            engine=_build_semantic_write_engine(config),
-            proposal_id=proposal_id,
-        )
-    except (DoryValidationError, EmbeddingConfigurationError, EmbeddingProviderError) as err:
-        _fail_with_runtime_error(str(err))
-    typer.echo(json.dumps({"applied": list(result.applied)}, indent=2))
-
-
-@dream_app.command("distill")
-def dream_distill(
-    ctx: typer.Context,
-    session_path: str = typer.Argument(..., help="Corpus-relative session markdown path"),
-    agent: str | None = typer.Option(None, "--agent", help="Override agent name"),
-) -> None:
-    config = _get_config(ctx)
-    settings = DorySettings()
-    dream_llm = require_dream_llm(settings)
-    session_file = _resolve_corpus_path(config.corpus_root, session_path)
-    resolved_agent = agent or _infer_agent_from_session_path(session_path)
-    event = SessionClosedEvent.now(agent=resolved_agent, session_path=session_path)
-    distiller = OpenRouterSessionDistiller(client=dream_llm.client, writer=DistillationWriter(config.corpus_root))
-    target = distiller.distill(event, session_file.read_text(encoding="utf-8"))
-    typer.echo(str(target.relative_to(config.corpus_root)))
-
-
-@dream_app.command("propose")
-def dream_propose(
-    ctx: typer.Context,
-    distilled_id: str = typer.Argument(..., help="Distilled note id or corpus-relative path"),
-) -> None:
-    config = _get_config(ctx)
-    settings = DorySettings()
-    dream_llm = require_dream_llm(settings)
-    distilled_path = _resolve_distilled_path(config.corpus_root, distilled_id)
-    generator = ProposalGenerator(
-        root=config.corpus_root,
-        backend=dream_llm.backend,
-        client=dream_llm.client,
-    )
-    target = generator.generate(distilled_path)
-    typer.echo(str(target.relative_to(config.corpus_root)))
-
-
-@dream_app.command("reject")
-def dream_reject(
-    ctx: typer.Context,
-    proposal_id: str = typer.Argument(...),
-) -> None:
-    config = _get_config(ctx)
-    try:
-        target = reject_proposal(root=config.corpus_root, proposal_id=proposal_id)
-    except DoryValidationError as err:
-        _fail_with_runtime_error(str(err))
-    typer.echo(target)
-
-
-@maintain_app.command("inspect")
-def maintain_inspect(
-    ctx: typer.Context,
-    path: str = typer.Argument(..., help="Corpus-relative markdown path"),
-    write_report: bool = typer.Option(False, "--write-report", help="Persist report under inbox/maintenance"),
-) -> None:
-    config = _get_config(ctx)
-    settings = DorySettings()
-    client = _require_openrouter_client(settings, purpose="maintenance")
-    target = _resolve_corpus_path(config.corpus_root, path)
-    inspector = OpenRouterMaintenanceInspector(client=client)
-    report = inspector.inspect(path, target.read_text(encoding="utf-8"))
-    payload = asdict(report)
-    if write_report:
-        payload["report_path"] = str(
-            MaintenanceReportWriter(config.corpus_root).write(report).relative_to(config.corpus_root)
-        )
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
-
-
-@maintain_app.command("wiki-health")
-def maintain_wiki_health(
-    ctx: typer.Context,
-    write_report: bool = typer.Option(False, "--write-report", help="Persist report under inbox/maintenance"),
-) -> None:
-    config = _get_config(ctx)
-    payload = WikiHealthRunner(config.corpus_root).run(write_report=write_report)
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
-
-
-@maintain_app.command("backfill-privacy-metadata")
-def maintain_backfill_privacy_metadata(
-    ctx: typer.Context,
-    path: list[str] = typer.Option([], "--path", help="Limit to a corpus-relative markdown path. Repeatable."),
-    refresh: bool = typer.Option(False, "--refresh", help="Refresh wiki-health before planning paths."),
-    apply: bool = typer.Option(False, "--apply", help="Write changes. Default is dry-run only."),
-) -> None:
-    config = _get_config(ctx)
-    result = PrivacyMetadataBackfiller(config.corpus_root).run(
-        paths=path or None,
-        dry_run=not apply,
-        refresh=refresh,
-    )
-    typer.echo(json.dumps(result.to_dict(), indent=2, sort_keys=True))
-
-
-@ops_app.command("dream-once")
-def ops_dream_once(
-    ctx: typer.Context,
-    session: list[str] = typer.Option(
-        [],
-        "--session",
-        help="Explicit legacy path: distill these raw session paths before proposing. Defaults to digest/recall sources.",
-    ),
-    limit: int | None = typer.Option(
-        None,
-        "--limit",
-        min=1,
-        help="Process at most N session distillations and N proposal generations.",
-    ),
-    min_age_minutes: float = typer.Option(
-        0,
-        "--min-age-minutes",
-        min=0,
-        help="Skip session files modified more recently than this many minutes.",
-    ),
-) -> None:
-    config = _get_config(ctx)
-    settings = DorySettings()
-    dream_llm = require_dream_llm(settings)
-    result = DreamOnceRunner(
-        config.corpus_root,
-        dream_llm.client,
-        index_root=config.index_root,
-        backend=dream_llm.backend,
-    ).run(
-        session_paths=session or None,
-        limit=limit,
-        min_session_age_seconds=min_age_minutes * 60,
-    )
-    typer.echo(serialize_result(result))
-
-
-@ops_app.command("daily-digest-once")
-def ops_daily_digest_once(
-    ctx: typer.Context,
-    digest_date: str | None = typer.Option(
-        None,
-        "--date",
-        help="Digest date as YYYY-MM-DD. Defaults to yesterday; pass --today for today's sessions.",
-    ),
-    today: bool = typer.Option(False, "--today", help="Digest today's sessions instead of yesterday."),
-    overwrite: bool = typer.Option(False, "--overwrite", help="Replace an existing daily digest for the date."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Generate and print without writing."),
-    reindex: bool = typer.Option(True, "--reindex/--no-reindex", help="Reindex the written digest path."),
-    min_age_minutes: float = typer.Option(
-        30,
-        "--min-age-minutes",
-        min=0,
-        help="Skip session files modified more recently than this many minutes.",
-    ),
-    limit: int | None = typer.Option(None, "--limit", min=1, help="Process at most N sessions for the day."),
-) -> None:
-    config = _get_config(ctx)
-    settings = DorySettings()
-    dream_llm = require_dream_llm(settings)
-    target_date = date.today().isoformat() if today else digest_date or previous_day()
-    result = DailyDigestWriter(
-        config.corpus_root,
-        OpenRouterDailyDigestGenerator(client=dream_llm.client),
-    ).write(
-        target_date=target_date,
-        overwrite=overwrite,
-        dry_run=dry_run,
-        min_session_age_seconds=min_age_minutes * 60,
-        limit=limit,
-    )
-    payload = asdict(result)
-    if result.written and reindex:
-        try:
-            reindex_result = reindex_paths(
-                config.corpus_root,
-                config.index_root,
-                build_runtime_embedder(),
-                [result.digest_path],
-            )
-        except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
-            _fail_with_runtime_error(str(err))
-        payload["reindex"] = asdict(reindex_result)
-        payload["reindexed"] = True
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
-
-
-@ops_app.command("weekly-digest-once")
-def ops_weekly_digest_once(
-    ctx: typer.Context,
-    week: str | None = typer.Option(
-        None,
-        "--week",
-        help="ISO week as YYYY-Www. Defaults to previous week; pass --current-week for the current week.",
-    ),
-    current_week: bool = typer.Option(False, "--current-week", help="Digest the current ISO week instead of previous week."),
-    overwrite: bool = typer.Option(False, "--overwrite", help="Replace an existing weekly digest for the week."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Generate and print without writing."),
-    reindex: bool = typer.Option(True, "--reindex/--no-reindex", help="Reindex the written digest path."),
-) -> None:
-    config = _get_config(ctx)
-    settings = DorySettings()
-    dream_llm = require_dream_llm(settings)
-    target_week = current_iso_week() if current_week else week or previous_iso_week()
-    result = WeeklyDigestWriter(
-        config.corpus_root,
-        OpenRouterWeeklyDigestGenerator(client=dream_llm.client),
-    ).write(
-        week=target_week,
-        overwrite=overwrite,
-        dry_run=dry_run,
-    )
-    payload = asdict(result)
-    if result.written and reindex:
-        try:
-            reindex_result = reindex_paths(
-                config.corpus_root,
-                config.index_root,
-                build_runtime_embedder(),
-                [result.digest_path],
-            )
-        except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
-            _fail_with_runtime_error(str(err))
-        payload["reindex"] = asdict(reindex_result)
-        payload["reindexed"] = True
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
-
-
-@ops_app.command("maintain-once")
-def ops_maintain_once(
-    ctx: typer.Context,
-    path: list[str] = typer.Option([], "--path", help="Limit to specific corpus-relative paths"),
-) -> None:
-    config = _get_config(ctx)
-    settings = DorySettings()
-    client = _require_openrouter_client(settings, purpose="maintenance")
-    result = MaintenanceOnceRunner(config.corpus_root, client).run(targets=path or None)
-    typer.echo(serialize_result(result))
-
-
-@ops_app.command("wiki-health")
-def ops_wiki_health(
-    ctx: typer.Context,
-    write_report: bool = typer.Option(False, "--write-report", help="Persist report under inbox/maintenance"),
-) -> None:
-    config = _get_config(ctx)
-    payload = WikiHealthRunner(config.corpus_root).run(write_report=write_report)
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
-
-
-@ops_app.command("wiki-refresh-once")
-def ops_wiki_refresh_once(ctx: typer.Context) -> None:
-    config = _get_config(ctx)
-    written = run_compiled_wiki_refresh(config.corpus_root)
-    typer.echo(json.dumps({"written": written}, indent=2, sort_keys=True))
-
-
-@ops_app.command("wiki-refresh-indexes")
-def ops_wiki_refresh_indexes(ctx: typer.Context) -> None:
-    config = _get_config(ctx)
-    written = run_wiki_index_refresh(config.corpus_root)
-    typer.echo(json.dumps({"written": written}, indent=2, sort_keys=True))
-
-
-@ops_app.command("eval-once")
-def ops_eval_once(
-    ctx: typer.Context,
-    reindex_first: bool = typer.Option(True, "--reindex/--no-reindex"),
-    questions_root: Path = typer.Option(Path("eval/public/questions"), "--questions-root"),
-    runs_root: Path = typer.Option(Path("eval/runs"), "--runs-root"),
-    top_k: int = typer.Option(5, "--top-k"),
-    corpus_root_override: Path | None = typer.Option(
-        None,
-        "--corpus-root",
-        help="Run the eval against this corpus instead of the configured Dory corpus.",
-    ),
-    index_root_override: Path | None = typer.Option(
-        None,
-        "--index-root",
-        help="Use this index path for the eval run (defaults to .dory/index next to the corpus).",
-    ),
-) -> None:
-    config = _get_config(ctx)
-    if corpus_root_override is not None:
-        eval_corpus = corpus_root_override
-        eval_index = index_root_override or (corpus_root_override.parent / ".dory" / "index")
-    else:
-        eval_corpus = config.corpus_root
-        eval_index = index_root_override or config.index_root
-    try:
-        runner = EvalOnceRunner(eval_corpus, eval_index, build_runtime_embedder())
-        result = runner.run(
-            reindex_first=reindex_first,
-            questions_root=questions_root,
-            runs_root=runs_root,
-            top_k=top_k,
-        )
-    except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
-        _fail_with_runtime_error(str(err))
-    typer.echo(serialize_result(result))
-
-
-@ops_app.command("watch")
-def ops_watch(
-    ctx: typer.Context,
-    debounce_seconds: float = typer.Option(1.0, "--debounce-seconds"),
-    dream: bool = typer.Option(True, "--dream/--no-dream"),
-    poll_interval: float = typer.Option(0.25, "--poll-interval"),
-) -> None:
-    config = _get_config(ctx)
-    settings = DorySettings()
-    dream_runner = None
-    dream_enabled = False
-    dream_warning: str | None = None
-    if dream:
-        dream_llm = build_dream_llm(settings)
-        if dream_llm is None:
-            dream_warning = (
-                "dream mode disabled: no dream LLM is configured. "
-                "Set DORY_DREAM_LLM_PROVIDER=local with DORY_LOCAL_LLM_* or configure OpenRouter."
-            )
-        else:
-            dream_runner = DreamOnceRunner(
-                config.corpus_root,
-                dream_llm.client,
-                index_root=config.index_root,
-                backend=dream_llm.backend,
-            )
-            dream_enabled = True
-    try:
-        runner = OpsWatchRunner(
-            corpus_root=config.corpus_root,
-            index_root=config.index_root,
-            embedder=build_runtime_embedder(),
-            debounce_seconds=debounce_seconds,
-            dream_runner=dream_runner,
-        )
-    except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
-        _fail_with_runtime_error(str(err))
-
-    typer.echo(
-        json.dumps(
-            {
-                "watching": str(config.corpus_root),
-                "debounce_seconds": debounce_seconds,
-                "dream": dream_enabled,
-                "dream_requested": dream,
-                "warning": dream_warning,
-            },
-            indent=2,
-            sort_keys=True,
-        )
-    )
-    runner.serve_forever(poll_interval=poll_interval)
-
-
-
 if __name__ == "__main__":
     app()
+
