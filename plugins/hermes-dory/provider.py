@@ -1,151 +1,84 @@
 from __future__ import annotations
 
-from copy import deepcopy
+import json
+import sys as _sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
-import os
-from pathlib import Path
-from typing import Any, Literal, Mapping, Protocol
+from pathlib import Path as _Path
+from typing import Any, Mapping
 
 import httpx
 import yaml
+
+# Ensure sibling modules are importable when this file is loaded directly
+# (e.g. by tests using spec_from_file_location).
+_THIS_DIR = _Path(__file__).resolve().parent
+if str(_THIS_DIR) not in _sys.path:
+    _sys.path.insert(0, str(_THIS_DIR))
+
+# ruff: noqa: E402 — local imports after sys.path insert for standalone loading
+from config import (
+    ActiveMemoryProfile,
+    HermesDoryProviderConfig,
+    MemoryMode,
+    RerankMode,
+    ResearchCorpus,
+    ResearchKind,
+    ResearchPublishVisibility,
+    SearchCorpus,
+    SearchMode,
+    SessionStatus,
+    WakeProfile,
+    _DEFAULT_BASE_URL,
+    _DEFAULT_HERMES_HOME,
+    _normalize_search_mode,
+    _safe_search_mode,
+)
+from client import DoryProviderError, _SupportsRequest
+from tools import (
+    SessionTurn,
+    _as_optional_active_memory_profile,
+    _as_optional_bool,
+    _as_optional_float,
+    _as_optional_int,
+    _as_optional_mapping,
+    _as_optional_rerank_mode,
+    _as_optional_research_corpus,
+    _as_optional_research_kind,
+    _as_optional_research_publish_visibility,
+    _as_optional_search_corpus,
+    _as_optional_search_mode,
+    _as_optional_string,
+    _as_optional_string_list,
+    _as_optional_wake_profile,
+    _dedupe_strings,
+    _format_builtin_memory_mirror,
+    _map_builtin_memory_action,
+    _render_research_knowledge_note,
+    _render_session_turns,
+    _require_string,
+    _search_result_paths,
+    _session_turns_from_messages,
+    _slugify,
+    _string_list,
+    _tool_error_payload,
+)
+from schemas import _build_canonical_hermes_tool_schemas, _build_tool_schemas
+
+# Re-export public names expected from this module and its test consumers.
+HermesDoryProviderConfig = HermesDoryProviderConfig  # noqa: PLW0127
+DoryProviderError = DoryProviderError  # noqa: PLW0127
+_safe_search_mode = _safe_search_mode  # noqa: PLW0127
+_normalize_search_mode = _normalize_search_mode  # noqa: PLW0127
+_build_canonical_hermes_tool_schemas = _build_canonical_hermes_tool_schemas  # noqa: PLW0127
+
 
 try:
     from agent.memory_provider import MemoryProvider
 except ImportError:
 
-    class MemoryProvider:
+    class MemoryProvider:  # type: ignore[no-redef]
         pass
-
-
-SearchMode = Literal["hybrid", "lexical", "text", "keyword", "semantic", "recall", "bm25", "vector", "exact"]
-HttpSearchMode = Literal["hybrid", "recall", "bm25", "vector", "exact"]
-SearchCorpus = Literal["durable", "sessions", "all"]
-RerankMode = Literal["auto", "true", "false"]
-MemoryMode = Literal["hybrid", "context", "tools"]
-WakeProfile = str
-ActiveMemoryProfile = str
-ResearchKind = Literal["report", "briefing", "wiki-note", "proposal"]
-ResearchCorpus = Literal["durable", "sessions", "all"]
-SessionStatus = Literal["active", "interrupted", "done"]
-ResearchPublishVisibility = Literal["internal", "public", "private"]
-
-_DEFAULT_BASE_URL = "http://127.0.0.1:8766"
-_DEFAULT_HERMES_HOME = Path.home() / ".hermes"
-_PROVIDER_CONFIG_PATHS = ("dory.yaml", "dory.yml", "dory/config.yaml")
-_MAIN_CONFIG_PATHS = ("config.yaml", "config.yml")
-_DORY_CONFIG_KEYS = {
-    "base_url",
-    "token",
-    "default_agent",
-    "wake_budget_tokens",
-    "wake_profile",
-    "wake_recent_sessions",
-    "wake_include_pinned_decisions",
-    "active_memory_include_wake",
-    "search_k",
-    "search_mode",
-    "memory_mode",
-}
-
-
-@dataclass(frozen=True, slots=True)
-class HermesDoryProviderConfig:
-    base_url: str
-    token: str | None = None
-    default_agent: str = "hermes"
-    wake_budget_tokens: int = 600
-    wake_profile: WakeProfile = "coding"
-    wake_recent_sessions: int = 5
-    wake_include_pinned_decisions: bool = True
-    active_memory_include_wake: bool = False
-    search_k: int = 8
-    search_mode: SearchMode = "hybrid"
-    memory_mode: MemoryMode = "hybrid"
-
-    @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> HermesDoryProviderConfig:
-        source = dict(os.environ if env is None else env)
-        base_url = source.get("DORY_HTTP_URL", _DEFAULT_BASE_URL).strip() or _DEFAULT_BASE_URL
-        return cls(
-            base_url=base_url,
-            token=source.get("DORY_HTTP_TOKEN") or source.get("DORY_CLIENT_AUTH_TOKEN"),
-            default_agent=source.get("DORY_HERMES_AGENT", "hermes").strip() or "hermes",
-            wake_budget_tokens=_safe_int(source.get("DORY_HERMES_WAKE_BUDGET_TOKENS"), default=600),
-            wake_profile=_safe_wake_profile(source.get("DORY_HERMES_WAKE_PROFILE"), default="coding"),
-            wake_recent_sessions=_safe_int(source.get("DORY_HERMES_WAKE_RECENT_SESSIONS"), default=5),
-            wake_include_pinned_decisions=_safe_bool(
-                source.get("DORY_HERMES_WAKE_INCLUDE_PINNED_DECISIONS"),
-                default=True,
-            ),
-            active_memory_include_wake=_safe_bool(
-                source.get("DORY_HERMES_ACTIVE_MEMORY_INCLUDE_WAKE"),
-                default=False,
-            ),
-            search_k=_safe_int(source.get("DORY_HERMES_SEARCH_K"), default=8),
-            search_mode=_safe_search_mode(source.get("DORY_HERMES_SEARCH_MODE"), default="hybrid"),
-            memory_mode=_safe_memory_mode(source.get("DORY_HERMES_MEMORY_MODE"), default="hybrid"),
-        )
-
-    @classmethod
-    def from_hermes_config(
-        cls,
-        path: Path | None = None,
-        *,
-        hermes_home: str | Path | None = None,
-        env: Mapping[str, str] | None = None,
-    ) -> HermesDoryProviderConfig:
-        env_config = cls.from_env(env)
-        for candidate in _iter_hermes_config_candidates(path=path, hermes_home=hermes_home):
-            dory_section = _extract_dory_config(_load_yaml_mapping(candidate))
-            if not dory_section:
-                continue
-            return cls(
-                base_url=_pick_config_string(dory_section, "base_url") or env_config.base_url,
-                token=_pick_config_string(dory_section, "token") or env_config.token,
-                default_agent=_pick_config_string(dory_section, "default_agent") or env_config.default_agent,
-                wake_budget_tokens=_pick_config_int(
-                    dory_section,
-                    "wake_budget_tokens",
-                    fallback=env_config.wake_budget_tokens,
-                ),
-                wake_profile=_safe_wake_profile(
-                    _pick_config_string(dory_section, "wake_profile"),
-                    default=env_config.wake_profile,
-                ),
-                wake_recent_sessions=_pick_config_int(
-                    dory_section,
-                    "wake_recent_sessions",
-                    fallback=env_config.wake_recent_sessions,
-                ),
-                wake_include_pinned_decisions=_pick_config_bool(
-                    dory_section,
-                    "wake_include_pinned_decisions",
-                    fallback=env_config.wake_include_pinned_decisions,
-                ),
-                active_memory_include_wake=_pick_config_bool(
-                    dory_section,
-                    "active_memory_include_wake",
-                    fallback=env_config.active_memory_include_wake,
-                ),
-                search_k=_pick_config_int(dory_section, "search_k", fallback=env_config.search_k),
-                search_mode=_safe_search_mode(
-                    _pick_config_string(dory_section, "search_mode"),
-                    default=env_config.search_mode,
-                ),
-                memory_mode=_safe_memory_mode(
-                    _pick_config_string(dory_section, "memory_mode"),
-                    default=env_config.memory_mode,
-                ),
-            )
-        return env_config
-
-
-@dataclass(frozen=True, slots=True)
-class SessionTurn:
-    role: Literal["user", "assistant"]
-    content: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,19 +109,9 @@ class PrefetchTrace:
         }
 
 
-class _SupportsRequest(Protocol):
-    def request(self, method: str, url: str, **kwargs: Any) -> Any: ...
-
-
-class DoryProviderError(RuntimeError):
-    def __init__(self, message: str, *, status_code: int | None = None, error_type: str = "error") -> None:
-        super().__init__(message)
-        self.message = message
-        self.status_code = status_code
-        self.error_type = error_type
-
-
 class DoryMemoryProvider(MemoryProvider):
+    """Hermes memory provider backed by the Dory HTTP daemon."""
+
     def __init__(
         self,
         base_url: str | None = None,
@@ -284,9 +207,9 @@ class DoryMemoryProvider(MemoryProvider):
     @classmethod
     def from_hermes_config(
         cls,
-        path: Path | None = None,
+        path: _Path | None = None,
         *,
-        hermes_home: str | Path | None = None,
+        hermes_home: str | _Path | None = None,
         env: Mapping[str, str] | None = None,
         client: _SupportsRequest | None = None,
     ) -> DoryMemoryProvider:
@@ -304,8 +227,8 @@ class DoryMemoryProvider(MemoryProvider):
     def initialize(self, session_id: str, **kwargs: Any) -> None:
         hermes_home = kwargs.get("hermes_home")
         if isinstance(hermes_home, str) and hermes_home.strip():
-            self._hermes_home = Path(hermes_home)
-        elif isinstance(hermes_home, Path):
+            self._hermes_home = _Path(hermes_home)
+        elif isinstance(hermes_home, _Path):
             self._hermes_home = hermes_home
         self._platform = str(kwargs.get("platform", "cli"))
         self._agent_context = str(kwargs.get("agent_context", "primary"))
@@ -417,6 +340,8 @@ class DoryMemoryProvider(MemoryProvider):
             "dory_link": self._handle_link_tool,
             "dory_status": self._handle_status_tool,
         }
+
+    # ── tool handler methods ──────────────────────────────────────────────
 
     def _handle_wake_tool(self, args: dict[str, Any]) -> dict[str, Any]:
         return self.wake(
@@ -693,22 +618,27 @@ class DoryMemoryProvider(MemoryProvider):
         ]
 
     def save_config(self, values: dict[str, Any], hermes_home: str) -> None:
-        target = Path(hermes_home) / "dory.yaml"
+        target = _Path(hermes_home) / "dory.yaml"
         target.parent.mkdir(parents=True, exist_ok=True)
+        from config import _as_optional_string as _str_val
+        from tools import _as_optional_bool as _bool_val, _as_optional_int as _int_val
+
         payload = {
-            "base_url": _as_optional_string(values.get("base_url")) or _DEFAULT_BASE_URL,
-            "default_agent": _as_optional_string(values.get("default_agent")) or "hermes",
-            "memory_mode": _as_optional_string(values.get("memory_mode")) or "hybrid",
-            "search_mode": _as_optional_string(values.get("search_mode")) or "hybrid",
-            "wake_budget_tokens": _as_optional_int(values.get("wake_budget_tokens"), default=600),
-            "wake_profile": _as_optional_string(values.get("wake_profile")) or "coding",
-            "active_memory_include_wake": _as_optional_bool(
+            "base_url": _str_val(values.get("base_url")) or _DEFAULT_BASE_URL,
+            "default_agent": _str_val(values.get("default_agent")) or "hermes",
+            "memory_mode": _str_val(values.get("memory_mode")) or "hybrid",
+            "search_mode": _str_val(values.get("search_mode")) or "hybrid",
+            "wake_budget_tokens": _int_val(values.get("wake_budget_tokens"), default=600),
+            "wake_profile": _str_val(values.get("wake_profile")) or "coding",
+            "active_memory_include_wake": _bool_val(
                 values.get("active_memory_include_wake"),
                 default=False,
             ),
-            "search_k": _as_optional_int(values.get("search_k"), default=8),
+            "search_k": _int_val(values.get("search_k"), default=8),
         }
         target.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+    # ── public API methods ────────────────────────────────────────────────
 
     def wake(
         self,
@@ -1196,68 +1126,6 @@ class DoryMemoryProvider(MemoryProvider):
                     lines.append(f"  {snippet}")
         return "\n".join(lines).strip()
 
-    def _prefetch_trace(
-        self,
-        *,
-        plan: PrefetchPlan,
-        wake_payload: dict[str, Any],
-        search_payload: dict[str, Any],
-        active_memory_payload: dict[str, Any],
-    ) -> PrefetchTrace:
-        wake_sources = _string_list(wake_payload.get("sources"))
-        active_memory_sources = _string_list(active_memory_payload.get("sources"))
-        search_result_paths = _search_result_paths(search_payload)
-        injected_paths = _dedupe_strings([*active_memory_sources, *search_result_paths])
-        if not injected_paths:
-            injected_paths = wake_sources
-        return PrefetchTrace(
-            profile=plan.profile,
-            include_search=plan.include_search,
-            search_skipped=not plan.include_search,
-            wake_sources=wake_sources,
-            active_memory_sources=active_memory_sources,
-            search_result_paths=search_result_paths,
-            injected_paths=injected_paths,
-        )
-
-    def _prefetch_plan(
-        self,
-        prompt: str,
-        *,
-        project: str | None = None,
-        cwd: str | None = None,
-    ) -> PrefetchPlan:
-        if project or cwd:
-            return PrefetchPlan(profile="coding", include_search=True)
-        if self.wake_profile != "coding":
-            return PrefetchPlan(profile=self.wake_profile, include_search=self.wake_profile not in {"casual", "privacy"})
-        if self._is_casual_prefetch_prompt(prompt):
-            return PrefetchPlan(profile="casual", include_search=False)
-        return PrefetchPlan(profile="coding", include_search=True)
-
-    @staticmethod
-    def _is_casual_prefetch_prompt(prompt: str) -> bool:
-        normalized = " ".join(prompt.strip().lower().split())
-        stripped = normalized.strip("!?.,;: ")
-        if not stripped:
-            return True
-        casual_exact = {
-            "hi",
-            "hey",
-            "hello",
-            "yo",
-            "sup",
-            "wassup",
-            "what's up",
-            "whats up",
-            "what up",
-            "what's up bro",
-            "whats up bro",
-            "what's good",
-            "whats good",
-        }
-        return stripped in casual_exact
-
     def store_memory(
         self,
         *,
@@ -1345,6 +1213,8 @@ class DoryMemoryProvider(MemoryProvider):
             self._owned_client.close()
             self._owned_client = None
 
+    # ── internal helpers ──────────────────────────────────────────────────
+
     def _apply_config(self, config: HermesDoryProviderConfig) -> None:
         self.base_url = config.base_url.strip()
         self.token = config.token
@@ -1420,9 +1290,35 @@ class DoryMemoryProvider(MemoryProvider):
             return self._runtime_agent.strip()
         return self.default_agent
 
+    def _prefetch_trace(
+        self,
+        *,
+        plan: PrefetchPlan,
+        wake_payload: dict[str, Any],
+        search_payload: dict[str, Any],
+        active_memory_payload: dict[str, Any],
+    ) -> PrefetchTrace:
+        wake_sources = _string_list(wake_payload.get("sources"))
+        active_memory_sources = _string_list(active_memory_payload.get("sources"))
+        search_result_paths = _search_result_paths(search_payload)
+        injected_paths = _dedupe_strings([*active_memory_sources, *search_result_paths])
+        if not injected_paths:
+            injected_paths = wake_sources
+        return PrefetchTrace(
+            profile=plan.profile,
+            include_search=plan.include_search,
+            search_skipped=not plan.include_search,
+            wake_sources=wake_sources,
+            active_memory_sources=active_memory_sources,
+            search_result_paths=search_result_paths,
+            injected_paths=injected_paths,
+        )
+
     @staticmethod
     def _parse_response(response: Any) -> dict[str, Any]:
         if response.status_code >= 400:
+            from client import _error_type_for_status, _response_error_message
+
             raise DoryProviderError(
                 _response_error_message(response),
                 status_code=int(response.status_code),
@@ -1430,792 +1326,40 @@ class DoryMemoryProvider(MemoryProvider):
             )
         return response.json()
 
-
-def _iter_hermes_config_candidates(
-    *,
-    path: Path | None,
-    hermes_home: str | Path | None,
-) -> tuple[Path, ...]:
-    if path is not None:
-        return (Path(path),)
-    roots: list[Path] = []
-    if hermes_home is not None:
-        roots.append(Path(hermes_home))
-    roots.append(_DEFAULT_HERMES_HOME)
-    unique_roots: list[Path] = []
-    seen: set[Path] = set()
-    for root in roots:
-        resolved = root.expanduser()
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        unique_roots.append(resolved)
-    candidates: list[Path] = []
-    for root in unique_roots:
-        for rel_path in _PROVIDER_CONFIG_PATHS:
-            candidates.append(root / rel_path)
-        for rel_path in _MAIN_CONFIG_PATHS:
-            candidates.append(root / rel_path)
-    return tuple(candidates)
-
-
-def _build_tool_schemas() -> list[dict[str, Any]]:
-    canonical_tools = _build_canonical_hermes_tool_schemas()
-    if canonical_tools is not None:
-        return [*canonical_tools, _publish_research_tool_schema()]
-
-    return [
-        {
-            "name": "dory_wake",
-            "description": "Build the frozen wake-up block. Use profile='coding' for agent work, 'writing' for voice/content, or 'privacy' for boundary questions.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "budget_tokens": {"type": "integer"},
-                    "agent": {"type": "string"},
-                    "project": {"type": "string"},
-                    "cwd": {"type": "string"},
-                    "profile": {"type": "string"},
-                    "include_recent_sessions": {"type": "integer"},
-                    "include_pinned_decisions": {"type": "boolean"},
-                },
-            },
-        },
-        {
-            "name": "dory_active_memory",
-            "description": "Run the bounded active-memory pre-reply pass. Limits: budget_tokens <= 1200, timeout_ms <= 30000. Set include_wake=false if wake was already called.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "prompt": {"type": "string"},
-                    "agent": {"type": "string"},
-                    "cwd": {"type": "string"},
-                    "project": {"type": "string"},
-                    "scope": {
-                        "type": "object",
-                        "properties": {
-                            "agent": {"type": "array", "items": {"type": "string"}},
-                            "device": {"type": "array", "items": {"type": "string"}},
-                            "session_id": {"type": "array", "items": {"type": "string"}},
-                            "session_key": {"type": "string"},
-                            "status": {"type": "array", "items": {"type": "string"}},
-                            "since": {"type": "string"},
-                            "until": {"type": "string"},
-                        },
-                    },
-                    "profile": {"type": "string"},
-                    "timeout_ms": {"type": "integer", "minimum": 100, "maximum": 30000},
-                    "budget_tokens": {"type": "integer", "minimum": 100, "maximum": 1200},
-                    "include_wake": {"type": "boolean"},
-                    "rerank": {"type": "string", "enum": ["auto", "true", "false"]},
-                },
-                "required": ["prompt"],
-            },
-        },
-        {
-            "name": "dory_research",
-            "description": "Run Dory research mode and optionally save a durable artifact.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "question": {"type": "string"},
-                    "kind": {"type": "string", "enum": ["report", "briefing", "wiki-note", "proposal"]},
-                    "corpus": {"type": "string", "enum": ["durable", "sessions", "all"]},
-                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
-                    "save": {"type": "boolean"},
-                },
-                "required": ["question"],
-            },
-        },
-        {
-            "name": "dory_publish_research",
-            "description": "Publish externally produced Hermes research Markdown into Dory knowledge via /v1/write. Defaults to dry_run=true; set dry_run=false to create and incrementally index knowledge/research/<timestamp>-<title>.md.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {"type": "string"},
-                    "body": {"type": "string"},
-                    "question": {"type": "string"},
-                    "sources": {"type": "array", "items": {"type": "string"}},
-                    "tags": {"type": "array", "items": {"type": "string"}},
-                    "target": {"type": "string"},
-                    "dry_run": {"type": "boolean", "default": True},
-                    "visibility": {"type": "string", "enum": ["internal", "public", "private"], "default": "internal"},
-                },
-                "required": ["title", "body"],
-            },
-        },
-        {
-            "name": "dory_search",
-            "description": "Search the Dory memory tree.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "k": {"type": "integer"},
-                    "mode": {
-                        "type": "string",
-                        "enum": [
-                            "hybrid",
-                            "recall",
-                            "bm25",
-                            "text",
-                            "keyword",
-                            "lexical",
-                            "vector",
-                            "semantic",
-                            "exact",
-                        ],
-                    },
-                    "corpus": {"type": "string", "enum": ["durable", "sessions", "all"]},
-                    "scope": {
-                        "type": "object",
-                        "properties": {
-                            "path_glob": {"type": "string"},
-                            "type": {"type": "array", "items": {"type": "string"}},
-                            "status": {"type": "array", "items": {"type": "string"}},
-                            "tags": {"type": "array", "items": {"type": "string"}},
-                            "agent": {"type": "array", "items": {"type": "string"}},
-                            "device": {"type": "array", "items": {"type": "string"}},
-                            "session_id": {"type": "array", "items": {"type": "string"}},
-                            "session_key": {"type": "string"},
-                            "since": {"type": "string"},
-                            "until": {"type": "string"},
-                        },
-                    },
-                    "include_content": {"type": "boolean"},
-                    "min_relevance_score": {"type": "number"},
-                    "rerank": {"type": "string", "enum": ["auto", "true", "false"]},
-                    "debug": {"type": "boolean"},
-                },
-                "required": ["query"],
-            },
-        },
-        {
-            "name": "dory_digest",
-            "description": "Fetch a daily or weekly digest recap directly by period, without relying on tags or search.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "kind": {"type": "string", "enum": ["daily", "weekly"], "default": "daily"},
-                    "date": {"type": "string"},
-                    "week": {"type": "string"},
-                    "from_line": {"type": "integer", "minimum": 1, "default": 1},
-                    "lines": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 240},
-                    "debug": {"type": "boolean"},
-                },
-            },
-        },
-        {
-            "name": "dory_get",
-            "description": "Fetch a file or line slice by path.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "from": {"type": "integer"},
-                    "from_line": {"type": "integer"},
-                    "lines": {"type": "integer"},
-                },
-                "required": ["path"],
-            },
-        },
-        {
-            "name": "dory_memory_write",
-            "description": "Write semantic memory through Dory using write, replace, or forget intent. Semantic subjects can route into canonical docs; set dry_run=true to preview, allow_canonical=true to commit a canonical write, or force_inbox=true for tentative/scratch captures.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["write", "replace", "forget"]},
-                    "kind": {"type": "string", "enum": ["fact", "preference", "state", "decision", "note"]},
-                    "subject": {"type": "string"},
-                    "content": {"type": "string"},
-                    "scope": {"type": "string", "enum": ["person", "project", "concept", "decision", "core"]},
-                    "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-                    "reason": {"type": "string"},
-                    "source": {"type": "string"},
-                    "soft": {"type": "boolean"},
-                    "dry_run": {"type": "boolean"},
-                    "force_inbox": {"type": "boolean"},
-                    "allow_canonical": {"type": "boolean"},
-                    "agent": {"type": "string"},
-                    "session_id": {"type": "string"},
-                    "origin_surface": {"type": "string"},
-                },
-                "required": ["action", "kind", "subject", "content"],
-            },
-        },
-        {
-            "name": "dory_write",
-            "description": "Exact-path markdown write. Use when you know the target path; replace/forget require expected_hash from dory_get. Set dry_run=true to validate and preview without writing.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "kind": {"type": "string", "enum": ["append", "create", "replace", "forget"]},
-                    "target": {"type": "string"},
-                    "content": {"type": "string"},
-                    "soft": {"type": "boolean"},
-                    "dry_run": {"type": "boolean"},
-                    "frontmatter": {"type": "object"},
-                    "agent": {"type": "string"},
-                    "session_id": {"type": "string"},
-                    "expected_hash": {"type": "string"},
-                    "reason": {"type": "string"},
-                },
-                "required": ["kind", "target"],
-            },
-        },
-        {
-            "name": "dory_purge",
-            "description": "Hard-delete an exact markdown path from the corpus and index. Defaults to dry_run=true; live purge requires reason and matching expected_hash. Only scratch/generated roots are allowed unless allow_canonical=true.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "target": {"type": "string"},
-                    "expected_hash": {"type": "string"},
-                    "reason": {"type": "string"},
-                    "dry_run": {"type": "boolean", "default": True},
-                    "allow_canonical": {"type": "boolean", "default": False},
-                    "include_related_tombstone": {"type": "boolean", "default": False},
-                },
-                "required": ["target"],
-            },
-        },
-        {
-            "name": "dory_link",
-            "description": "Inspect wikilink edges.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "op": {"type": "string", "enum": ["neighbors", "backlinks", "lint"]},
-                    "path": {"type": "string"},
-                    "direction": {"type": "string", "enum": ["out", "in", "both"]},
-                    "depth": {"type": "integer"},
-                    "max_edges": {"type": "integer", "minimum": 1, "maximum": 500, "default": 40},
-                    "exclude_prefixes": {"type": "array", "items": {"type": "string"}},
-                },
-                "required": ["op"],
-            },
-        },
-        {
-            "name": "dory_status",
-            "description": "Get Dory index and corpus status.",
-            "parameters": {
-                "type": "object",
-                "properties": {},
-            },
-        },
-    ]
-
-
-def _build_canonical_hermes_tool_schemas() -> list[dict[str, Any]] | None:
-    try:
-        from dory_core.tool_registry import build_mcp_tool_schemas
-    except ImportError:
-        return None
-
-    return [_mcp_tool_schema_to_hermes(tool) for tool in build_mcp_tool_schemas()]
-
-
-def _mcp_tool_schema_to_hermes(tool: dict[str, Any]) -> dict[str, Any]:
-    name = str(tool.get("name", ""))
-    parameters = deepcopy(tool.get("inputSchema"))
-    if not isinstance(parameters, dict):
-        parameters = {"type": "object", "properties": {}}
-    _apply_hermes_schema_defaults(name, parameters)
-    return {
-        "name": name,
-        "description": str(tool.get("description", "")),
-        "parameters": parameters,
-    }
-
-
-def _apply_hermes_schema_defaults(tool_name: str, parameters: dict[str, Any]) -> None:
-    defaults: dict[str, dict[str, Any]] = {
-        "dory_wake": {"agent": "hermes"},
-        "dory_active_memory": {"agent": "hermes"},
-    }
-    tool_defaults = defaults.get(tool_name)
-    if not tool_defaults:
-        return
-
-    properties = parameters.get("properties")
-    if isinstance(properties, dict):
-        for field_name, default_value in tool_defaults.items():
-            field_schema = properties.get(field_name)
-            if isinstance(field_schema, dict):
-                field_schema["default"] = default_value
-
-    required = parameters.get("required")
-    if isinstance(required, list):
-        parameters["required"] = [field for field in required if field not in tool_defaults]
-
-
-def _publish_research_tool_schema() -> dict[str, Any]:
-    return {
-        "name": "dory_publish_research",
-        "description": "Publish externally produced Hermes research Markdown into Dory knowledge via /v1/write. Defaults to dry_run=true; set dry_run=false to create and incrementally index knowledge/research/<timestamp>-<title>.md.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "title": {"type": "string"},
-                "body": {"type": "string"},
-                "question": {"type": "string"},
-                "sources": {"type": "array", "items": {"type": "string"}},
-                "tags": {"type": "array", "items": {"type": "string"}},
-                "target": {"type": "string"},
-                "dry_run": {"type": "boolean", "default": True},
-                "visibility": {"type": "string", "enum": ["internal", "public", "private"], "default": "internal"},
-            },
-            "required": ["title", "body"],
-        },
-    }
-
-
-def _load_yaml_mapping(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _extract_dory_config(payload: dict[str, Any]) -> dict[str, Any]:
-    if _looks_like_dory_config(payload):
-        return payload
-    direct = _nested_mapping(payload, "dory")
-    if _looks_like_dory_config(direct):
-        return direct
-    provider = _nested_value(payload, "memory", "provider")
-    if isinstance(provider, dict):
-        nested = provider.get("dory")
-        if isinstance(nested, dict) and _looks_like_dory_config(nested):
-            return nested
-        if _looks_like_dory_config(provider):
-            return provider
-    providers = _nested_mapping(payload, "memory", "providers", "dory")
-    if _looks_like_dory_config(providers):
-        return providers
-    return {}
-
-
-def _looks_like_dory_config(payload: dict[str, Any]) -> bool:
-    return any(key in payload for key in _DORY_CONFIG_KEYS)
-
-
-def _tool_error_payload(err: DoryProviderError) -> dict[str, Any]:
-    payload: dict[str, Any] = {
-        "ok": False,
-        "error": err.message,
-        "error_type": err.error_type,
-    }
-    if err.status_code is not None:
-        payload["status_code"] = err.status_code
-    return payload
-
-
-def _response_error_message(response: Any) -> str:
-    try:
-        payload = response.json()
-    except Exception:
-        return _safe_response_text(response)
-    if isinstance(payload, dict):
-        error = payload.get("error")
-        if isinstance(error, dict):
-            message = error.get("message")
-            if isinstance(message, str) and message.strip():
-                return message.strip()
-        if isinstance(error, str) and error.strip():
-            return error.strip()
-        # Legacy / wiki responses still emit FastAPI's default `detail` field.
-        detail = payload.get("detail")
-        if isinstance(detail, str) and detail.strip():
-            return detail.strip()
-        if isinstance(detail, dict):
-            message = detail.get("message")
-            if isinstance(message, str) and message.strip():
-                return message.strip()
-        message = payload.get("message")
-        if isinstance(message, str) and message.strip():
-            return message.strip()
-    return _safe_response_text(response)
-
-
-def _safe_response_text(response: Any) -> str:
-    text = str(getattr(response, "text", "") or "").strip()
-    return text if text else f"dory request failed: {getattr(response, 'status_code', 'unknown')}"
-
-
-def _error_type_for_status(status_code: int) -> str:
-    if status_code == 404:
-        return "not_found"
-    if status_code in {400, 422}:
-        return "validation_error"
-    if status_code in {401, 403}:
-        return "permission_denied"
-    if status_code == 429:
-        return "rate_limited"
-    if status_code >= 500:
-        return "server_error"
-    return "http_error"
-
-
-def _nested_mapping(payload: dict[str, Any], *keys: str) -> dict[str, Any]:
-    current: Any = payload
-    for key in keys:
-        if not isinstance(current, dict):
-            return {}
-        current = current.get(key, {})
-    return current if isinstance(current, dict) else {}
-
-
-def _nested_value(payload: dict[str, Any], *keys: str) -> Any:
-    current: Any = payload
-    for key in keys:
-        if not isinstance(current, dict):
-            return None
-        current = current.get(key)
-    return current
-
-
-def _pick_config_string(payload: dict[str, Any], key: str) -> str | None:
-    value = payload.get(key)
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return None
-
-
-def _pick_config_int(payload: dict[str, Any], key: str, *, fallback: int) -> int:
-    value = payload.get(key)
-    if isinstance(value, bool):
-        return fallback
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        return _safe_int(value, default=fallback)
-    return fallback
-
-
-def _pick_config_bool(payload: dict[str, Any], key: str, *, fallback: bool) -> bool:
-    value = payload.get(key)
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return _safe_bool(value, default=fallback)
-    return fallback
-
-
-def _safe_int(value: str | int | None, *, default: int) -> int:
-    if value is None:
-        return default
-    if isinstance(value, int):
-        return value
-    try:
-        return int(value)
-    except ValueError:
-        return default
-
-
-def _safe_bool(value: str | bool | None, *, default: bool) -> bool:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    lowered = value.strip().lower()
-    if lowered in {"1", "true", "yes", "on"}:
-        return True
-    if lowered in {"0", "false", "no", "off"}:
-        return False
-    return default
-
-
-def _safe_search_mode(value: str | None, *, default: SearchMode) -> SearchMode:
-    if value in {"hybrid", "lexical", "text", "keyword", "semantic", "recall", "bm25", "vector", "exact"}:
-        return value
-    return default
-
-
-def _safe_memory_mode(value: str | None, *, default: MemoryMode) -> MemoryMode:
-    if value in {"hybrid", "context", "tools"}:
-        return value
-    return default
-
-
-def _safe_wake_profile(value: str | None, *, default: WakeProfile) -> WakeProfile:
-    normalized = _as_optional_string(value)
-    return normalized or default
-
-
-def _normalize_search_mode(mode: SearchMode) -> HttpSearchMode:
-    if mode in {"lexical", "text", "keyword"}:
-        return "bm25"
-    if mode == "semantic":
-        return "vector"
-    return mode
-
-
-def _as_optional_string(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        stripped = value.strip()
-        return stripped or None
-    return str(value)
-
-
-def _as_optional_int(value: Any, default: int | None = None) -> int | None:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return default
-    if isinstance(value, int):
-        return value
-    try:
-        return int(str(value))
-    except ValueError:
-        return default
-
-
-def _as_optional_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, (float, int)):
-        return float(value)
-    try:
-        return float(str(value))
-    except ValueError:
-        return None
-
-
-def _as_optional_bool(value: Any, default: bool | None = None) -> bool | None:
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    return _safe_bool(str(value), default=default if default is not None else False)
-
-
-def _as_optional_mapping(value: Any) -> dict[str, Any] | None:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        return value
-    raise TypeError("value must be an object")
-
-
-def _as_optional_string_list(value: Any) -> list[str] | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        item = value.strip()
-        return [item] if item else []
-    if not isinstance(value, list):
-        raise TypeError("value must be an array of strings")
-    items: list[str] = []
-    for item in value:
-        text = str(item).strip()
-        if text:
-            items.append(text)
-    return items
-
-
-def _string_list(value: Any) -> list[str]:
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return _dedupe_strings(str(item).strip() for item in value if str(item).strip())
-    if isinstance(value, str):
-        stripped = value.strip()
-        return [stripped] if stripped else []
-    return []
-
-
-def _search_result_paths(payload: dict[str, Any]) -> list[str]:
-    results = payload.get("results")
-    if not isinstance(results, list):
-        return []
-    paths: list[str] = []
-    for result in results:
-        if not isinstance(result, dict):
-            continue
-        path = str(result.get("path", "")).strip()
-        if path:
-            paths.append(path)
-    return _dedupe_strings(paths)
-
-
-def _dedupe_strings(values: list[str] | tuple[str, ...] | Any) -> list[str]:
-    deduped: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        text = str(value).strip()
-        if not text or text in seen:
-            continue
-        deduped.append(text)
-        seen.add(text)
-    return deduped
-
-
-def _as_optional_search_mode(value: Any) -> SearchMode | None:
-    string_value = _as_optional_string(value)
-    if string_value is None:
-        return None
-    if string_value in {"hybrid", "lexical", "text", "keyword", "semantic", "recall", "bm25", "vector", "exact"}:
-        return string_value
-    return None
-
-
-def _as_optional_rerank_mode(value: Any) -> RerankMode | None:
-    string_value = _as_optional_string(value)
-    if string_value is None:
-        return None
-    if string_value in {"auto", "true", "false"}:
-        return string_value
-    return None
-
-
-def _as_optional_wake_profile(value: Any) -> WakeProfile | None:
-    return _as_optional_string(value)
-
-
-def _as_optional_active_memory_profile(value: Any) -> ActiveMemoryProfile | None:
-    return _as_optional_string(value)
-
-
-def _as_optional_research_kind(value: Any) -> ResearchKind | None:
-    string_value = _as_optional_string(value)
-    if string_value is None:
-        return None
-    if string_value in {"report", "briefing", "wiki-note", "proposal"}:
-        return string_value
-    return None
-
-
-def _as_optional_research_corpus(value: Any) -> ResearchCorpus | None:
-    string_value = _as_optional_string(value)
-    if string_value is None:
-        return None
-    if string_value in {"durable", "sessions", "all"}:
-        return string_value
-    return None
-
-
-def _as_optional_research_publish_visibility(value: Any) -> ResearchPublishVisibility | None:
-    string_value = _as_optional_string(value)
-    if string_value is None:
-        return None
-    if string_value in {"internal", "public", "private"}:
-        return string_value
-    return None
-
-
-def _as_optional_search_corpus(value: Any) -> SearchCorpus | None:
-    string_value = _as_optional_string(value)
-    if string_value is None:
-        return None
-    if string_value in {"durable", "sessions", "all"}:
-        return string_value
-    return None
-
-
-def _require_string(args: dict[str, Any], key: str) -> str:
-    value = _as_optional_string(args.get(key))
-    if value is None:
-        raise ValueError(f"missing required argument: {key}")
-    return value
-
-
-def _map_builtin_memory_action(action: str) -> Literal["write", "replace", "forget"] | None:
-    if action == "add":
-        return "write"
-    if action == "replace":
-        return "replace"
-    if action == "remove":
-        return "forget"
-    return None
-
-
-def _format_builtin_memory_mirror(*, action: str, target: str, content: str) -> str:
-    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    return f"[{timestamp}] action={action} target={target}\n{content.strip()}\n"
-
-
-def _render_research_knowledge_note(
-    *,
-    title: str,
-    body: str,
-    question: str | None,
-    sources: list[str],
-) -> str:
-    lines = [f"# {title}", ""]
-    if question and question.strip():
-        lines.extend(["## Question", question.strip(), ""])
-    lines.extend(["## Research", body.strip(), "", "## Sources"])
-    cleaned_sources = [source.strip() for source in sources if source.strip()]
-    lines.extend(f"- {source}" for source in cleaned_sources)
-    if not cleaned_sources:
-        lines.append("- None")
-    return "\n".join(lines).strip() + "\n"
-
-
-def _slugify(value: str) -> str:
-    cleaned = "".join(char.lower() if char.isalnum() else "-" for char in value)
-    compact = "-".join(part for part in cleaned.split("-") if part)
-    return compact or "session"
-
-
-def _render_session_turns(turns: list[SessionTurn]) -> str:
-    lines: list[str] = []
-    for turn in turns:
-        content = turn.content.strip()
-        if not content:
-            continue
-        lines.append("## User" if turn.role == "user" else "## Assistant")
-        lines.append(content)
-        lines.append("")
-    return "\n".join(lines).strip()
-
-
-def _session_turns_from_messages(messages: list[dict[str, Any]]) -> list[SessionTurn]:
-    turns: list[SessionTurn] = []
-    for message in messages:
-        role = str(message.get("role", "")).strip()
-        if role not in {"user", "assistant"}:
-            continue
-        rendered = _render_message_content(message.get("content"))
-        if not rendered:
-            continue
-        turns.append(SessionTurn(role=role, content=rendered))
-    return turns
-
-
-def _render_message_content(content: Any) -> str:
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        chunks: list[str] = []
-        for item in content:
-            if isinstance(item, str):
-                text = item.strip()
-                if text:
-                    chunks.append(text)
-                continue
-            if not isinstance(item, dict):
-                continue
-            if item.get("type") == "text":
-                text_value = item.get("text")
-                if isinstance(text_value, str) and text_value.strip():
-                    chunks.append(text_value.strip())
-                    continue
-            text_value = item.get("content") or item.get("text")
-            if isinstance(text_value, str) and text_value.strip():
-                chunks.append(text_value.strip())
-        return "\n\n".join(chunks).strip()
-    if isinstance(content, dict):
-        text_value = content.get("text") or content.get("content")
-        if isinstance(text_value, str):
-            return text_value.strip()
-    return str(content).strip()
+    def _prefetch_plan(
+        self,
+        prompt: str,
+        *,
+        project: str | None = None,
+        cwd: str | None = None,
+    ) -> PrefetchPlan:
+        if project or cwd:
+            return PrefetchPlan(profile="coding", include_search=True)
+        if self.wake_profile != "coding":
+            return PrefetchPlan(profile=self.wake_profile, include_search=self.wake_profile not in {"casual", "privacy"})
+        if self._is_casual_prefetch_prompt(prompt):
+            return PrefetchPlan(profile="casual", include_search=False)
+        return PrefetchPlan(profile="coding", include_search=True)
+
+    @staticmethod
+    def _is_casual_prefetch_prompt(prompt: str) -> bool:
+        normalized = " ".join(prompt.strip().lower().split())
+        stripped = normalized.strip("!?.,;: ")
+        if not stripped:
+            return True
+        casual_exact = {
+            "hi",
+            "hey",
+            "hello",
+            "yo",
+            "sup",
+            "wassup",
+            "what's up",
+            "whats up",
+            "what up",
+            "what's up bro",
+            "whats up bro",
+            "what's good",
+            "whats good",
+        }
+        return stripped in casual_exact
