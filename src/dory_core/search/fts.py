@@ -4,13 +4,14 @@ import re
 from difflib import SequenceMatcher
 from typing import Sequence
 
+from dory_core.search.policies import _TEMPORAL_QUERY_TOKENS
 from dory_core.search.types import QueryProfile
 
 _FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 _FTS_SEGMENT_RE = re.compile(r"[A-Za-z0-9]+(?:[./@_-][A-Za-z0-9]+)+")
 _FTS_QUOTED_SEGMENT_RE = re.compile(r"`([^`]+)`")
 
-_STOPWORD_TOKENS = frozenset(
+_STOPWORD_TOKENS: frozenset[str] = frozenset(
     {
         "a",
         "an",
@@ -44,75 +45,12 @@ _STOPWORD_TOKENS = frozenset(
     }
 )
 
-_CURRENT_QUERY_TOKENS = frozenset({"current", "focus", "priorities", "priority", "today", "working", "work"})
-_ENV_QUERY_TOKENS = frozenset(
-    {
-        "deploy",
-        "deployment",
-        "dns",
-        "docker",
-        "dory",
-        "host",
-        "homelab",
-        "https",
-        "network",
-        "server",
-        "url",
-    }
-)
-_PRIVACY_QUERY_TOKENS = frozenset(
-    {
-        "boundaries",
-        "boundary",
-        "private",
-        "privacy",
-        "public",
-        "sensitive",
-    }
-)
-_TEMPORAL_QUERY_TOKENS = frozenset(
-    {
-        "date",
-        "did",
-        "happen",
-        "history",
-        "historical",
-        "last",
-        "previous",
-        "timeline",
-        "when",
-        "yesterday",
-    }
-)
-_SESSION_QUERY_TOKENS = frozenset(
-    {
-        "chat",
-        "conversation",
-        "log",
-        "logs",
-        "recent",
-        "session",
-        "sessions",
-        "transcript",
-        "transcripts",
-    }
-)
-_DIGEST_QUERY_TOKENS = frozenset(
-    {
-        "daily",
-        "digest",
-        "digests",
-        "weekly",
-        "week",
-    }
-)
-
 
 def _build_fts_query(query: str) -> str:
     """Turn a free-form user query into an FTS5-safe expression.
 
     FTS5 treats punctuation like ``.``, ``-``, ``/`` as syntax when it shows up
-    bare. Terms such as ``GPT-5.4`` or ``foo.bar`` blow up the parser. We
+    bare.  Terms such as ``GPT-5.4`` or ``foo.bar`` blow up the parser.  We
     preserve meaningful punctuated identifiers as phrases, drop low-signal
     stopwords, and OR the remaining clauses together so BM25 scores the actual
     nouns and tool names instead of generic question glue.

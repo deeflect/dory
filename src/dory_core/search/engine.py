@@ -28,6 +28,10 @@ from dory_core.search.fts import (
     _dedupe_preserve_order,
     _focused_snippet,
 )
+from dory_core.search.policies import (
+    _is_live_session_result,
+    _query_requests_session_evidence,
+)
 from dory_core.search.scoring import (
     _HYBRID_CANDIDATE_MULTIPLIER,
     _HYBRID_MIN_CANDIDATES,
@@ -36,10 +40,8 @@ from dory_core.search.scoring import (
     _confidence_for_row,
     _evidence_class_for_document,
     _fuse_scores,
-    _is_live_session_result,
     _merge_result_score,
     _normalized_scores,
-    _query_requests_session_evidence,
     _score_lexical_signal,
     _with_rank_scores,
     merge_rankings,
