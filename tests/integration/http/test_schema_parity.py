@@ -35,7 +35,7 @@ def test_http_and_mcp_active_memory_contracts_keep_agent_fields_in_sync(tmp_path
     _assert_matching_fields(
         http_schema,
         mcp_schema,
-        fields=("profile", "timeout_ms", "budget_tokens", "include_wake", "rerank", "debug"),
+        fields=("profile", "timeout_ms", "budget_tokens", "include_wake", "rerank", "debug", "partial_ok"),
     )
     assert "project" in http_schema["properties"]
     assert "project" in mcp_schema["properties"]

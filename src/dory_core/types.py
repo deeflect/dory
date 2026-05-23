@@ -177,6 +177,7 @@ class ActiveMemoryReq(BaseModel):
     include_wake: bool = True
     rerank: Literal["auto", "true", "false"] = "auto"
     debug: bool = False
+    partial_ok: bool = True
 
 
 class ActiveMemoryResp(BaseModel):
@@ -187,6 +188,8 @@ class ActiveMemoryResp(BaseModel):
     profile: str = "general"
     confidence: Literal["low", "medium", "high"] | None = None
     sources: list[str] = Field(default_factory=list)
+    partial: bool = False
+    warnings: list[str] = Field(default_factory=list)
 
 
 def serialize_active_memory_response(response: ActiveMemoryResp, *, debug: bool = False) -> dict[str, Any]:

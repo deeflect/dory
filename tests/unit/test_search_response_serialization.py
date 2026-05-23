@@ -120,6 +120,8 @@ def test_active_memory_response_hides_debug_fields_by_default() -> None:
         "block": "## Active memory",
         "summary": "Focus summary",
         "sources": ["core/active.md"],
+        "partial": False,
+        "warnings": [],
     }
 
 

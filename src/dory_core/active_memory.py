@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from time import monotonic
 from typing import Literal, Protocol
@@ -40,10 +40,17 @@ _MEMORY_BULLET_CHARS = 220
 _CHARS_PER_TOKEN = 4
 _MAX_BLOCK_CHARS = 3200
 _MIN_BLOCK_CHARS = 700
-_PLANNER_MIN_REMAINING_MS = 1800
-_COMPOSER_MIN_REMAINING_MS = 2200
-_COMPOSER_TIMEOUT_HEADROOM_MS = 6000
-_RERANK_TIMEOUT_HEADROOM_MS = 6000
+
+
+@dataclass(frozen=True, slots=True)
+class BudgetConfig:
+    """Configurable budget and timeout thresholds for active memory stages."""
+
+    planner_min_remaining_ms: int = 1800
+    composer_min_remaining_ms: int = 2200
+    composer_timeout_headroom_ms: int = 6000
+    rerank_timeout_headroom_ms: int = 6000
+    partial_ok: bool = True
 _TOPIC_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 _TOPIC_STOPWORDS = {
     "about",
@@ -128,18 +135,82 @@ class ActiveMemoryEngine:
     root: Path | None = None
     planner: ActiveMemoryPlanner | None = None
     composer: ActiveMemoryComposer | None = None
+    budget: BudgetConfig = field(default_factory=BudgetConfig)
 
     def build(self, req: ActiveMemoryReq) -> ActiveMemoryResp:
         started = monotonic()
         deadline = _Deadline.from_timeout_ms(req.timeout_ms)
         profile_registry = ProfileRegistry(self.root or Path("."))
         source_policy = _source_policy_for_request(req, profile_registry=profile_registry)
-        helper = self._helper_context(req, source_policy)
-        wake_block, wake_sources = self._wake_context(req, source_policy)
-        planning_context = _planning_context_from_helper(helper)
-        plan = self._plan(req, planning_context, deadline=deadline)
-        durable_results, session_results = self._retrieve_evidence(req, plan, source_policy, deadline=deadline)
-        durable_results = _with_project_result(req, durable_results, root=self.root, source_policy=source_policy)
+
+        helper = _empty_wiki_helper_context()
+        wake_block = ""
+        wake_sources: list[str] = []
+        durable_results: list[object] = []
+        session_results: list[object] = []
+
+        try:
+            helper = self._helper_context(req, source_policy)
+            wake_block, wake_sources = self._wake_context(req, source_policy)
+            planning_context = _planning_context_from_helper(helper)
+            plan = self._plan(req, planning_context, deadline=deadline)
+            durable_results, session_results = self._retrieve_evidence(req, plan, source_policy, deadline=deadline)
+            durable_results = _with_project_result(req, durable_results, root=self.root, source_policy=source_policy)
+            renderable_durable_results = _preferred_active_memory_results(durable_results)
+            composition = self._trusted_composition(
+                req,
+                planning_context,
+                wake_block,
+                renderable_durable_results,
+                session_results,
+                deadline=deadline,
+            )
+            return self._response_from_context(
+                req,
+                source_policy,
+                started=started,
+                deadline=deadline,
+                helper=helper,
+                wake_block=wake_block,
+                wake_sources=wake_sources,
+                durable_results=durable_results,
+                session_results=session_results,
+                composition=composition,
+            )
+        except Exception:
+            if not self.budget.partial_ok or not req.partial_ok:
+                raise
+            _logger.exception("active-memory build failed; returning partial response")
+            return self._response_from_context(
+                req,
+                source_policy,
+                started=started,
+                deadline=deadline,
+                helper=helper,
+                wake_block=wake_block,
+                wake_sources=wake_sources,
+                durable_results=durable_results,
+                session_results=session_results,
+                composition=None,
+                warnings=["Active memory retrieval encountered an error; returning partial context."],
+            )
+
+    def _response_from_context(
+        self,
+        req: ActiveMemoryReq,
+        source_policy: SourcePolicy,
+        *,
+        started: float,
+        deadline: "_Deadline",
+        helper: "WikiHelperContext",
+        wake_block: str,
+        wake_sources: list[str],
+        durable_results: list[object],
+        session_results: list[object],
+        composition: ActiveMemoryComposition | None,
+        warnings: list[str] | None = None,
+    ) -> ActiveMemoryResp:
+        partial_warnings = warnings or []
         renderable_durable_results = _preferred_active_memory_results(durable_results)
         rendered_wake_block = _wake_block_for_rendering(wake_block, renderable_durable_results, session_results)
         sources = _dedupe_strings(
@@ -149,24 +220,14 @@ class ActiveMemoryEngine:
                 *[_result_path(item) for item in session_results[:3]],
             ]
         )
-        composition = self._trusted_composition(
-            req,
-            planning_context,
-            wake_block,
-            renderable_durable_results,
-            session_results,
-            deadline=deadline,
-        )
-        evidence_root = self.root if deadline.total_ms > _COMPOSER_TIMEOUT_HEADROOM_MS else None
+        evidence_root = self.root if deadline.total_ms > self.budget.composer_timeout_headroom_ms else None
         synthesized_bullets = _synthesized_bullets(
             helper,
             renderable_durable_results,
             session_results,
             root=evidence_root,
         )
-        memory_bullets = (
-            list(composition.bullets) if composition is not None and composition.bullets else synthesized_bullets
-        )
+        memory_bullets = list(composition.bullets) if composition is not None and composition.bullets else synthesized_bullets
         summary = (
             composition.summary
             if composition is not None and composition.summary
@@ -190,6 +251,8 @@ class ActiveMemoryEngine:
             profile=source_policy.profile,
             confidence=confidence,
             sources=sources,
+            partial=bool(partial_warnings),
+            warnings=partial_warnings,
         )
 
     def _helper_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> "WikiHelperContext":
@@ -231,10 +294,10 @@ class ActiveMemoryEngine:
                 mode="hybrid",
                 corpus="durable",
                 include_content=True,
-                rerank=_active_memory_rerank_mode(req.rerank, deadline),
+                rerank=_active_memory_rerank_mode(req.rerank, deadline, self.budget),
                 deadline=deadline,
                 source_policy=source_policy,
-                min_remaining_ms=_COMPOSER_MIN_REMAINING_MS,
+                min_remaining_ms=self.budget.composer_min_remaining_ms,
             ),
             corpus="durable",
             source_policy=source_policy,
@@ -267,7 +330,7 @@ class ActiveMemoryEngine:
             scope=session_scope,
             deadline=deadline,
             source_policy=source_policy,
-            min_remaining_ms=_COMPOSER_MIN_REMAINING_MS,
+            min_remaining_ms=self.budget.composer_min_remaining_ms,
         )
 
     def _trusted_composition(
@@ -292,7 +355,7 @@ class ActiveMemoryEngine:
         *,
         deadline: "_Deadline",
     ) -> ActiveMemoryRetrievalPlan:
-        if self.planner is None or deadline.remaining_ms < _PLANNER_MIN_REMAINING_MS:
+        if self.planner is None or deadline.remaining_ms < self.budget.planner_min_remaining_ms:
             return fallback_active_memory_plan(prompt=req.prompt)
         try:
             return self.planner.plan_active_memory(prompt=req.prompt, context=context)
@@ -314,8 +377,8 @@ class ActiveMemoryEngine:
             return None
         if (
             self.composer is None
-            or deadline.remaining_ms < _COMPOSER_MIN_REMAINING_MS
-            or deadline.total_ms <= _COMPOSER_TIMEOUT_HEADROOM_MS
+            or deadline.remaining_ms < self.budget.composer_min_remaining_ms
+            or deadline.total_ms <= self.budget.composer_timeout_headroom_ms
         ):
             return None
         try:
@@ -516,11 +579,11 @@ def _planning_context_from_helper(helper: WikiHelperContext) -> ActiveMemoryPlan
 
 
 def _active_memory_rerank_mode(
-    requested: Literal["auto", "true", "false"], deadline: "_Deadline"
+    requested: Literal["auto", "true", "false"], deadline: "_Deadline", budget: BudgetConfig
 ) -> Literal["auto", "true", "false"]:
     if requested == "false":
         return "false"
-    if deadline.total_ms <= _RERANK_TIMEOUT_HEADROOM_MS:
+    if deadline.total_ms <= budget.rerank_timeout_headroom_ms:
         return "false"
     return "true" if requested == "auto" else requested
 

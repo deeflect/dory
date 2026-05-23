@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic, sleep
 
-from dory_core.active_memory import ActiveMemoryEngine
+import pytest
+
+from dory_core.active_memory import ActiveMemoryEngine, BudgetConfig
 from dory_core.retrieval_planner import ActiveMemoryComposition, ActiveMemoryPlanningContext, ActiveMemoryRetrievalPlan
 from dory_core.types import ActiveMemoryReq, SearchReq, SearchScope, WakeReq, WakeResp
 from dory_core.wake import WakeBuilder
@@ -1208,3 +1210,166 @@ def test_active_memory_request_accepts_larger_timeout_for_slow_local_models() ->
     )
 
     assert req.timeout_ms == 12000
+
+
+def test_active_memory_partial_ok_returns_partial_when_search_errors_after_wake(tmp_path: Path) -> None:
+    class ExplodingSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            raise RuntimeError("search provider unavailable")
+
+    class EmptyWakeBuilder:
+        def build(self, req: WakeReq) -> WakeResp:  # pragma: no cover - test stub
+            return WakeResp(
+                profile=req.profile,
+                tokens_estimated=5,
+                block="Wake block gathered before search error.",
+                sources=["core/user.md"],
+                frozen_at=datetime.now(tz=UTC),
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=EmptyWakeBuilder(),
+        search_engine=ExplodingSearchEngine(),
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what are we working on today",
+            agent="claude",
+            include_wake=True,
+        )
+    )
+
+    assert result.kind == "memory"
+    assert result.partial is True
+    assert len(result.warnings) >= 1
+    assert "error" in result.warnings[0].lower()
+    assert "Wake block gathered before search error." in result.block
+
+
+def test_active_memory_partial_ok_false_raises_on_provider_error(tmp_path: Path) -> None:
+    class ExplodingSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            raise RuntimeError("search provider unavailable")
+
+    class EmptyWakeBuilder:
+        def build(self, req: WakeReq) -> WakeResp:  # pragma: no cover - test stub
+            return WakeResp(
+                profile=req.profile,
+                tokens_estimated=5,
+                block="Wake block.",
+                sources=[],
+                frozen_at=datetime.now(tz=UTC),
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=EmptyWakeBuilder(),
+        search_engine=ExplodingSearchEngine(),
+        budget=BudgetConfig(partial_ok=False),
+    )
+
+    with pytest.raises(RuntimeError, match="search provider unavailable"):
+        engine.build(
+            ActiveMemoryReq(
+                prompt="what are we working on today",
+                agent="claude",
+                include_wake=False,
+                partial_ok=False,
+            )
+        )
+
+
+def test_active_memory_request_partial_ok_false_raises_even_when_engine_allows_partial(tmp_path: Path) -> None:
+    class ExplodingSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            raise RuntimeError("search provider unavailable")
+
+    engine = ActiveMemoryEngine(
+        wake_builder=_CountingWakeBuilder(),
+        search_engine=ExplodingSearchEngine(),
+        budget=BudgetConfig(partial_ok=True),
+    )
+
+    with pytest.raises(RuntimeError, match="search provider unavailable"):
+        engine.build(
+            ActiveMemoryReq(
+                prompt="what are we working on today",
+                agent="claude",
+                include_wake=False,
+                partial_ok=False,
+            )
+        )
+
+
+def test_active_memory_engine_partial_ok_false_raises_even_when_request_allows_partial(tmp_path: Path) -> None:
+    class ExplodingSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            raise RuntimeError("search provider unavailable")
+
+    engine = ActiveMemoryEngine(
+        wake_builder=_CountingWakeBuilder(),
+        search_engine=ExplodingSearchEngine(),
+        budget=BudgetConfig(partial_ok=False),
+    )
+
+    with pytest.raises(RuntimeError, match="search provider unavailable"):
+        engine.build(
+            ActiveMemoryReq(
+                prompt="what are we working on today",
+                agent="claude",
+                include_wake=False,
+                partial_ok=True,
+            )
+        )
+
+
+def test_active_memory_partial_ok_returns_partial_from_helper_and_wake(tmp_path: Path) -> None:
+    """When search errors but wake and helper context were gathered, partial returns both."""
+    (tmp_path / "wiki").mkdir(parents=True)
+    (tmp_path / "wiki" / "hot.md").write_text(
+        "---\ntitle: Hot Cache\n---\n\n## Summary\nHelper context test.\n\n## Current Focus\n- Active testing work.\n",
+        encoding="utf-8",
+    )
+
+    class ExplodingSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            raise RuntimeError("search provider error")
+
+    engine = ActiveMemoryEngine(
+        wake_builder=_CountingWakeBuilder(),
+        search_engine=ExplodingSearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what are we working on today",
+            agent="claude",
+            include_wake=True,
+        )
+    )
+
+    assert result.partial is True
+    assert len(result.warnings) >= 1
+    assert "error" in result.warnings[0].lower()
+    assert result.kind == "memory"
+    # Should have some content from helper context and wake block
+    assert "Active testing work" in result.block or "wake block" in result.block
+
+
+def test_active_memory_normal_response_not_partial(tmp_path: Path) -> None:
+    engine = ActiveMemoryEngine(
+        wake_builder=_CountingWakeBuilder(),
+        search_engine=_StubSearchEngine(),
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what are we working on today",
+            agent="claude",
+            include_wake=False,
+        )
+    )
+
+    assert result.partial is False
+    assert result.warnings == []
