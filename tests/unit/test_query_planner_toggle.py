@@ -122,6 +122,24 @@ def test_active_memory_planner_can_be_disabled() -> None:
     assert planner is None
 
 
+def test_active_memory_planner_default_provider_returns_planner(monkeypatch) -> None:
+    """Default openrouter provider creates a planner when client is available."""
+    settings = DorySettings(active_memory_llm_provider="openrouter")
+    calls: list[str] = []
+
+    def fake_build_openrouter_client(settings: DorySettings | None = None, *, purpose: str = "default"):
+        del settings
+        calls.append(purpose)
+        return _FakePlannerClient()
+
+    monkeypatch.setattr("dory_core.llm.active_memory.build_openrouter_client", fake_build_openrouter_client)
+
+    planner = build_active_memory_planner(settings)
+
+    assert planner is not None
+    assert calls == ["maintenance"]
+
+
 def test_active_memory_components_can_use_local_composer_only() -> None:
     planner, composer = build_active_memory_components(
         DorySettings(
