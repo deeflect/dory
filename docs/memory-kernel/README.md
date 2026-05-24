@@ -8,7 +8,9 @@ scope: public-safe
 
 # Memory Kernel Roadmap
 
-This folder is the review surface for the next Dory memory architecture pass.
+This folder contains the memory-kernel planning surface. The authoritative
+execution plan is [final-plan.md](final-plan.md); older draft files remain for
+comparison and background only.
 
 The goal is not to clone another memory product. The goal is to keep Dory small and dependable while borrowing the useful shape from three places:
 
@@ -18,14 +20,15 @@ The goal is not to clone another memory product. The goal is to keep Dory small 
 
 ## Review order
 
-1. [architecture.md](architecture.md) — target shape and non-goals.
-2. [implementation-slices.md](implementation-slices.md) — step-by-step work Codex can execute/review.
-3. [comparison-notes.md](comparison-notes.md) — what to borrow from Honcho, Hermes, Hindsight, OpenViking, ByteRover, and similar projects.
-4. [validation-gates.md](validation-gates.md) — commands and stop/go checks for each slice.
+1. [final-plan.md](final-plan.md) — active execution plan, delta matrix, slices, and gates.
+2. [architecture.md](architecture.md) — target shape and non-goals.
+3. [implementation-slices.md](implementation-slices.md) — earlier draft slice plan retained for comparison.
+4. [comparison-notes.md](comparison-notes.md) — what to borrow from Honcho, Hermes, Hindsight, OpenViking, ByteRover, and similar projects.
+5. [validation-gates.md](validation-gates.md) — earlier gate draft retained for comparison; prefer the runnable gates in `final-plan.md`.
 
 ## What changed in docs
 
-Older broad refactor notes were moved to `docs/archive/2026-05-refactor-planning/`. They remain available for comparison, but this folder is the current review surface.
+Older broad refactor notes were moved to `docs/archive/2026-05-refactor-planning/`. They remain available for comparison, but `final-plan.md` is the current source for implementation order and validation gates.
 
 ## Current thesis
 
