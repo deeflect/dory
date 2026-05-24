@@ -187,6 +187,7 @@ class HttpRuntime:
     search_engine: SearchEngine
     active_memory_engine: ActiveMemoryEngine
     semantic_write_engine: SemanticWriteEngine
+    wake_builder: WakeBuilder
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,6 +228,7 @@ def build_app(
         search_engine=surface_runtime.search_engine,
         active_memory_engine=surface_runtime.active_memory_engine,
         semantic_write_engine=surface_runtime.semantic_write_engine,
+        wake_builder=surface_runtime.wake_builder,
     )
 
     @app.exception_handler(HTTPException)
@@ -440,7 +442,7 @@ def build_app(
     def wake(req: WakeReq, request: Request) -> dict[str, Any]:
         _authorize_request(request, runtime)
         try:
-            return serialize_wake_response(WakeBuilder(runtime.corpus_root).build(req), debug=req.debug)
+            return serialize_wake_response(runtime.wake_builder.build(req), debug=req.debug)
         except DoryValidationError as err:
             _raise_api_error(
                 status_code=400,

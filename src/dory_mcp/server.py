@@ -121,6 +121,7 @@ class RuntimeCore:
     search_engine: SearchEngine = field(init=False)
     active_memory_engine: ActiveMemoryEngine = field(init=False)
     semantic_write_engine: SemanticWriteEngine = field(init=False)
+    wake_builder: WakeBuilder = field(init=False)
 
     def __post_init__(self) -> None:
         dory_runtime: DoryRuntime = build_dory_runtime(
@@ -135,10 +136,11 @@ class RuntimeCore:
         object.__setattr__(self, "search_engine", dory_runtime.search_engine)
         object.__setattr__(self, "active_memory_engine", dory_runtime.active_memory_engine)
         object.__setattr__(self, "semantic_write_engine", dory_runtime.semantic_write_engine)
+        object.__setattr__(self, "wake_builder", dory_runtime.wake_builder)
 
     def wake(self, req: dict[str, Any]) -> Any:
         wake_req = WakeReq.model_validate(req)
-        return serialize_wake_response(WakeBuilder(self.corpus_root).build(wake_req), debug=wake_req.debug)
+        return serialize_wake_response(self.wake_builder.build(wake_req), debug=wake_req.debug)
 
     def active_memory(self, req: dict[str, Any]) -> Any:
         active_req = ActiveMemoryReq.model_validate(req)

@@ -22,7 +22,8 @@ class DoryRuntime:
     """Unified runtime for all Dory surfaces (HTTP, MCP, CLI).
 
     Consolidates components that each surface needs: embedder, search,
-    query expansion, retrieval planning, reranking, and active memory.
+    query expansion, retrieval planning, reranking, active memory, and
+    wake building.
     """
 
     corpus_root: Path
@@ -35,6 +36,7 @@ class DoryRuntime:
     search_engine: SearchEngine
     active_memory_engine: ActiveMemoryEngine
     semantic_write_engine: SemanticWriteEngine
+    wake_builder: WakeBuilder
 
 
 def build_dory_runtime(
@@ -67,9 +69,10 @@ def build_dory_runtime(
         reranker=resolved_reranker,
         rerank_candidate_limit=resolved_rerank_candidate_limit,
     )
+    wake_builder = WakeBuilder(Path(corpus_root))
     active_memory_planner, active_memory_composer = build_active_memory_components(resolved_settings)
     active_memory_engine = ActiveMemoryEngine(
-        wake_builder=WakeBuilder(Path(corpus_root)),
+        wake_builder=wake_builder,
         search_engine=search_engine,
         root=Path(corpus_root),
         planner=active_memory_planner,
@@ -90,6 +93,7 @@ def build_dory_runtime(
             index_root=Path(index_root),
             embedder=runtime_embedder,
         ),
+        wake_builder=wake_builder,
     )
 
 
