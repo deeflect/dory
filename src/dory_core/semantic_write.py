@@ -32,7 +32,7 @@ from dory_core.subject_resolver import (
     SubjectResolver,
     SubjectResolverLike,
 )
-from dory_core.types import MemoryWriteAction, MemoryWriteKind, MemoryWriteReq, MemoryWriteResp, WriteReq
+from dory_core.types import MemoryWriteAction, MemoryWriteKind, MemoryWriteReq, MemoryWriteResp, WriteReq, WriteResp
 from dory_core.write import WriteEngine
 
 __all__ = [
@@ -185,11 +185,29 @@ class SemanticWriteEngine:
                 ),
             )
 
+        existing_evidence_path = self._find_existing_semantic_evidence(plan)
+        if existing_evidence_path is not None and self._canonical_already_reflects_plan(plan):
+            return MemoryWriteResp(
+                resolved=True,
+                action=req.action,
+                kind=req.kind,
+                subject_ref=plan.subject_ref,
+                target_path=plan.target_path,
+                result="forgotten" if plan.resolved_mode == "forget" else "replaced" if plan.resolved_mode == "replace" else "written",
+                confidence=req.confidence or plan.confidence,
+                indexed=False,
+                quarantined=False,
+                evidence_path=existing_evidence_path,
+                matched_by=plan.matched_by,
+                message="idempotent semantic write replay; existing evidence reused",
+            )
+
         try:
             semantic_evidence = self._plan_semantic_evidence_artifact(plan)
-            low_level_req = self._build_low_level_write_req(plan, evidence_path=semantic_evidence.path)
-            if low_level_req.kind == "replace":
-                self._ensure_replace_target_exists(Path(low_level_req.target))
+            if req.dry_run or not (plan.resolved_mode == "forget" and self._should_patch_forget_exact_content(plan)):
+                low_level_req = self._build_low_level_write_req(plan, evidence_path=semantic_evidence.path)
+                if low_level_req.kind == "replace":
+                    self._ensure_replace_target_exists(Path(low_level_req.target))
             if req.dry_run:
                 response = self.writer.write(low_level_req.model_copy(update={"dry_run": True}))
                 return MemoryWriteResp(
@@ -211,7 +229,10 @@ class SemanticWriteEngine:
                     matched_by=plan.matched_by,
                     preview=_semantic_write_preview(plan, action=response.action, evidence_path=semantic_evidence.path),
                 )
-            response = self.writer.write(low_level_req)
+            if plan.resolved_mode == "forget" and self._should_patch_forget_exact_content(plan):
+                response = self._write_semantic_forget_patch(plan)
+            else:
+                response = self.writer.write(low_level_req)
         except DoryValidationError as err:
             if req.dry_run and str(err) == "content exceeds max write size":
                 return MemoryWriteResp(
@@ -603,6 +624,76 @@ class SemanticWriteEngine:
             )
         )
 
+    def _find_existing_semantic_evidence(self, plan: SemanticWritePlan) -> str | None:
+        semantic_root = self.root / "sources" / "semantic"
+        if not semantic_root.exists():
+            return None
+        expected_content = _normalize_semantic_text(plan.content)
+        for path in sorted(semantic_root.rglob("*.md"), reverse=True):
+            try:
+                document = load_markdown_document(path.read_text(encoding="utf-8"))
+            except ValueError:
+                continue
+            if document.frontmatter.get("source_kind") != "semantic":
+                continue
+            if document.frontmatter.get("entity_id") != plan.target_subject_ref:
+                continue
+            if document.frontmatter.get("action") != plan.action:
+                continue
+            if document.frontmatter.get("kind") != plan.kind:
+                continue
+            if document.frontmatter.get("canonical_target") != plan.target_path:
+                continue
+            if _normalize_semantic_text(document.body) == expected_content:
+                return path.relative_to(self.root).as_posix()
+        return None
+
+    def _canonical_already_reflects_plan(self, plan: SemanticWritePlan) -> bool:
+        target = self.root / plan.target_path
+        if not target.exists():
+            return False
+        try:
+            body = load_markdown_document(target.read_text(encoding="utf-8")).body
+        except ValueError:
+            return False
+        has_content = _canonical_contains_exact_content(body, plan.content)
+        if plan.resolved_mode == "forget":
+            return not has_content
+        return has_content
+
+    def _should_patch_forget_exact_content(self, plan: SemanticWritePlan) -> bool:
+        target = self.root / plan.target_path
+        if not target.exists():
+            return False
+        try:
+            document = load_markdown_document(target.read_text(encoding="utf-8"))
+        except ValueError:
+            return False
+        if _remove_exact_content_from_body(document.body, plan.content) == document.body:
+            return False
+        active_claims = self.claim_store.current_claims(
+            plan.target_subject_ref,
+            kind=None if plan.kind == "note" else plan.kind,
+        )
+        return not any(_normalize_semantic_text(claim.statement) == _normalize_semantic_text(plan.content) for claim in active_claims)
+
+    def _write_semantic_forget_patch(self, plan: SemanticWritePlan) -> WriteResp:
+        target = self.root / plan.target_path
+        document = load_markdown_document(target.read_text(encoding="utf-8"))
+        updated_body = _remove_exact_content_from_body(document.body, plan.content)
+        expected_hash = self._current_hash_for_target(Path(plan.target_path))
+        return self.writer.write(
+            WriteReq(
+                kind="replace",
+                target=plan.target_path,
+                content=updated_body,
+                frontmatter=document.frontmatter,
+                soft=False,
+                reason=plan.reason or f"semantic {plan.action}",
+                expected_hash=expected_hash,
+            )
+        )
+
     def _canonical_rendered_document(
         self, plan: SemanticWritePlan, *, evidence_path: str
     ) -> tuple[dict[str, object], str]:
@@ -880,6 +971,25 @@ def _section_text(markdown_body: str, section: str) -> str:
         return after.strip()
     return after[:next_header].strip()
 
+
+def _normalize_semantic_text(text: str) -> str:
+    return " ".join(line.strip().removeprefix("- ").strip() for line in text.splitlines() if line.strip()).strip()
+
+
+def _canonical_contains_exact_content(markdown_body: str, content: str) -> bool:
+    expected = _normalize_semantic_text(content)
+    if not expected:
+        return False
+    return any(_normalize_semantic_text(line) == expected for line in markdown_body.splitlines())
+
+
+def _remove_exact_content_from_body(markdown_body: str, content: str) -> str:
+    expected = _normalize_semantic_text(content)
+    if not expected:
+        return markdown_body
+    lines = markdown_body.splitlines()
+    kept = [line for line in lines if _normalize_semantic_text(line) != expected]
+    return "\n".join(kept).rstrip() + "\n"
 
 
 def _family_from_subject_ref(subject_ref: str) -> str:
