@@ -13,6 +13,7 @@ from dory_core.llm_rerank import build_reranker
 from dory_core.query_expansion import OpenRouterQueryExpander
 from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
 from dory_core.search import SearchEngine
+from dory_core.semantic_write import SemanticWriteEngine
 from dory_core.wake import WakeBuilder
 
 
@@ -33,6 +34,7 @@ class DoryRuntime:
     rerank_candidate_limit: int
     search_engine: SearchEngine
     active_memory_engine: ActiveMemoryEngine
+    semantic_write_engine: SemanticWriteEngine
 
 
 def build_dory_runtime(
@@ -83,6 +85,11 @@ def build_dory_runtime(
         rerank_candidate_limit=resolved_rerank_candidate_limit,
         search_engine=search_engine,
         active_memory_engine=active_memory_engine,
+        semantic_write_engine=SemanticWriteEngine(
+            Path(corpus_root),
+            index_root=Path(index_root),
+            embedder=runtime_embedder,
+        ),
     )
 
 

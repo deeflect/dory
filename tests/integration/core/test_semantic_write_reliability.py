@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dory_core import semantic_write as semantic_write_module
+from dory_core import write as write_module
 from dory_core.frontmatter import load_markdown_document
 from dory_core.semantic_write import SemanticWriteEngine
 from dory_core.types import MemoryWriteReq
@@ -88,3 +90,54 @@ def test_semantic_write_replay_reuses_existing_evidence_when_canonical_already_c
     assert project_path.read_text(encoding="utf-8").count(note) == 1
     semantic_artifacts = sorted((root / "sources" / "semantic").rglob("*.md"))
     assert semantic_artifacts == [existing_evidence]
+
+
+def test_semantic_write_indexes_evidence_and_rewrites_canonical_once(
+    tmp_path: Path,
+    fake_embedder,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "corpus"
+    index_root = tmp_path / "index"
+    (root / "projects" / "dory").mkdir(parents=True)
+    project_path = root / "projects" / "dory" / "state.md"
+    project_path.write_text(
+        "---\ntitle: Dory\ntype: project\nstatus: active\ncanonical: true\naliases:\n  - dory\n---\n"
+        "\n## Current State\n- Existing state.\n",
+        encoding="utf-8",
+    )
+    indexed_batches: list[tuple[str, ...]] = []
+
+    def capture_reindex_paths(root_arg, index_root_arg, embedder_arg, paths) -> None:
+        assert root_arg == root
+        assert index_root_arg == index_root
+        assert embedder_arg is fake_embedder
+        indexed_batches.append(tuple(paths))
+
+    monkeypatch.setattr(semantic_write_module, "reindex_paths", capture_reindex_paths)
+    monkeypatch.setattr(semantic_write_module, "load_known_entities", lambda root_arg: {})
+    monkeypatch.setattr(semantic_write_module, "sync_document_edges", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(write_module, "reindex_paths", capture_reindex_paths)
+    monkeypatch.setattr(write_module, "load_known_entities", lambda root_arg: {})
+    monkeypatch.setattr(write_module, "sync_document_edges", lambda *args, **kwargs: 0)
+
+    engine = SemanticWriteEngine(root, index_root=index_root, embedder=fake_embedder)
+    response = engine.write(
+        MemoryWriteReq(
+            action="write",
+            kind="state",
+            subject="dory",
+            content="Dory records deployment state without redundant canonical rewrites.",
+            scope="project",
+            allow_canonical=True,
+        )
+    )
+
+    assert response.resolved is True
+    assert response.indexed is True
+    assert response.evidence_path is not None
+    assert indexed_batches == [
+        (response.evidence_path,),
+        ("projects/dory/state.md",),
+    ]
+    assert response.evidence_path in project_path.read_text(encoding="utf-8")

@@ -22,9 +22,11 @@ from dory_core.embedding import ContentEmbedder
 from dory_core.errors import DoryValidationError
 from dory_core.frontmatter import dump_markdown_document, load_markdown_document
 from dory_core.fs import atomic_write_text, resolve_corpus_target
+from dory_core.index.reindex import reindex_paths
+from dory_core.link import load_known_entities, sync_document_edges
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
-from dory_core.slug import canonical_target_for_subject, normalize_migration_slug
 from dory_core.metadata import normalize_frontmatter
+from dory_core.slug import canonical_target_for_subject, normalize_migration_slug
 from dory_core.config import DorySettings
 from dory_core.subject_resolver import (
     RegistryBackedSubjectResolver,
@@ -229,7 +231,10 @@ class SemanticWriteEngine:
                     matched_by=plan.matched_by,
                     preview=_semantic_write_preview(plan, action=response.action, evidence_path=semantic_evidence.path),
                 )
-            if plan.resolved_mode == "forget" and self._should_patch_forget_exact_content(plan):
+            response: WriteResp | None = None
+            if _should_rewrite_canonical_from_claims(plan):
+                response = None
+            elif plan.resolved_mode == "forget" and self._should_patch_forget_exact_content(plan):
                 response = self._write_semantic_forget_patch(plan)
             else:
                 response = self.writer.write(low_level_req)
@@ -272,7 +277,7 @@ class SemanticWriteEngine:
                 message=str(err),
             )
 
-        if response.action == "quarantined":
+        if response is not None and response.action == "quarantined":
             return MemoryWriteResp(
                 resolved=True,
                 action=req.action,
@@ -297,10 +302,13 @@ class SemanticWriteEngine:
 
         self._record_claims(plan, evidence_path=semantic_evidence.path)
         self._sync_registry(plan, requested_subject=req.subject)
-        if plan.family != "core" and plan.resolved_mode != "forget":
-            self._rewrite_canonical_from_claims(plan, requested_subject=req.subject)
+        if _should_rewrite_canonical_from_claims(plan):
+            response = self._rewrite_canonical_from_claims(plan, requested_subject=req.subject)
         if plan.family != "core" and plan.resolved_mode == "forget":
             self._rewrite_tombstone_from_claims(plan, requested_subject=req.subject)
+
+        if response is None:
+            raise DoryValidationError("semantic write did not produce a write response")
 
         return MemoryWriteResp(
             resolved=True,
@@ -496,13 +504,32 @@ class SemanticWriteEngine:
         )
 
     def _write_semantic_evidence_artifact(self, artifact: _SemanticEvidenceArtifact) -> None:
-        target = resolve_corpus_target(self.root, Path(artifact.path))
+        target_path = Path(artifact.path)
+        target = resolve_corpus_target(self.root, target_path)
         if target.exists():
             raise DoryValidationError(f"semantic evidence artifact already exists: {artifact.path}")
+
         target.parent.mkdir(parents=True, exist_ok=True)
-        frontmatter = normalize_frontmatter(artifact.frontmatter, target=Path(artifact.path))
+        frontmatter = normalize_frontmatter(artifact.frontmatter, target=target_path)
         rendered = dump_markdown_document(frontmatter, artifact.content)
         atomic_write_text(target, rendered, encoding="utf-8")
+
+        if self.writer.index_root is None or self.writer.embedder is None:
+            return
+
+        reindex_paths(
+            self.root,
+            self.writer.index_root,
+            self.writer.embedder,
+            [artifact.path],
+        )
+        known_entities = load_known_entities(self.root)
+        sync_document_edges(
+            self.writer.index_root / "dory.db",
+            from_path=artifact.path,
+            markdown=rendered,
+            known_entities=known_entities,
+        )
 
     def _semantic_evidence_path(self, action: MemoryWriteAction, *, subject_slug: str) -> str:
         while True:
@@ -564,7 +591,7 @@ class SemanticWriteEngine:
             confidence=confidence,
         )
 
-    def _rewrite_canonical_from_claims(self, plan: SemanticWritePlan, *, requested_subject: str) -> None:
+    def _rewrite_canonical_from_claims(self, plan: SemanticWritePlan, *, requested_subject: str) -> WriteResp:
         claims = self.claim_store.current_claims(plan.target_subject_ref)
         history = self.claim_store.claim_history(plan.target_subject_ref)
         events = self.claim_store.claim_events(plan.target_subject_ref)
@@ -581,7 +608,7 @@ class SemanticWriteEngine:
         target = Path(plan.target_path)
         write_kind = "replace" if (self.root / target).exists() else "create"
         expected_hash = self._current_hash_for_target(target) if write_kind == "replace" else None
-        self.writer.write(
+        return self.writer.write(
             WriteReq(
                 kind=write_kind,
                 target=plan.target_path,
@@ -901,6 +928,10 @@ def _is_canonical_semantic_target(plan: SemanticWritePlan) -> bool:
     if plan.family in {"core", "person", "project", "concept", "decision"}:
         return True
     return plan.target_path.startswith(("core/", "people/", "projects/", "concepts/", "decisions/"))
+
+
+def _should_rewrite_canonical_from_claims(plan: SemanticWritePlan) -> bool:
+    return plan.family != "core" and plan.resolved_mode != "forget"
 
 
 def _semantic_write_preview_message(plan: SemanticWritePlan, *, action: str, evidence_path: str) -> str:

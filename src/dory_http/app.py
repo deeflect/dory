@@ -186,6 +186,7 @@ class HttpRuntime:
     rerank_candidate_limit: int
     search_engine: SearchEngine
     active_memory_engine: ActiveMemoryEngine
+    semantic_write_engine: SemanticWriteEngine
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,6 +226,7 @@ def build_app(
         rerank_candidate_limit=surface_runtime.rerank_candidate_limit,
         search_engine=surface_runtime.search_engine,
         active_memory_engine=surface_runtime.active_memory_engine,
+        semantic_write_engine=surface_runtime.semantic_write_engine,
     )
 
     @app.exception_handler(HTTPException)
@@ -1017,11 +1019,7 @@ def _set_web_session_cookie(response: Response, request: Request, session_cookie
 
 
 def _build_semantic_write_engine(runtime: HttpRuntime) -> SemanticWriteEngine:
-    return SemanticWriteEngine(
-        runtime.corpus_root,
-        index_root=runtime.index_root,
-        embedder=runtime.embedder,
-    )
+    return runtime.semantic_write_engine
 
 
 def _build_openclaw_parity_store(runtime: HttpRuntime) -> OpenClawParityStore:

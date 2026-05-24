@@ -120,6 +120,7 @@ class RuntimeCore:
     rerank_candidate_limit: int = 40
     search_engine: SearchEngine = field(init=False)
     active_memory_engine: ActiveMemoryEngine = field(init=False)
+    semantic_write_engine: SemanticWriteEngine = field(init=False)
 
     def __post_init__(self) -> None:
         dory_runtime: DoryRuntime = build_dory_runtime(
@@ -133,6 +134,7 @@ class RuntimeCore:
         )
         object.__setattr__(self, "search_engine", dory_runtime.search_engine)
         object.__setattr__(self, "active_memory_engine", dory_runtime.active_memory_engine)
+        object.__setattr__(self, "semantic_write_engine", dory_runtime.semantic_write_engine)
 
     def wake(self, req: dict[str, Any]) -> Any:
         wake_req = WakeReq.model_validate(req)
@@ -201,20 +203,12 @@ class RuntimeCore:
         return payload
 
     def memory_write(self, req: dict[str, Any]) -> Any:
-        return SemanticWriteEngine(
-            self.corpus_root,
-            index_root=self.index_root,
-            embedder=self.embedder,
-        ).write(MemoryWriteReq.model_validate(req))
+        return self.semantic_write_engine.write(MemoryWriteReq.model_validate(req))
 
     def memory_propose(self, req: dict[str, Any]) -> dict[str, Any]:
         proposal, path = create_semantic_write_proposal(
             root=self.corpus_root,
-            engine=SemanticWriteEngine(
-                self.corpus_root,
-                index_root=self.index_root,
-                embedder=self.embedder,
-            ),
+            engine=self.semantic_write_engine,
             req=MemoryProposalCreateReq.model_validate(req),
         )
         return {
@@ -237,11 +231,7 @@ class RuntimeCore:
         parsed = MemoryProposalApplyReq.model_validate(req)
         result = apply_proposal(
             root=self.corpus_root,
-            engine=SemanticWriteEngine(
-                self.corpus_root,
-                index_root=self.index_root,
-                embedder=self.embedder,
-            ),
+            engine=self.semantic_write_engine,
             proposal_id=parsed.proposal_id,
             agent=parsed.agent,
             session_id=parsed.session_id,
