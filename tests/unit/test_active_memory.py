@@ -138,6 +138,33 @@ def test_active_memory_runs_for_explicit_call_even_on_non_memory_prompt(tmp_path
     assert "core/active.md" in result.sources
 
 
+def test_active_memory_returns_none_when_no_context_or_results(tmp_path: Path) -> None:
+    class EmptySearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            del req
+            return _make_response([])
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=EmptySearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what context matters for the empty test corpus?",
+            agent="codex",
+            include_wake=False,
+        )
+    )
+
+    assert result.kind == "none"
+    assert result.block == ""
+    assert result.summary == ""
+    assert result.sources == []
+    assert result.partial is False
+
+
 def test_active_memory_builds_memory_block_for_state_question(tmp_path: Path) -> None:
     (tmp_path / "core").mkdir(parents=True)
     (tmp_path / "core" / "active.md").write_text(

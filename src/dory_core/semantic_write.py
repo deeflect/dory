@@ -233,7 +233,10 @@ class SemanticWriteEngine:
                 )
             response: WriteResp | None = None
             if _should_rewrite_canonical_from_claims(plan):
-                response = None
+                if req.soft and self.writer._find_content_issue(low_level_req.content) is not None:
+                    response = self.writer.write(low_level_req)
+                else:
+                    response = None
             elif plan.resolved_mode == "forget" and self._should_patch_forget_exact_content(plan):
                 response = self._write_semantic_forget_patch(plan)
             else:

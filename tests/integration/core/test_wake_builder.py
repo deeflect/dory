@@ -104,3 +104,23 @@ def test_wake_builder_unknown_profile_raises(tmp_path: Path) -> None:
         WakeBuilder(tmp_path).build(
             WakeReq(agent="codex", profile="nonexistent", budget_tokens=200, include_recent_sessions=0)
         )
+
+
+def test_wake_builder_injects_project_state_from_explicit_param(tmp_path: Path) -> None:
+    """WakeBuilder includes project state when project name is explicitly provided."""
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("Dory is active.\n", encoding="utf-8")
+    (tmp_path / "projects" / "dory").mkdir(parents=True)
+    (tmp_path / "projects" / "dory" / "state.md").write_text(
+        "---\ntitle: Dory\ntype: project\nstatus: active\ncanonical: true\n---\n\n## Summary\n- Dory is the shared memory substrate for agents.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", project="dory", budget_tokens=1200, include_recent_sessions=0, include_pinned_decisions=False)
+    )
+
+    assert resp.block
+    assert "Dory is the shared memory substrate for agents." in resp.block
+    assert "projects/dory/state.md" in resp.sources
+    assert resp.profile == "default"

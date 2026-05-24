@@ -297,6 +297,42 @@ Private boundaries: legal status details and financial specifics stay private.
     assert not response.results[0].path.startswith("logs/sessions/")
 
 
+def test_search_bm25_corpus_all_merges_durable_and_session_results(tmp_path: Path, fake_embedder) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    (corpus_root / "projects" / "dory").mkdir(parents=True)
+    (corpus_root / "projects" / "dory" / "state.md").write_text(
+        """---
+title: Dory
+type: project
+status: active
+canonical: true
+---
+
+Dory characterization tests cover the memory kernel.
+""",
+        encoding="utf-8",
+    )
+    reindex_corpus(corpus_root, index_root, fake_embedder)
+    SessionEvidencePlane(index_root / "session_plane.db").upsert_session_chunk(
+        path="logs/sessions/codex/mac/2026-04-20-memory-kernel.md",
+        content="Session evidence says Dory characterization tests cover planner fallback.",
+        updated="2026-04-20T10:00:00Z",
+        agent="codex",
+        device="mac",
+        session_id="memory-kernel",
+        status="done",
+    )
+
+    engine = SearchEngine(index_root, fake_embedder)
+    response = engine.search(SearchReq(query="Dory characterization tests", mode="bm25", corpus="all", k=5))
+
+    paths = [result.path for result in response.results]
+    assert "projects/dory/state.md" in paths
+    assert "logs/sessions/codex/mac/2026-04-20-memory-kernel.md" in paths
+    assert next(result for result in response.results if result.path.startswith("logs/sessions/")).evidence_class == "session"
+
+
 def test_search_hybrid_prefers_canonical_over_raw_inbox_capture(tmp_path: Path, fake_embedder) -> None:
     corpus_root = tmp_path / "corpus"
     index_root = tmp_path / ".index"

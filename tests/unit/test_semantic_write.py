@@ -70,6 +70,32 @@ def test_semantic_write_preview_includes_provenance_and_plan(tmp_path: Path) -> 
     assert resp.preview["evidence_path"] == resp.evidence_path
 
 
+def test_semantic_write_reuses_existing_evidence_for_idempotent_replay(tmp_path: Path) -> None:
+    engine = SemanticWriteEngine(tmp_path, resolver_client=None)
+    req = MemoryWriteReq(
+        action="write",
+        kind="state",
+        subject="Open Privacy Filter",
+        content="Open Privacy Filter is active in characterization tests.",
+        scope="project",
+        allow_canonical=True,
+        agent="codex",
+        session_id="session-1",
+        origin_surface="unit-test",
+    )
+
+    first = engine.write(req)
+    second = engine.write(req)
+
+    assert first.result == "written"
+    assert first.evidence_path is not None
+    assert second.result == "written"
+    assert second.indexed is False
+    assert second.quarantined is False
+    assert second.evidence_path == first.evidence_path
+    assert second.message == "idempotent semantic write replay; existing evidence reused"
+
+
 def test_subject_resolver_matches_aliases_titles_and_fuzzy_subjects(tmp_path: Path) -> None:
     (tmp_path / "people").mkdir(parents=True)
     (tmp_path / "projects" / "sample").mkdir(parents=True)
