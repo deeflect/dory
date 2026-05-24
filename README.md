@@ -160,6 +160,7 @@ The goal is practical: one memory layer for all agents, with enough structure to
 | [Runtime & data flow](docs/current-state/runtime-and-data-flow.md) | How requests move through the system |
 | [Surfaces & integrations](docs/current-state/surfaces-and-integrations.md) | CLI, HTTP, MCP, providers |
 | [Operations & validation](docs/current-state/operations-and-validation.md) | Dream, maintain, reindex, migrate |
+| [Memory kernel roadmap](docs/memory-kernel/README.md) | Current roadmap for hot context, entities, observations, and evidence-backed retrieval |
 | [Ops runbook](references/runbook.md) | Day-to-day operation |
 | [Client runbook](references/client-runbook.md) | For agent integrators |
 | [Evals](eval/README.md) | Benchmarks and coverage |
