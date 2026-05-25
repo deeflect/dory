@@ -380,6 +380,7 @@ def reconcile_corpus(
 
 
 def _build_index_runtime(index_root: Path, embedder: ContentEmbedder) -> _IndexRuntime:
+    index_root.mkdir(parents=True, exist_ok=True)
     sqlite_store = SqliteStore(index_root / "dory.db")
     vector_store = SqliteVectorStore(index_root / "dory.db", dimension=embedder.dimension)
     vector_store.import_legacy_json_if_empty(index_root / "lance")

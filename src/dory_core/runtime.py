@@ -52,6 +52,9 @@ def build_dory_runtime(
 ) -> DoryRuntime:
     resolved_settings = settings or DorySettings()
     runtime_embedder = embedder or build_runtime_embedder()
+    resolved_corpus_root = Path(corpus_root)
+    resolved_index_root = Path(index_root)
+    resolved_index_root.mkdir(parents=True, exist_ok=True)
     resolved_query_expander = query_expander if query_expander is not None else build_query_expander(resolved_settings)
     resolved_retrieval_planner = (
         retrieval_planner if retrieval_planner is not None else build_retrieval_planner(resolved_settings, purpose="query")
@@ -61,7 +64,7 @@ def build_dory_runtime(
         rerank_candidate_limit if rerank_candidate_limit is not None else resolved_settings.query_reranker_candidate_limit
     )
     search_engine = SearchEngine(
-        Path(index_root),
+        resolved_index_root,
         runtime_embedder,
         query_expander=resolved_query_expander,
         retrieval_planner=resolved_retrieval_planner,
@@ -69,18 +72,18 @@ def build_dory_runtime(
         reranker=resolved_reranker,
         rerank_candidate_limit=resolved_rerank_candidate_limit,
     )
-    wake_builder = WakeBuilder(Path(corpus_root))
+    wake_builder = WakeBuilder(resolved_corpus_root)
     active_memory_planner, active_memory_composer = build_active_memory_components(resolved_settings)
     active_memory_engine = ActiveMemoryEngine(
         wake_builder=wake_builder,
         search_engine=search_engine,
-        root=Path(corpus_root),
+        root=resolved_corpus_root,
         planner=active_memory_planner,
         composer=active_memory_composer,
     )
     return DoryRuntime(
-        corpus_root=Path(corpus_root),
-        index_root=Path(index_root),
+        corpus_root=resolved_corpus_root,
+        index_root=resolved_index_root,
         embedder=runtime_embedder,
         query_expander=resolved_query_expander,
         retrieval_planner=resolved_retrieval_planner,
@@ -89,8 +92,8 @@ def build_dory_runtime(
         search_engine=search_engine,
         active_memory_engine=active_memory_engine,
         semantic_write_engine=SemanticWriteEngine(
-            Path(corpus_root),
-            index_root=Path(index_root),
+            resolved_corpus_root,
+            index_root=resolved_index_root,
             embedder=runtime_embedder,
         ),
         wake_builder=wake_builder,
