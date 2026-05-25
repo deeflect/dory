@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Sequence
 
 from dory_core.embedding import ContentEmbedder, QueryEmbedder
+from dory_core.index.migrations import apply_migrations
 from dory_core.index.sqlite_vector_store import SqliteVectorStore
 from dory_core.llm_rerank import LLMReranker
 from dory_core.query_expansion import QueryExpander
@@ -211,6 +212,11 @@ class SearchEngine:
         )
         self.vector_store.import_legacy_json_if_empty(self.index_root / "lance")
         self.session_plane = SessionEvidencePlane(self.index_root / "session_plane.db")
+        self._ensure_database()
+
+    def _ensure_database(self) -> None:
+        self.index_root.mkdir(parents=True, exist_ok=True)
+        apply_migrations(self.db_path)
 
     def search(self, req: SearchReq) -> SearchResp:
         started = time.perf_counter()
@@ -348,6 +354,7 @@ class SearchEngine:
         fts_query = _build_fts_query(query)
         if not fts_query:
             return []
+        self._ensure_database()
         with sqlite3.connect(self.db_path) as connection:
             connection.row_factory = sqlite3.Row
             try:
@@ -390,6 +397,7 @@ class SearchEngine:
         if not needle:
             return []
         pattern = f"%{_escape_sql_like(needle.lower())}%"
+        self._ensure_database()
         with sqlite3.connect(self.db_path) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
@@ -619,6 +627,7 @@ class SearchEngine:
         if not chunk_ids:
             return []
 
+        self._ensure_database()
         placeholders = ",".join("?" for _ in chunk_ids)
         with sqlite3.connect(self.db_path) as connection:
             connection.row_factory = sqlite3.Row
@@ -771,8 +780,7 @@ class SearchEngine:
         )
 
     def _record_recall(self, query: str, results: Sequence[SearchResult]) -> None:
-        if not self.db_path.exists():
-            return
+        self._ensure_database()
         payload = json.dumps([result.path for result in results], sort_keys=True)
         with sqlite3.connect(self.db_path) as connection:
             connection.execute(

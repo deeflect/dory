@@ -48,6 +48,15 @@ def test_sqlite_vector_store_imports_legacy_json_when_empty(tmp_path: Path) -> N
     assert store.get("chunk-1") == record
 
 
+def test_sqlite_vector_store_recreates_missing_index_parent(tmp_path: Path) -> None:
+    db_path = tmp_path / "missing" / "nested" / "dory.db"
+
+    store = SqliteVectorStore(db_path, dimension=4)
+
+    assert store.count() == 0
+    assert db_path.exists()
+
+
 def _seed_chunk(db_path: Path, *, chunk_id: str) -> None:
     store = SqliteStore(db_path)
     store.replace_documents(

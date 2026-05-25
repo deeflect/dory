@@ -20,9 +20,10 @@ class SqliteVectorStore:
     def __init__(self, db_path: Path, dimension: int = 768) -> None:
         self.db_path = Path(db_path)
         self.dimension = dimension
-        apply_migrations(self.db_path)
+        self._ensure_database()
 
     def upsert(self, records: Iterable[VectorRecord]) -> int:
+        self._ensure_database()
         rows = [self._normalize_record(record) for record in records]
         if not rows:
             return 0
@@ -39,6 +40,7 @@ class SqliteVectorStore:
         return len(rows)
 
     def replace(self, records: Iterable[VectorRecord]) -> int:
+        self._ensure_database()
         rows = [self._normalize_record(record) for record in records]
         with sqlite3.connect(self.db_path) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
@@ -55,6 +57,7 @@ class SqliteVectorStore:
         return len(rows)
 
     def delete_many(self, chunk_ids: Iterable[str]) -> int:
+        self._ensure_database()
         normalized_ids = sorted({str(chunk_id) for chunk_id in chunk_ids})
         if not normalized_ids:
             return 0
@@ -71,6 +74,7 @@ class SqliteVectorStore:
             return int(cursor.rowcount if cursor.rowcount is not None else 0)
 
     def get(self, chunk_id: str) -> VectorRecord | None:
+        self._ensure_database()
         with sqlite3.connect(self.db_path) as connection:
             row = connection.execute(
                 """
@@ -85,6 +89,7 @@ class SqliteVectorStore:
         return self._record_from_row(row)
 
     def all(self) -> list[VectorRecord]:
+        self._ensure_database()
         with sqlite3.connect(self.db_path) as connection:
             rows = connection.execute(
                 """
@@ -98,6 +103,7 @@ class SqliteVectorStore:
         return [self._record_from_row(row) for row in rows]
 
     def count(self) -> int:
+        self._ensure_database()
         with sqlite3.connect(self.db_path) as connection:
             row = connection.execute("SELECT COUNT(*) FROM chunk_vectors").fetchone()
         return int(row[0] if row is not None else 0)
@@ -138,6 +144,7 @@ class SqliteVectorStore:
         )
 
     def _existing_chunk_ids(self, chunk_ids: Iterable[str]) -> set[str]:
+        self._ensure_database()
         normalized_ids = sorted({str(chunk_id) for chunk_id in chunk_ids})
         if not normalized_ids:
             return set()
@@ -152,6 +159,10 @@ class SqliteVectorStore:
                 normalized_ids,
             ).fetchall()
         return {str(chunk_id) for (chunk_id,) in rows}
+
+    def _ensure_database(self) -> None:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        apply_migrations(self.db_path)
 
 
 def _pack_vector(vector: list[float]) -> bytes:

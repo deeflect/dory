@@ -123,6 +123,7 @@ class WriteEngine:
         indexed = False
         edges_added = 0
         if self.index_root is not None and self.embedder is not None:
+            self.index_root.mkdir(parents=True, exist_ok=True)
             reindex_paths(
                 self.root,
                 self.index_root,
