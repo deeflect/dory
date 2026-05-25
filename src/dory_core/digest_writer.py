@@ -109,11 +109,13 @@ _SYSTEM_PROMPT = (
     "Use only the provided session text. Do not infer missing facts or fill gaps from prior knowledge.\n"
     "Preserve durable memory signal: project progress, decisions, current state, bugs fixed, regressions, "
     "operations/config changes, tests run, deployments, blockers, and explicit follow-ups.\n"
-    "Ignore transient chatter, repeated tool output, raw stack traces, low-value status updates, and abandoned branches "
-    "unless they explain a durable outcome.\n"
+    "Ignore transient chatter, repeated tool output, raw stack traces, low-value status updates, "
+    "and abandoned branches unless they explain a durable outcome.\n"
     "Never include secrets, bearer tokens, passwords, private keys, cookie values, API keys, or raw credentials. "
-    "If a session involved credentials, summarize only the safe operational fact, such as that auth was configured or rotated.\n"
-    "Avoid private personal details unless they are explicitly framed as a durable preference, boundary, or safety rule.\n"
+    "If a session involved credentials, summarize only the safe operational fact, "
+    "such as that auth was configured or rotated.\n"
+    "Avoid private personal details unless they are explicitly framed as a durable preference, "
+    "boundary, or safety rule.\n"
     "When multiple sessions are provided, merge duplicates and preserve source-grounded specificity.\n"
     "If there is no durable signal, say so plainly instead of inventing outcomes.\n"
     "Write compactly for later memory mining."
@@ -237,7 +239,11 @@ class DailyDigestWriter:
         if len(sessions) <= 1:
             return self.generator.generate(target_date=target_date, sessions=sessions)
         session_digests: list[tuple[tuple[DigestSessionSource, ...], DailyDigest]] = []
-        for batch in batch_daily_sessions(sessions, max_chars=self.batch_max_chars, skip_tiny_chars=self.skip_tiny_chars):
+        for batch in batch_daily_sessions(
+            sessions,
+            max_chars=self.batch_max_chars,
+            skip_tiny_chars=self.skip_tiny_chars,
+        ):
             session_digests.append((batch, self.generator.generate(target_date=target_date, sessions=batch)))
         return self.generator.generate(
             target_date=target_date,
@@ -558,7 +564,11 @@ def _load_daily_digest_source(*, corpus_root: Path, path: Path) -> DigestSession
     except ValueError:
         return None
     relative_path = path.relative_to(corpus_root).as_posix()
-    updated = _coerce_string(frontmatter.get("date")) or _coerce_string(frontmatter.get("updated")) or _date_from_path(path)
+    updated = (
+        _coerce_string(frontmatter.get("date"))
+        or _coerce_string(frontmatter.get("updated"))
+        or _date_from_path(path)
+    )
     content = body.strip()
     if not content:
         return None
@@ -607,7 +617,11 @@ def _build_weekly_digest_prompt(*, week: str, daily_digests: tuple[DigestSession
 
 def _batch_digest_source(*, batch: tuple[DigestSessionSource, ...], digest: DailyDigest) -> DigestSessionSource:
     primary = batch[0]
-    path = primary.path if len(batch) == 1 else f"batch:{primary.updated[:10]}:{primary.session_id}:{len(batch)}-sessions"
+    path = (
+        primary.path
+        if len(batch) == 1
+        else f"batch:{primary.updated[:10]}:{primary.session_id}:{len(batch)}-sessions"
+    )
     sections = [
         "Batch-level digest for:",
         *[f"- {session.path}" for session in batch],
@@ -629,7 +643,14 @@ def _batch_digest_source(*, batch: tuple[DigestSessionSource, ...], digest: Dail
 
 
 def _digest_prompt_session_chars(session: DigestSessionSource) -> int:
-    return len(session.content) + len(session.path) + len(session.agent) + len(session.session_id) + len(session.updated) + 64
+    return (
+        len(session.content)
+        + len(session.path)
+        + len(session.agent)
+        + len(session.session_id)
+        + len(session.updated)
+        + 64
+    )
 
 
 def _coerce_daily_digest(payload: object, *, target_date: str) -> DailyDigest:

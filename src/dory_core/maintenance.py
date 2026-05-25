@@ -72,7 +72,8 @@ class OpenRouterMaintenanceInspector:
             system_prompt=(
                 "You inspect Dory memory docs and suggest metadata or placement cleanup. "
                 "Do not invent body facts. "
-                "Only infer type, status, area, canonicality, source kind, temperature, and target path from the current file path, frontmatter, and body."
+                "Only infer type, status, area, canonicality, source kind, temperature, "
+                "and target path from the current file path, frontmatter, and body."
             ),
             user_prompt=(
                 f"Path: {path}\n"
@@ -505,7 +506,11 @@ def _infer_privacy_metadata(
         return "personal", "private", "path is personal, people, log, or session memory"
     if path.startswith(("archive/daily/", "inbox/", "ideas/")):
         return "personal", "private", "path is raw/distilled personal working memory"
-    return "none", "internal", "no specific sensitivity signal; internal visibility is conservative for imported/raw material"
+    return (
+        "none",
+        "internal",
+        "no specific sensitivity signal; internal visibility is conservative for imported/raw material",
+    )
 
 
 def _privacy_haystack(rel_path: str, frontmatter: dict[str, object], body: str) -> str:

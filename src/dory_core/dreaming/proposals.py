@@ -133,18 +133,22 @@ class ProposalGenerator:
             system_prompt=(
                 "You convert a Dory digest or distilled note into conservative reviewable semantic-memory proposals. "
                 "Use only facts present in the source note. Do not infer, backfill, or use outside knowledge. "
-                "Emit only durable memory: stable project state, explicit decisions, preferences, operational configuration, "
-                "resolved bugs, deployments, important blockers, and concrete follow-ups. "
-                "Do not propose raw transcript details, temporary status, repeated commands, low-value logs, stack traces, "
-                "or vague summaries. "
-                "Never include secrets, bearer tokens, passwords, private keys, cookie values, API keys, or raw credentials. "
+                "Emit only durable memory: stable project state, explicit decisions, preferences, "
+                "operational configuration, resolved bugs, deployments, important blockers, "
+                "and concrete follow-ups. "
+                "Do not propose raw transcript details, temporary status, repeated commands, "
+                "low-value logs, stack traces, or vague summaries. "
+                "Never include secrets, bearer tokens, passwords, private keys, cookie values, "
+                "API keys, or raw credentials. "
                 "If auth or secrets were involved, propose only a safe high-level operational fact. "
                 "Use semantic write actions only: write, replace, or forget. Prefer write. "
-                "Use replace only for clearly current state updates. Use forget only when the note clearly says a prior memory "
-                "is obsolete. "
+                "Use replace only for clearly current state updates. Use forget only when the note "
+                "clearly says a prior memory is obsolete. "
                 "Use small memory kinds only: fact, preference, state, decision, note. "
-                "Subjects should be short fuzzy handles like 'dory', 'openclaw', 'hermes', a project name, or 'active'. "
-                "Split unrelated projects into separate actions. Do not emit actions when there is no grounded durable change."
+                "Subjects should be short fuzzy handles like 'dory', 'openclaw', 'hermes', "
+                "a project name, or 'active'. "
+                "Split unrelated projects into separate actions. Do not emit actions when there "
+                "is no grounded durable change."
             ),
             user_prompt=(
                 f"Source note path: {distilled_path}\n\n"
@@ -200,8 +204,14 @@ def load_proposal(path: Path) -> ProposalDocument:
                 kind=str(action["kind"]),  # type: ignore[arg-type]
                 subject=str(action["subject"]),
                 content=str(action.get("content", "")),
-                scope=_optional_enum(action.get("scope"), {"person", "project", "concept", "decision", "core"}),  # type: ignore[arg-type]
-                confidence=_optional_enum(action.get("confidence"), {"high", "medium", "low"}),  # type: ignore[arg-type]
+                scope=_optional_enum(
+                    action.get("scope"),
+                    {"person", "project", "concept", "decision", "core"},
+                ),  # type: ignore[arg-type]
+                confidence=_optional_enum(
+                    action.get("confidence"),
+                    {"high", "medium", "low"},
+                ),  # type: ignore[arg-type]
                 reason=action.get("reason"),
                 source=_optional_string(action.get("source")),
                 soft=bool(action.get("soft", False)),

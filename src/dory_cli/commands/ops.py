@@ -50,7 +50,10 @@ def register(ops_app: typer.Typer) -> None:
         session: list[str] = typer.Option(
             [],
             "--session",
-            help="Explicit legacy path: distill these raw session paths before proposing. Defaults to digest/recall sources.",
+            help=(
+                "Explicit legacy path: distill these raw session paths before proposing. "
+                "Defaults to digest/recall sources."
+            ),
         ),
         limit: int | None = typer.Option(
             None,

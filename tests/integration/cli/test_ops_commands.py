@@ -61,7 +61,10 @@ def test_ops_dream_once_writes_distilled_and_proposed(
             },
         ]
     )
-    monkeypatch.setattr("dory_cli.main.require_dream_llm", lambda settings: DreamLLM(client=client, backend="openrouter"))
+    monkeypatch.setattr(
+        "dory_cli.main.require_dream_llm",
+        lambda settings: DreamLLM(client=client, backend="openrouter"),
+    )
 
     result = cli_runner.invoke(
         app,
@@ -104,7 +107,10 @@ def test_ops_dream_once_defaults_to_digest_sources(cli_runner, monkeypatch, tmp_
             {"actions": []},
         ]
     )
-    monkeypatch.setattr("dory_cli.main.require_dream_llm", lambda settings: DreamLLM(client=client, backend="openrouter"))
+    monkeypatch.setattr(
+        "dory_cli.main.require_dream_llm",
+        lambda settings: DreamLLM(client=client, backend="openrouter"),
+    )
 
     result = cli_runner.invoke(
         app,
@@ -151,7 +157,10 @@ def test_ops_weekly_digest_once_writes_from_daily_digests(cli_runner, monkeypatc
             }
         ]
     )
-    monkeypatch.setattr("dory_cli.main.require_dream_llm", lambda settings: DreamLLM(client=client, backend="openrouter"))
+    monkeypatch.setattr(
+        "dory_cli.main.require_dream_llm",
+        lambda settings: DreamLLM(client=client, backend="openrouter"),
+    )
 
     result = cli_runner.invoke(
         app,
@@ -216,7 +225,10 @@ def test_ops_dream_once_promotes_recall_candidates(cli_runner, monkeypatch, tmp_
             }
         ]
     )
-    monkeypatch.setattr("dory_cli.main.require_dream_llm", lambda settings: DreamLLM(client=client, backend="openrouter"))
+    monkeypatch.setattr(
+        "dory_cli.main.require_dream_llm",
+        lambda settings: DreamLLM(client=client, backend="openrouter"),
+    )
 
     result = cli_runner.invoke(
         app,

@@ -97,7 +97,8 @@ def _render_candidate(candidate: RecallPromotionCandidate) -> str:
         *(f"- {query}" for query in candidate.sample_queries),
         "",
         "## Suggested Review",
-        "- Check whether the recalled material should become a canonical decision, project state update, or concept page update.",
+        "- Check whether the recalled material should become a canonical decision, "
+        "project state update, or concept page update.",
         "- Prefer promotion only when the recalled material is still current and supported by evidence.",
     ]
     return dump_markdown_document(frontmatter, "\n".join(sections).rstrip() + "\n")

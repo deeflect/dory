@@ -273,7 +273,10 @@ def test_proposal_archive_refuses_to_overwrite_existing_archive(tmp_path: Path) 
     pending_path = store.write_pending(pending)
     archive_path = root / "inbox" / "applied" / "duplicate-archive.json"
     archive_path.parent.mkdir(parents=True)
-    archive_path.write_text(json.dumps(proposal_to_payload(existing), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    archive_path.write_text(
+        json.dumps(proposal_to_payload(existing), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     try:
         store.archive(pending_path, pending, status="applied")
