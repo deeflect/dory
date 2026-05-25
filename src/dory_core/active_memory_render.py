@@ -169,15 +169,61 @@ def synthesized_bullets(
         if not snippet:
             continue
         score = float(getattr(result, "score", 0.0) or 0.0)
-        candidates.append(MemoryCandidate(text=snippet, weight=5.0 + score - (position * 0.25)))
+        candidates.append(
+            MemoryCandidate(
+                text=snippet,
+                weight=_memory_result_weight(
+                    result,
+                    base_weight=5.0,
+                    score=score,
+                    position_penalty=position * 0.25,
+                ),
+            )
+        )
     for position, result in enumerate(session_results[:3], start=1):
         snippet = truncate_text(result_evidence_text(result, root=root), _MEMORY_BULLET_CHARS)
         if not snippet:
             continue
         score = float(getattr(result, "score", 0.0) or 0.0)
-        candidates.append(MemoryCandidate(text=snippet, weight=4.0 + score - (position * 0.2)))
+        candidates.append(
+            MemoryCandidate(
+                text=snippet,
+                weight=_memory_result_weight(
+                    result,
+                    base_weight=4.0,
+                    score=score,
+                    position_penalty=position * 0.2,
+                ),
+            )
+        )
     ordered = sorted(candidates, key=lambda item: (-item.weight, item.text.casefold()))
     return _dedupe_strings([candidate.text for candidate in ordered])
+
+
+def _memory_result_weight(
+    result: object,
+    *,
+    base_weight: float,
+    score: float,
+    position_penalty: float,
+) -> float:
+    return base_weight + _memory_trust_bonus(result) + score - position_penalty
+
+
+def _memory_trust_bonus(result: object) -> float:
+    frontmatter = getattr(result, "frontmatter", {}) or {}
+    source_kind = str(frontmatter.get("source_kind", "") or "").casefold()
+    evidence_class = str(getattr(result, "evidence_class", "") or "").casefold()
+    confidence = str(getattr(result, "confidence", "") or frontmatter.get("confidence", "") or "").casefold()
+    if source_kind == "canonical" or evidence_class == "canonical":
+        return 2.0
+    if source_kind == "session" or evidence_class == "session":
+        return -0.4
+    if confidence == "high":
+        return 0.35
+    if confidence == "low":
+        return -0.25
+    return 0.0
 
 
 def build_summary(

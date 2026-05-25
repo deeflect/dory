@@ -7,6 +7,7 @@ from time import monotonic, sleep
 import pytest
 
 from dory_core.active_memory import ActiveMemoryEngine, BudgetConfig
+from dory_core.active_memory_render import WikiHelperContext, synthesized_bullets
 from dory_core.retrieval_planner import ActiveMemoryComposition, ActiveMemoryPlanningContext, ActiveMemoryRetrievalPlan
 from dory_core.types import ActiveMemoryReq, SearchReq, SearchScope, WakeReq, WakeResp
 from dory_core.wake import WakeBuilder
@@ -167,6 +168,41 @@ def test_active_memory_returns_none_when_no_context_or_results(tmp_path: Path) -
     assert result.summary == ""
     assert result.sources == []
     assert result.partial is False
+
+
+def test_synthesized_bullets_sort_by_relevance_bucket_before_score(tmp_path: Path) -> None:
+    helper = WikiHelperContext(
+        block="",
+        sources=[],
+        current_focus="",
+        recent_pages=(),
+        active_threads=(),
+        index_hints=(),
+    )
+    durable_result = _make_result(
+        path="projects/dory-hermes-memory-provider/state.md",
+        snippet="Hermes Dory provider memory-write smoke test succeeded.",
+        score=0.12,
+        frontmatter={"source_kind": "canonical", "confidence": "high"},
+    )
+    retrieved_result = _make_result(
+        path="knowledge/tools-config/openrouter-api-research.md",
+        snippet="order?: string[]; sort?: 'price' | 'speed'; preference for sorting providers.",
+        score=0.97,
+        frontmatter={"source_kind": "reference", "confidence": "medium"},
+    )
+
+    bullets = synthesized_bullets(
+        helper,
+        [retrieved_result, durable_result],
+        [],
+        root=tmp_path,
+    )
+
+    assert bullets[:2] == [
+        "Hermes Dory provider memory-write smoke test succeeded.",
+        "order?: string[]; sort?: 'price' | 'speed'; preference for sorting providers.",
+    ]
 
 
 def test_active_memory_builds_memory_block_for_state_question(tmp_path: Path) -> None:
