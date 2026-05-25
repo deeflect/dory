@@ -29,6 +29,12 @@ from dory_core.entity_context import (
     EntityContext,
     resolve_default_entity_context,
 )
+from dory_core.hot_context import (
+    HotContextPacket,
+    SourceBackedItem,
+    dedupe_sources,
+    source_backed_items_from_results,
+)
 from dory_core.markdown_excerpt import (
     result_evidence_text,
     truncate_text,
@@ -174,13 +180,21 @@ class ActiveMemoryEngine:
         partial_warnings = warnings or []
         renderable_durable_results = preferred_active_memory_results(durable_results)
         rendered_wake_block = wake_block_for_rendering(wake_block, renderable_durable_results, session_results)
-        sources = _dedupe_strings(
-            [
-                *(wake_sources if rendered_wake_block else []),
-                *[_result_path(item) for item in renderable_durable_results[:4]],
-                *[_result_path(item) for item in session_results[:3]],
-            ]
+
+        # Build the typed hot-context packet as the internal carrier.
+        packet = self._build_packet(
+            req=req,
+            source_policy=source_policy,
+            helper=helper,
+            wake_block=wake_block,
+            wake_sources=wake_sources,
+            renderable_durable_results=renderable_durable_results,
+            session_results=session_results,
+            partial_warnings=partial_warnings,
+            entity_context=entity_context,
         )
+
+        sources = list(packet.sources)
         evidence_root = self.root if deadline.total_ms > self.budget.composer_timeout_headroom_ms else None
         syn_bullets = synthesized_bullets(
             helper,
@@ -227,6 +241,81 @@ class ActiveMemoryEngine:
             partial=bool(partial_warnings),
             warnings=partial_warnings,
             entity_context=ctx_dict,
+        )
+
+    def _build_packet(
+        self,
+        *,
+        req: ActiveMemoryReq,
+        source_policy: SourcePolicy,
+        helper: WikiHelperContext,
+        wake_block: str,
+        wake_sources: list[str],
+        renderable_durable_results: list[object],
+        session_results: list[object],
+        partial_warnings: list[str],
+        entity_context: EntityContext | None = None,
+    ) -> HotContextPacket:
+        """Assemble a typed ``HotContextPacket`` from the scattered internal data.
+
+        This is the canonical internal data carrier for active-memory
+        rendering.  External response types (``ActiveMemoryResp``) are
+        produced *from* this packet; they are not replaced by it.
+        """
+        evidence_root = self.root
+        rendered_wake_block = wake_block_for_rendering(wake_block, renderable_durable_results, session_results)
+
+        # Build source-backed items from search results.
+        durable_items = source_backed_items_from_results(
+            renderable_durable_results,
+            max_items=4,
+            root=evidence_root,
+        )
+        session_items = source_backed_items_from_results(
+            session_results,
+            max_items=3,
+            snippet_chars=160,
+            root=evidence_root,
+        )
+
+        # Collect active claims from the wake block and helper context.
+        active_claims: list[SourceBackedItem] = []
+        if rendered_wake_block:
+            # The first non-empty paragraph from the wake block is the
+            # most salient active claim.
+            for line in rendered_wake_block.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and not stripped.startswith("<!--"):
+                    active_claims.append(SourceBackedItem(text=stripped))
+                    break
+        if helper.current_focus:
+            active_claims.append(
+                SourceBackedItem(text=helper.current_focus, source_path="wiki/hot.md")
+            )
+
+        # Guardrails from source policy.
+        guardrails: list[str] = []
+        if source_policy.profile == "privacy":
+            guardrails.append("privacy boundaries active")
+        if source_policy.retrieval.sessions == "never":
+            guardrails.append("session context excluded")
+
+        return HotContextPacket(
+            profile=source_policy.profile,
+            guardrails=tuple(guardrails),
+            project=entity_context,
+            entity_context=(entity_context,) if entity_context is not None else (),
+            active_claims=tuple(active_claims),
+            observations=(),
+            durable_evidence=durable_items,
+            session_evidence=session_items,
+            sources=dedupe_sources(
+                wake_sources if rendered_wake_block else [],
+                [str(getattr(r, "path", "")) for r in renderable_durable_results[:4]],
+                [str(getattr(r, "path", "")) for r in session_results[:3]],
+            ),
+            warnings=tuple(partial_warnings),
+            partial=bool(partial_warnings),
         )
 
     def _helper_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> WikiHelperContext:
