@@ -40,13 +40,17 @@ class _StubSearchEngine:
 
 
 class _StubActiveMemoryPlanner:
+    def __init__(self) -> None:
+        self.contexts: list[ActiveMemoryPlanningContext] = []
+
     def plan_active_memory(
         self,
         *,
         prompt: str,
         context: ActiveMemoryPlanningContext,
     ) -> ActiveMemoryRetrievalPlan:
-        del prompt, context
+        del prompt
+        self.contexts.append(context)
         return ActiveMemoryRetrievalPlan(
             durable_queries=("sample active focus", "sample pricing"),
             session_queries=("sample follow-up",),
@@ -298,6 +302,47 @@ canonical: true
 
     assert "projects/dory/state.md" in result.sources
     assert "Dory is the shared memory substrate for agents." in result.block
+    assert result.entity_context == {
+        "entity_id": "project:dory",
+        "canonical_name": "Dory",
+        "family": "project",
+        "canonical_path": "projects/dory/state.md",
+        "matched_by": "project_handle",
+        "source_refs": ["projects/dory/state.md"],
+    }
+
+
+def test_active_memory_adds_resolved_entity_to_planning_context(tmp_path: Path) -> None:
+    corpus_root = tmp_path / "corpus"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "pyproject.toml").write_text('[project]\nname = "dory"\n', encoding="utf-8")
+    (corpus_root / "projects" / "dory").mkdir(parents=True)
+    (corpus_root / "projects" / "dory" / "state.md").write_text(
+        "---\ntitle: Dory\ntype: project\n---\n\n## Summary\n- Dory project.\n",
+        encoding="utf-8",
+    )
+    planner = _StubActiveMemoryPlanner()
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=corpus_root),
+        search_engine=_StubSearchEngine(),
+        root=corpus_root,
+        planner=planner,
+    )
+
+    engine.build(
+        ActiveMemoryReq(
+            prompt="what context matters for this project?",
+            agent="codex",
+            cwd=str(workspace),
+            include_wake=False,
+            timeout_ms=7000,
+        )
+    )
+
+    assert planner.contexts
+    assert planner.contexts[0].entity_names == ("Dory", "project:dory")
+    assert planner.contexts[0].entity_source_refs == ("projects/dory/state.md",)
 
 
 def test_active_memory_filters_low_trust_durable_evidence(tmp_path: Path) -> None:

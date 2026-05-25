@@ -178,6 +178,9 @@ class ActiveMemoryReq(BaseModel):
     rerank: Literal["auto", "true", "false"] = "auto"
     debug: bool = False
     partial_ok: bool = True
+    # Slice 5: entity context resolution is always-on for deterministic
+    # entity/project lookup before broad retrieval.  Set to False to skip.
+    resolve_entity_context: bool = True
 
 
 class ActiveMemoryResp(BaseModel):
@@ -190,6 +193,16 @@ class ActiveMemoryResp(BaseModel):
     sources: list[str] = Field(default_factory=list)
     partial: bool = False
     warnings: list[str] = Field(default_factory=list)
+    # Slice 5: deterministic entity context packet, populated when the
+    # current project/cwd/subject resolves to a single known entity.
+    entity_context: dict[str, object] | None = Field(
+        default=None,
+        description=(
+            "Deterministic entity context: entity_id, canonical_name, "
+            "family, canonical_path, matched_by, source_refs.  Omitted "
+            "when resolution is ambiguous or impossible."
+        ),
+    )
 
 
 def serialize_active_memory_response(response: ActiveMemoryResp, *, debug: bool = False) -> dict[str, Any]:

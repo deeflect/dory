@@ -25,6 +25,10 @@ from dory_core.active_memory_retrieval import (
     search_candidates,
     with_project_result,
 )
+from dory_core.entity_context import (
+    EntityContext,
+    resolve_default_entity_context,
+)
 from dory_core.markdown_excerpt import (
     result_evidence_text,
     truncate_text,
@@ -92,11 +96,21 @@ class ActiveMemoryEngine:
         wake_sources: list[str] = []
         durable_results: list[object] = []
         session_results: list[object] = []
+        entity_context: EntityContext | None = None
 
         try:
+            # Slice 5: resolve deterministic entity context before any
+            # broad retrieval.  This gives downstream code (planning,
+            # search scoping) a typed entity packet without calling an LLM.
+            if req.resolve_entity_context and self.root is not None:
+                entity_context = resolve_default_entity_context(
+                    project=req.project,
+                    cwd=req.cwd,
+                    root=self.root,
+                )
             helper = self._helper_context(req, source_policy)
             wake_block, wake_sources = self._wake_context(req, source_policy)
-            planning_context = planning_context_from_helper(helper)
+            planning_context = self._planning_context(helper, entity_context)
             plan = self._plan(req, planning_context, deadline=deadline)
             durable_results, session_results = self._retrieve_evidence(req, plan, source_policy, deadline=deadline)
             durable_results = with_project_result(req, durable_results, root=self.root, source_policy=source_policy)
@@ -120,6 +134,7 @@ class ActiveMemoryEngine:
                 durable_results=durable_results,
                 session_results=session_results,
                 composition=composition,
+                entity_context=entity_context,
             )
         except Exception:
             if not self.budget.partial_ok or not req.partial_ok:
@@ -137,6 +152,7 @@ class ActiveMemoryEngine:
                 session_results=session_results,
                 composition=None,
                 warnings=["Active memory retrieval encountered an error; returning partial context."],
+                entity_context=entity_context,
             )
 
     def _response_from_context(
@@ -153,6 +169,7 @@ class ActiveMemoryEngine:
         session_results: list[object],
         composition: ActiveMemoryComposition | None,
         warnings: list[str] | None = None,
+        entity_context: EntityContext | None = None,
     ) -> ActiveMemoryResp:
         partial_warnings = warnings or []
         renderable_durable_results = preferred_active_memory_results(durable_results)
@@ -189,6 +206,16 @@ class ActiveMemoryEngine:
             root=evidence_root,
         )
         conf = confidence_for_results(renderable_durable_results, session_results)
+        ctx_dict: dict[str, object] | None = None
+        if entity_context is not None:
+            ctx_dict = {
+                "entity_id": entity_context.entity_id,
+                "canonical_name": entity_context.canonical_name,
+                "family": entity_context.family,
+                "canonical_path": entity_context.canonical_path,
+                "matched_by": entity_context.matched_by,
+                "source_refs": list(entity_context.source_refs),
+            }
         return ActiveMemoryResp(
             kind="memory" if block else "none",
             block=block,
@@ -199,6 +226,7 @@ class ActiveMemoryEngine:
             sources=sources,
             partial=bool(partial_warnings),
             warnings=partial_warnings,
+            entity_context=ctx_dict,
         )
 
     def _helper_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> WikiHelperContext:
@@ -208,6 +236,23 @@ class ActiveMemoryEngine:
             else empty_wiki_helper_context()
         )
         return topic_scoped_helper_context(helper, prompt=req.prompt, source_policy=source_policy)
+
+    def _planning_context(
+        self,
+        helper: WikiHelperContext,
+        entity_context: EntityContext | None,
+    ) -> ActiveMemoryPlanningContext:
+        context = planning_context_from_helper(helper)
+        if entity_context is None:
+            return context
+        return ActiveMemoryPlanningContext(
+            current_focus=context.current_focus,
+            recent_pages=context.recent_pages,
+            active_threads=context.active_threads,
+            index_hints=context.index_hints,
+            entity_names=(entity_context.canonical_name, entity_context.entity_id),
+            entity_source_refs=entity_context.source_refs,
+        )
 
     def _wake_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> tuple[str, list[str]]:
         if not req.include_wake:

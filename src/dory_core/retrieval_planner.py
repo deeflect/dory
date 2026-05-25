@@ -22,6 +22,8 @@ class ActiveMemoryPlanningContext:
     recent_pages: tuple[str, ...]
     active_threads: tuple[str, ...]
     index_hints: tuple[str, ...]
+    entity_names: tuple[str, ...] = ()
+    entity_source_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

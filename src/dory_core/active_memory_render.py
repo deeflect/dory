@@ -52,6 +52,8 @@ def planning_context_from_helper(helper: WikiHelperContext) -> ActiveMemoryPlann
         recent_pages=helper.recent_pages,
         active_threads=helper.active_threads,
         index_hints=helper.index_hints,
+        entity_names=(),
+        entity_source_refs=(),
     )
 
 
