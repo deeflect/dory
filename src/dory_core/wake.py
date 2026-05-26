@@ -6,6 +6,7 @@ from pathlib import Path
 
 from dory_core.compiled_wiki import collect_compiled_cards
 from dory_core.frontmatter import load_markdown_document
+from dory_core.hot_context import HotContextPacket, SourceBackedItem
 from dory_core.profiles import ProfileRegistry
 from dory_core.project_context import resolve_project_handle, resolve_project_path
 from dory_core.token_counting import TokenCounter, build_token_counter
@@ -74,6 +75,25 @@ class WakeBuilder:
             block=block,
             sources=sources,
             frozen_at=datetime.now(tz=UTC),
+        )
+
+    def build_packet(self, req: WakeReq) -> HotContextPacket:
+        """Build wake context as the shared internal hot-context packet."""
+        wake = self.build(req)
+        guardrails = ("privacy boundaries active",) if wake.profile == "privacy" else ()
+        return HotContextPacket(
+            profile=wake.profile,
+            guardrails=guardrails,
+            project=None,
+            entity_context=(),
+            active_claims=(),
+            observations=(),
+            durable_evidence=(),
+            session_evidence=(),
+            sources=tuple(wake.sources),
+            warnings=(),
+            partial=False,
+            wake_context=(SourceBackedItem(text=wake.block),) if wake.block else (),
         )
 
     def _load_hot_block_sections(self, *, profile: WakeProfile = "default", agent: str) -> list[HotBlockSection]:

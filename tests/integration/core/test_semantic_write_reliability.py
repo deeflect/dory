@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from dory_core import semantic_write as semantic_write_module
+import pytest
+
+from dory_core import semantic_write_artifacts as semantic_write_artifacts_module
 from dory_core import write as write_module
 from dory_core.frontmatter import load_markdown_document
 from dory_core.semantic_write import SemanticWriteEngine
+from dory_core.semantic_write_canonical import SemanticCanonicalPublisher
 from dory_core.types import MemoryWriteReq
 
 
@@ -114,9 +117,9 @@ def test_semantic_write_indexes_evidence_and_rewrites_canonical_once(
         assert embedder_arg is fake_embedder
         indexed_batches.append(tuple(paths))
 
-    monkeypatch.setattr(semantic_write_module, "reindex_paths", capture_reindex_paths)
-    monkeypatch.setattr(semantic_write_module, "load_known_entities", lambda root_arg: {})
-    monkeypatch.setattr(semantic_write_module, "sync_document_edges", lambda *args, **kwargs: 0)
+    monkeypatch.setattr(semantic_write_artifacts_module, "reindex_paths", capture_reindex_paths)
+    monkeypatch.setattr(semantic_write_artifacts_module, "load_known_entities", lambda root_arg: {})
+    monkeypatch.setattr(semantic_write_artifacts_module, "sync_document_edges", lambda *args, **kwargs: 0)
     monkeypatch.setattr(write_module, "reindex_paths", capture_reindex_paths)
     monkeypatch.setattr(write_module, "load_known_entities", lambda root_arg: {})
     monkeypatch.setattr(write_module, "sync_document_edges", lambda *args, **kwargs: 0)
@@ -141,3 +144,87 @@ def test_semantic_write_indexes_evidence_and_rewrites_canonical_once(
         ("projects/dory/state.md",),
     ]
     assert response.evidence_path in project_path.read_text(encoding="utf-8")
+
+
+def test_semantic_write_replay_reuses_evidence_after_claim_recording_failure(tmp_path: Path) -> None:
+    root = tmp_path / "corpus"
+    req = MemoryWriteReq(
+        action="write",
+        kind="state",
+        subject="dory",
+        content="Dory replay should finish after claim recording resumes.",
+        scope="project",
+        allow_canonical=True,
+    )
+    engine = SemanticWriteEngine(root)
+    original_recorder = engine.claim_recorder
+
+    class FailingClaimRecorder:
+        def record(self, *args, **kwargs) -> None:
+            raise RuntimeError("simulated claim recorder failure")
+
+        def sync_registry(self, *args, **kwargs) -> None:
+            original_recorder.sync_registry(*args, **kwargs)
+
+    engine.claim_recorder = FailingClaimRecorder()  # type: ignore[assignment]
+    with pytest.raises(RuntimeError, match="simulated claim recorder failure"):
+        engine.write(req)
+
+    semantic_artifacts = sorted((root / "sources" / "semantic").rglob("*.md"))
+    assert len(semantic_artifacts) == 1
+    assert engine.claim_store.current_claims("project:dory") == ()
+
+    engine.claim_recorder = original_recorder
+    response = engine.write(req)
+
+    assert response.result == "written"
+    assert response.evidence_path == semantic_artifacts[0].relative_to(root).as_posix()
+    assert len(sorted((root / "sources" / "semantic").rglob("*.md"))) == 1
+    claims = engine.claim_store.current_claims("project:dory", kind="state")
+    assert len(claims) == 1
+    assert claims[0].evidence_path == response.evidence_path
+    assert req.content in (root / "projects" / "dory" / "state.md").read_text(encoding="utf-8")
+
+
+def test_semantic_write_replay_does_not_duplicate_claim_after_canonical_failure(tmp_path: Path) -> None:
+    root = tmp_path / "corpus"
+    req = MemoryWriteReq(
+        action="write",
+        kind="state",
+        subject="dory",
+        content="Dory replay should not duplicate active claims.",
+        scope="project",
+        allow_canonical=True,
+    )
+    engine = SemanticWriteEngine(root)
+
+    class FailingCanonicalPublisher:
+        def rewrite_from_claims(self, *args, **kwargs):
+            raise RuntimeError("simulated canonical publish failure")
+
+        def rewrite_tombstone_from_claims(self, *args, **kwargs) -> None:
+            return None
+
+    engine.canonical_publisher = FailingCanonicalPublisher()  # type: ignore[assignment]
+    with pytest.raises(RuntimeError, match="simulated canonical publish failure"):
+        engine.write(req)
+
+    semantic_artifacts = sorted((root / "sources" / "semantic").rglob("*.md"))
+    assert len(semantic_artifacts) == 1
+    assert len(engine.claim_store.current_claims("project:dory", kind="state")) == 1
+
+    engine.canonical_publisher = SemanticCanonicalPublisher(
+        root=root,
+        writer=engine.writer,
+        claim_store=engine.claim_store,
+    )
+    response = engine.write(req)
+
+    assert response.result == "written"
+    assert response.evidence_path == semantic_artifacts[0].relative_to(root).as_posix()
+    assert len(sorted((root / "sources" / "semantic").rglob("*.md"))) == 1
+    claims = engine.claim_store.current_claims("project:dory", kind="state")
+    assert len(claims) == 1
+    assert claims[0].statement == req.content
+    assert claims[0].evidence_path == response.evidence_path
+    assert req.content in (root / "projects" / "dory" / "state.md").read_text(encoding="utf-8")

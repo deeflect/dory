@@ -272,6 +272,27 @@ class TestRenderPacketToBlock:
         assert "core/test.md" in block
         assert "Durable snippet" in block
 
+    def test_wake_context_renders_between_active_and_evidence(self) -> None:
+        pkt = HotContextPacket(
+            profile="test",
+            guardrails=(),
+            project=None,
+            entity_context=(),
+            active_claims=(SourceBackedItem(text="Active claim"),),
+            observations=(),
+            durable_evidence=(SourceBackedItem(text="Durable snippet", source_path="core/test.md"),),
+            session_evidence=(),
+            sources=(),
+            warnings=(),
+            partial=False,
+            wake_context=(SourceBackedItem(text="# Wake\n\nWake context."),),
+        )
+
+        block = render_packet_to_block(pkt, budget_tokens=400)
+
+        assert block.index("## Active memory") < block.index("# Wake")
+        assert block.index("# Wake") < block.index("## Durable evidence")
+
     def test_session_evidence_section(self) -> None:
         pkt = HotContextPacket(
             profile="test",

@@ -74,10 +74,13 @@ def test_http_routes_cover_core_verbs(
     assert link.json()["count"] >= 1
 
     status = client.get("/v1/status")
+    debug_status = client.get("/v1/status", params={"debug": True})
     assert status.status_code == 200
     assert status.json()["api_version"] == "v1"
     assert "corpus_root" not in status.json()
     assert "compat_matrix" not in status.json()
+    assert debug_status.status_code == 200
+    assert debug_status.json()["features"]["search"]["bm25_enabled"] is True
 
 
 def test_wake_http_unknown_profile_returns_validation_error(tmp_path: Path) -> None:

@@ -129,6 +129,7 @@ def _build_dory_runtime(config: RuntimeConfig) -> DoryRuntime:
         retrieval_planner=planner,
         reranker=build_reranker(settings),
         rerank_candidate_limit=settings.query_reranker_candidate_limit,
+        research_engine_cls=ResearchEngine,
     )
 
 

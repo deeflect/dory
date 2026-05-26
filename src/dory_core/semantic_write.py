@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -8,33 +7,39 @@ from typing import Literal
 
 from dory_core.canonical_pages import (
     build_timeline_entry,
-    canonical_title_from_subject,
     infer_aliases_from_subject,
     merge_section_content,
     patch_canonical_markdown,
     patch_core_markdown,
-    render_canonical_from_claims,
-    render_retired_canonical_from_claims,
 )
 from dory_core.claim_store import ClaimStore
 from dory_core.entity_registry import EntityRegistry
 from dory_core.embedding import ContentEmbedder
 from dory_core.errors import DoryValidationError
-from dory_core.frontmatter import dump_markdown_document, load_markdown_document
-from dory_core.fs import atomic_write_text, resolve_corpus_target
-from dory_core.index.reindex import reindex_paths
-from dory_core.link import load_known_entities, sync_document_edges
+from dory_core.frontmatter import load_markdown_document
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
-from dory_core.metadata import normalize_frontmatter
-from dory_core.slug import canonical_target_for_subject, normalize_migration_slug
+from dory_core.slug import normalize_migration_slug
 from dory_core.config import DorySettings
+from dory_core.semantic_write_artifacts import SemanticEvidenceArtifact, SemanticEvidenceStore
+from dory_core.semantic_write_canonical import SemanticCanonicalPublisher
+from dory_core.semantic_write_claims import SemanticClaimRecorder
+from dory_core.semantic_write_plan import (
+    ResolvedMode,
+    SemanticWritePlan,
+    build_semantic_write_plan,
+    is_canonical_semantic_target,
+    primary_section_for_plan,
+    semantic_write_preview_message,
+    semantic_write_preview_payload,
+    should_rewrite_canonical_from_claims,
+)
 from dory_core.subject_resolver import (
     RegistryBackedSubjectResolver,
     SubjectMatch,
     SubjectResolver,
     SubjectResolverLike,
 )
-from dory_core.types import MemoryWriteAction, MemoryWriteKind, MemoryWriteReq, MemoryWriteResp, WriteReq, WriteResp
+from dory_core.types import MemoryWriteReq, MemoryWriteResp, WriteReq, WriteResp
 from dory_core.write import WriteEngine
 
 __all__ = [
@@ -47,42 +52,6 @@ __all__ = [
     "RegistryBackedSubjectResolver",
     "build_semantic_write_plan",
 ]
-
-ResolvedMode = Literal["append", "replace", "forget"]
-
-
-@dataclass(frozen=True, slots=True)
-class SemanticWritePlan:
-    action: MemoryWriteAction
-    kind: MemoryWriteKind
-    subject: str
-    subject_ref: str
-    target_subject_ref: str
-    family: str
-    title: str
-    target_path: str
-    resolved_mode: ResolvedMode
-    content: str
-    scope: str | None
-    confidence: Literal["high", "medium", "low"] | None
-    soft: bool
-    match_confidence: Literal["high", "medium", "low"]
-    reason: str | None
-    source: str | None
-    agent: str | None
-    session_id: str | None
-    origin_surface: str | None
-    matched_by: str
-    target_exists: bool
-
-
-@dataclass(frozen=True, slots=True)
-class _SemanticEvidenceArtifact:
-    path: str
-    frontmatter: dict[str, object]
-    content: str
-
-
 
 class SemanticWriteEngine:
     def __init__(
@@ -101,8 +70,22 @@ class SemanticWriteEngine:
             index_root=index_root,
             embedder=embedder,
         )
+        self.evidence_store = SemanticEvidenceStore(
+            self.root,
+            index_root=self.writer.index_root,
+            embedder=self.writer.embedder,
+        )
         self.registry = EntityRegistry(self.root / ".dory" / "entity-registry.db")
         self.claim_store = ClaimStore(self.root / ".dory" / "claim-store.db")
+        self.claim_recorder = SemanticClaimRecorder(
+            registry=self.registry,
+            claim_store=self.claim_store,
+        )
+        self.canonical_publisher = SemanticCanonicalPublisher(
+            root=self.root,
+            writer=self.writer,
+            claim_store=self.claim_store,
+        )
         resolved_client = (
             resolver_client
             if resolver_client is not None
@@ -169,7 +152,7 @@ class SemanticWriteEngine:
                 message=message,
             )
 
-        if not req.dry_run and not req.allow_canonical and _is_canonical_semantic_target(plan):
+        if not req.dry_run and not req.allow_canonical and is_canonical_semantic_target(plan):
             return MemoryWriteResp(
                 resolved=True,
                 action=req.action,
@@ -205,7 +188,7 @@ class SemanticWriteEngine:
             )
 
         try:
-            semantic_evidence = self._plan_semantic_evidence_artifact(plan)
+            semantic_evidence = self._semantic_evidence_for_plan(plan, existing_evidence_path=existing_evidence_path)
             if req.dry_run or not (plan.resolved_mode == "forget" and self._should_patch_forget_exact_content(plan)):
                 low_level_req = self._build_low_level_write_req(plan, evidence_path=semantic_evidence.path)
                 if low_level_req.kind == "replace":
@@ -222,17 +205,21 @@ class SemanticWriteEngine:
                     confidence=req.confidence or plan.confidence,
                     indexed=False,
                     quarantined=False,
-                    message=_semantic_write_preview_message(
+                    message=semantic_write_preview_message(
                         plan,
                         action=response.action,
                         evidence_path=semantic_evidence.path,
                     ),
                     evidence_path=semantic_evidence.path,
                     matched_by=plan.matched_by,
-                    preview=_semantic_write_preview(plan, action=response.action, evidence_path=semantic_evidence.path),
+                    preview=semantic_write_preview_payload(
+                        plan,
+                        action=response.action,
+                        evidence_path=semantic_evidence.path,
+                    ),
                 )
             response: WriteResp | None = None
-            if _should_rewrite_canonical_from_claims(plan):
+            if should_rewrite_canonical_from_claims(plan):
                 if req.soft and self.writer._find_content_issue(low_level_req.content) is not None:
                     response = self.writer.write(low_level_req)
                 else:
@@ -253,7 +240,7 @@ class SemanticWriteEngine:
                     confidence=req.confidence or plan.confidence,
                     indexed=False,
                     quarantined=False,
-                    message=_semantic_write_preview_message(
+                    message=semantic_write_preview_message(
                         plan,
                         action="would_update_large_target",
                         evidence_path=semantic_evidence.path,
@@ -261,7 +248,7 @@ class SemanticWriteEngine:
                     + "; rendered target exceeds preview write-size limit",
                     evidence_path=semantic_evidence.path,
                     matched_by=plan.matched_by,
-                    preview=_semantic_write_preview(
+                    preview=semantic_write_preview_payload(
                         plan,
                         action="would_update_large_target",
                         evidence_path=semantic_evidence.path,
@@ -296,19 +283,20 @@ class SemanticWriteEngine:
                 message="semantic write content was quarantined",
             )
 
-        self._write_semantic_evidence_artifact(semantic_evidence)
+        if existing_evidence_path is None:
+            self.evidence_store.write(semantic_evidence)
         result = "written"
         if plan.resolved_mode == "replace":
             result = "replaced"
         elif plan.resolved_mode == "forget":
             result = "forgotten"
 
-        self._record_claims(plan, evidence_path=semantic_evidence.path)
-        self._sync_registry(plan, requested_subject=req.subject)
-        if _should_rewrite_canonical_from_claims(plan):
-            response = self._rewrite_canonical_from_claims(plan, requested_subject=req.subject)
+        self.claim_recorder.record(plan, evidence_path=semantic_evidence.path)
+        self.claim_recorder.sync_registry(plan, requested_subject=req.subject)
+        if should_rewrite_canonical_from_claims(plan):
+            response = self.canonical_publisher.rewrite_from_claims(plan, requested_subject=req.subject)
         if plan.family != "core" and plan.resolved_mode == "forget":
-            self._rewrite_tombstone_from_claims(plan, requested_subject=req.subject)
+            self.canonical_publisher.rewrite_tombstone_from_claims(plan, requested_subject=req.subject)
 
         if response is None:
             raise DoryValidationError("semantic write did not produce a write response")
@@ -481,179 +469,6 @@ class SemanticWriteEngine:
         stamp = datetime.now(tz=UTC).strftime("%Y-%m-%d-%H%M%S-%f")
         return f"inbox/semantic/{stamp}-{subject_slug}.md"
 
-    def _plan_semantic_evidence_artifact(self, plan: SemanticWritePlan) -> _SemanticEvidenceArtifact:
-        subject_slug = self._semantic_evidence_subject_slug(plan)
-        artifact_path = self._semantic_evidence_path(plan.action, subject_slug=subject_slug)
-        frontmatter: dict[str, object] = {
-            "title": f"Semantic {plan.action} for {plan.title}",
-            "type": "source",
-            "status": "done",
-            "canonical": False,
-            "source_kind": "semantic",
-            "entity_id": plan.target_subject_ref,
-            "subject": plan.subject,
-            "action": plan.action,
-            "kind": plan.kind,
-            "reason": plan.reason,
-            "origin_surface": plan.origin_surface or plan.source or "semantic-write",
-            "agent": plan.agent,
-            "session_id": plan.session_id,
-            "canonical_target": plan.target_path,
-        }
-        return _SemanticEvidenceArtifact(
-            path=artifact_path,
-            frontmatter=frontmatter,
-            content=plan.content,
-        )
-
-    def _write_semantic_evidence_artifact(self, artifact: _SemanticEvidenceArtifact) -> None:
-        target_path = Path(artifact.path)
-        target = resolve_corpus_target(self.root, target_path)
-        if target.exists():
-            raise DoryValidationError(f"semantic evidence artifact already exists: {artifact.path}")
-
-        target.parent.mkdir(parents=True, exist_ok=True)
-        frontmatter = normalize_frontmatter(artifact.frontmatter, target=target_path)
-        rendered = dump_markdown_document(frontmatter, artifact.content)
-        atomic_write_text(target, rendered, encoding="utf-8")
-
-        if self.writer.index_root is None or self.writer.embedder is None:
-            return
-
-        reindex_paths(
-            self.root,
-            self.writer.index_root,
-            self.writer.embedder,
-            [artifact.path],
-        )
-        known_entities = load_known_entities(self.root)
-        sync_document_edges(
-            self.writer.index_root / "dory.db",
-            from_path=artifact.path,
-            markdown=rendered,
-            known_entities=known_entities,
-        )
-
-    def _semantic_evidence_path(self, action: MemoryWriteAction, *, subject_slug: str) -> str:
-        while True:
-            stamp = datetime.now(tz=UTC)
-            day_path = stamp.strftime("%Y/%m/%d")
-            candidate = f"sources/semantic/{day_path}/{subject_slug}-{stamp.strftime('%Y%m%d-%H%M%S-%f')}-{action}.md"
-            if not resolve_corpus_target(self.root, Path(candidate)).exists():
-                return candidate
-
-    def _sync_registry(self, plan: SemanticWritePlan, *, requested_subject: str) -> None:
-        self.registry.upsert(
-            entity_id=plan.target_subject_ref,
-            family=plan.family,
-            title=plan.title,
-            target_path=plan.target_path,
-            aliases=infer_aliases_from_subject(plan.target_subject_ref, requested_subject=requested_subject),
-        )
-        if plan.subject_ref != plan.target_subject_ref:
-            subject_family = _family_from_subject_ref(plan.subject_ref)
-            self.registry.upsert(
-                entity_id=plan.subject_ref,
-                family=subject_family,
-                title=canonical_title_from_subject(plan.subject_ref),
-                target_path=canonical_target_for_subject(plan.subject_ref),
-                aliases=infer_aliases_from_subject(plan.subject_ref, requested_subject=requested_subject),
-            )
-
-    def _record_claims(self, plan: SemanticWritePlan, *, evidence_path: str) -> None:
-        statement = plan.content.strip()
-        if not statement:
-            return
-
-        confidence = plan.confidence or plan.match_confidence
-        if plan.resolved_mode == "replace":
-            self.claim_store.replace_current_claim(
-                entity_id=plan.target_subject_ref,
-                kind=plan.kind,
-                statement=statement,
-                evidence_path=evidence_path,
-                confidence=confidence,
-                reason=plan.reason,
-            )
-            return
-
-        if plan.resolved_mode == "forget":
-            self.claim_store.retire_entity_claims(
-                entity_id=plan.target_subject_ref,
-                reason=plan.reason or f"semantic {plan.action}",
-                kind=None if plan.kind == "note" else plan.kind,
-                evidence_path=evidence_path,
-            )
-            return
-
-        self.claim_store.add_claim(
-            entity_id=plan.target_subject_ref,
-            kind=plan.kind,
-            statement=statement,
-            evidence_path=evidence_path,
-            confidence=confidence,
-        )
-
-    def _rewrite_canonical_from_claims(self, plan: SemanticWritePlan, *, requested_subject: str) -> WriteResp:
-        claims = self.claim_store.current_claims(plan.target_subject_ref)
-        history = self.claim_store.claim_history(plan.target_subject_ref)
-        events = self.claim_store.claim_events(plan.target_subject_ref)
-        update = render_canonical_from_claims(
-            family=plan.family,
-            title=plan.title,
-            entity_id=plan.target_subject_ref,
-            claims=claims,
-            history=history,
-            events=events,
-            aliases=infer_aliases_from_subject(plan.target_subject_ref, requested_subject=requested_subject),
-        )
-        document = load_markdown_document(update.body)
-        target = Path(plan.target_path)
-        write_kind = "replace" if (self.root / target).exists() else "create"
-        expected_hash = self._current_hash_for_target(target) if write_kind == "replace" else None
-        return self.writer.write(
-            WriteReq(
-                kind=write_kind,
-                target=plan.target_path,
-                content=document.body,
-                frontmatter=document.frontmatter,
-                soft=False,
-                reason="claim-derived canonical rewrite",
-                expected_hash=expected_hash,
-            )
-        )
-
-    def _rewrite_tombstone_from_claims(self, plan: SemanticWritePlan, *, requested_subject: str) -> None:
-        history = self.claim_store.claim_history(plan.target_subject_ref)
-        events = self.claim_store.claim_events(plan.target_subject_ref)
-        if not history:
-            return
-
-        tombstone_target = Path(plan.target_path).with_name(f"{Path(plan.target_path).stem}.tombstone.md")
-        update = render_retired_canonical_from_claims(
-            family=plan.family,
-            title=plan.title,
-            entity_id=plan.target_subject_ref,
-            history=history,
-            events=events,
-            aliases=infer_aliases_from_subject(plan.target_subject_ref, requested_subject=requested_subject),
-            retirement_reason=plan.reason,
-        )
-        document = load_markdown_document(update.body)
-        write_kind = "replace" if (self.root / tombstone_target).exists() else "create"
-        expected_hash = self._current_hash_for_target(tombstone_target) if write_kind == "replace" else None
-        self.writer.write(
-            WriteReq(
-                kind=write_kind,
-                target=tombstone_target.as_posix(),
-                content=document.body,
-                frontmatter=document.frontmatter,
-                soft=False,
-                reason="claim-derived tombstone rewrite",
-                expected_hash=expected_hash,
-            )
-        )
-
     def _find_existing_semantic_evidence(self, plan: SemanticWritePlan) -> str | None:
         semantic_root = self.root / "sources" / "semantic"
         if not semantic_root.exists():
@@ -677,6 +492,20 @@ class SemanticWriteEngine:
             if _normalize_semantic_text(document.body) == expected_content:
                 return path.relative_to(self.root).as_posix()
         return None
+
+    def _semantic_evidence_for_plan(
+        self,
+        plan: SemanticWritePlan,
+        *,
+        existing_evidence_path: str | None,
+    ) -> SemanticEvidenceArtifact:
+        if existing_evidence_path is None:
+            return self.evidence_store.plan(plan)
+        return SemanticEvidenceArtifact(
+            path=existing_evidence_path,
+            frontmatter={},
+            content=plan.content,
+        )
 
     def _canonical_already_reflects_plan(self, plan: SemanticWritePlan) -> bool:
         target = self.root / plan.target_path
@@ -766,10 +595,6 @@ class SemanticWriteEngine:
         document = load_markdown_document(update.body)
         return document.frontmatter, document.body
 
-    def _semantic_evidence_subject_slug(self, plan: SemanticWritePlan) -> str:
-        _family, slug = plan.target_subject_ref.split(":", 1)
-        return normalize_migration_slug(slug) or normalize_migration_slug(plan.subject) or "unknown-subject"
-
     def _section_updates(self, plan: SemanticWritePlan) -> dict[str, str]:
         existing_text: str = ""
         target = self.root / plan.target_path
@@ -780,7 +605,7 @@ class SemanticWriteEngine:
             except ValueError:
                 existing_text = ""
 
-        primary_section = _primary_section_for_plan(plan)
+        primary_section = primary_section_for_plan(plan)
         replacement = plan.content.strip()
         if plan.resolved_mode == "replace":
             updates = {primary_section: replacement}
@@ -816,185 +641,6 @@ class SemanticWriteEngine:
         return f"sha256:{sha256(current_text.encode('utf-8')).hexdigest()}"
 
 
-def build_semantic_write_plan(
-    root: Path,
-    req: MemoryWriteReq,
-    *,
-    resolver: SubjectResolverLike | None = None,
-) -> SemanticWritePlan:
-    resolver = resolver or SubjectResolver(root)
-    match = resolver.resolve(req.subject, scope=req.scope)
-    if match is None or _should_create_new_explicit_dream_subject(match, req):
-        match = _new_subject_match_from_explicit_scope(req)
-    if match is None:
-        raise ValueError(f"could not resolve semantic subject: {req.subject}")
-
-    target_subject_ref, target_family, target_path = _route_target(match, req)
-    resolved_mode = _resolve_mode(req.action)
-    return SemanticWritePlan(
-        action=req.action,
-        kind=req.kind,
-        subject=req.subject,
-        subject_ref=match.subject_ref,
-        target_subject_ref=target_subject_ref,
-        family=target_family,
-        title=canonical_title_from_subject(target_subject_ref)
-        if target_family == "decision" and match.family != "decision"
-        else match.title,
-        target_path=target_path,
-        resolved_mode=resolved_mode,
-        content=req.content,
-        scope=req.scope,
-        confidence=req.confidence,
-        soft=req.soft,
-        match_confidence=match.confidence,
-        reason=req.reason,
-        source=req.source,
-        agent=req.agent,
-        session_id=req.session_id,
-        origin_surface=req.origin_surface,
-        matched_by=match.matched_by,
-        target_exists=(root / target_path).exists(),
-    )
-
-
-def _new_subject_match_from_explicit_scope(req: MemoryWriteReq) -> SubjectMatch | None:
-    if req.scope not in {"project", "concept", "decision"}:
-        return None
-    slug = normalize_migration_slug(req.subject)
-    if not slug:
-        return None
-    subject_ref = f"{req.scope}:{slug}"
-    return SubjectMatch(
-        subject_ref=subject_ref,
-        family=req.scope,
-        title=canonical_title_from_subject(subject_ref),
-        target_path=canonical_target_for_subject(subject_ref),
-        matched_by="explicit_scope",
-        confidence="high",
-    )
-
-
-def _should_create_new_explicit_dream_subject(match: SubjectMatch, req: MemoryWriteReq) -> bool:
-    if req.scope not in {"project", "concept", "decision"}:
-        return False
-    source = req.source or ""
-    if "/digests/" not in source and "/inbox/distilled/" not in source:
-        return False
-    slug = normalize_migration_slug(req.subject)
-    if not slug:
-        return False
-    requested_subject_ref = f"{req.scope}:{slug}"
-    if match.subject_ref == requested_subject_ref:
-        return False
-    return match.matched_by in {"alias", "llm"}
-
-
-def _route_target(match: SubjectMatch, req: MemoryWriteReq) -> tuple[str, str, str]:
-    if match.family == "core":
-        return match.subject_ref, "core", match.target_path
-    if req.kind == "decision":
-        if match.family == "decision":
-            target_subject_ref = match.subject_ref
-        else:
-            decision_slug = normalize_migration_slug(req.subject) or normalize_migration_slug(match.title)
-            target_subject_ref = f"decision:{decision_slug}"
-        return target_subject_ref, "decision", canonical_target_for_subject(target_subject_ref)
-    if match.family in {"person", "project", "concept", "decision"}:
-        return match.subject_ref, match.family, canonical_target_for_subject(match.subject_ref)
-    raise ValueError(f"unsupported semantic family: {match.family}")
-
-
-def _frontmatter_type_for_family(family: str) -> str:
-    if family == "person":
-        return "person"
-    if family == "project":
-        return "project"
-    if family == "concept":
-        return "concept"
-    if family == "decision":
-        return "decision"
-    if family == "core":
-        return "core"
-    return "note"
-
-
-def _resolve_mode(action: MemoryWriteAction) -> ResolvedMode:
-    if action == "replace":
-        return "replace"
-    if action == "forget":
-        return "forget"
-    return "append"
-
-
-def _is_canonical_semantic_target(plan: SemanticWritePlan) -> bool:
-    if plan.family in {"core", "person", "project", "concept", "decision"}:
-        return True
-    return plan.target_path.startswith(("core/", "people/", "projects/", "concepts/", "decisions/"))
-
-
-def _should_rewrite_canonical_from_claims(plan: SemanticWritePlan) -> bool:
-    return plan.family != "core" and plan.resolved_mode != "forget"
-
-
-def _semantic_write_preview_message(plan: SemanticWritePlan, *, action: str, evidence_path: str) -> str:
-    prefix = ""
-    if _is_canonical_semantic_target(plan):
-        prefix = (
-            f"CANONICAL TARGET {plan.target_path}; preview only; "
-            "use force_inbox=true for tentative notes or allow_canonical=true after review. "
-        )
-    return f"{prefix}dry_run: {action}; semantic evidence would be {evidence_path}"
-
-
-def _semantic_write_preview(plan: SemanticWritePlan, *, action: str, evidence_path: str) -> dict[str, object]:
-    return {
-        "action": action,
-        "subject": plan.subject,
-        "subject_ref": plan.subject_ref,
-        "target_subject_ref": plan.target_subject_ref,
-        "target_path": plan.target_path,
-        "family": plan.family,
-        "kind": plan.kind,
-        "resolved_mode": plan.resolved_mode,
-        "matched_by": plan.matched_by,
-        "match_confidence": plan.match_confidence,
-        "evidence_path": evidence_path,
-        "canonical_target": _is_canonical_semantic_target(plan),
-    }
-
-
-def _primary_section_for_plan(plan: SemanticWritePlan) -> str:
-    if plan.family == "person":
-        if plan.kind == "preference":
-            return "Preferences And Working Style"
-        return "Current Facts"
-    if plan.family == "project":
-        if plan.kind == "note":
-            return "Open Work"
-        return "Current State"
-    if plan.family == "concept":
-        if plan.kind == "note":
-            return "Open Questions"
-        return "Current Understanding"
-    if plan.family == "decision":
-        return "Decision"
-    if plan.family == "core":
-        stem = Path(plan.target_path).stem
-        if stem == "user":
-            return "Current Facts" if plan.kind != "preference" else "Preferences And Working Style"
-        if stem == "active":
-            return "Current Focus"
-        if stem == "defaults":
-            return "Default Operating Assumptions"
-        if stem == "env":
-            return "Environment"
-        if stem == "identity":
-            return "Role"
-        return "Behavior Rules"
-    return "Summary"
-
-
 def _section_text(markdown_body: str, section: str) -> str:
     marker = f"## {section}\n"
     if marker not in markdown_body:
@@ -1024,8 +670,3 @@ def _remove_exact_content_from_body(markdown_body: str, content: str) -> str:
     lines = markdown_body.splitlines()
     kept = [line for line in lines if _normalize_semantic_text(line) != expected]
     return "\n".join(kept).rstrip() + "\n"
-
-
-def _family_from_subject_ref(subject_ref: str) -> str:
-    family, _slug = subject_ref.split(":", 1)
-    return family

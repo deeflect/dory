@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Callable
 from dataclasses import asdict
-from datetime import date
 from pathlib import Path
 
 import typer
@@ -12,37 +10,24 @@ import typer
 from dory_cli._internals import (
     RuntimeConfig,
     _build_active_memory_engine,
-    _build_dory_runtime,
     _build_migrate_route_progress_reporter,
     _build_migration_engine,
     _build_migration_planner,
     _build_migration_progress_reporter,
     _build_migration_scope,
     _build_retrieval_planner as _build_retrieval_planner,  # noqa: F401 - compatibility for tests/patching
-    _build_research_engine,
-    _build_semantic_write_engine,
     _fail_with_runtime_error,
     _get_config,
     _init_directories,
     _init_seed_documents,
     _planner_with_pricing_overrides,
-    _resolve_corpus_path,
     _run_interactive_migration_plan,
     _serialize_migration_plan,
-    _slice_lines,
 )
 from dory_cli.eval import app as eval_app
-from dory_core.artifacts import ArtifactWriter
 from dory_core.config import DorySettings, resolve_runtime_paths
 from dory_core.embedding import EmbeddingConfigurationError, EmbeddingProviderError, build_runtime_embedder
-from dory_core.index.reindex import (
-    ReconcilePlan,
-    ReindexProgress,
-    plan_reconcile,
-    reconcile_corpus,
-    reindex_corpus,
-)
-from dory_core.link import LinkService
+from dory_core.index.reindex import reindex_corpus
 from dory_core.llm.dream import (
     build_dream_llm as build_dream_llm,  # noqa: F401 - compatibility for tests/patching
     require_dream_llm as require_dream_llm,  # noqa: F401 - compatibility for tests/patching
@@ -50,9 +35,6 @@ from dory_core.llm.dream import (
 from dory_core.llm_rerank import build_reranker as build_reranker  # noqa: F401 - compatibility for tests/patching
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
 from dory_core.ops import OpsWatchRunner as OpsWatchRunner  # noqa: F401 - compatibility for tests/patching
-from dory_core.purge import PurgeEngine
-from dory_core.session_sync import plan_session_sync, sync_session_files
-from dory_core.status import build_status, format_status
 from dory_core.migration_source_router import build_manifest, walk_source_tree
 from dory_core.migration_executor import execute_manifest, execute_source_tree
 from dory_core.migration_review_router import OpenRouterReviewRouter
@@ -76,17 +58,6 @@ from dory_core.digest_mining import (
     mine_digest_file,
     mine_digest_tree,
 )
-from dory_core.types import (
-    ActiveMemoryReq,
-    MemoryWriteReq,
-    PurgeReq,
-    ResearchReq,
-    SearchReq,
-    SearchScope,
-    WakeReq,
-    serialize_search_response,
-)
-from dory_core.wake import WakeBuilder
 
 app = typer.Typer(add_completion=False, help="Dory CLI")
 app.add_typer(eval_app, name="eval")
@@ -103,14 +74,18 @@ app.add_typer(ops_app, name="ops")
 
 # Register subcommand groups from external command modules.
 from dory_cli.commands.auth import register as _register_auth  # noqa: E402
+from dory_cli.commands.core import register as _register_core  # noqa: E402
 from dory_cli.commands.dream import register as _register_dream  # noqa: E402
 from dory_cli.commands.maintain import register as _register_maintain  # noqa: E402
+from dory_cli.commands.memory import register as _register_memory  # noqa: E402
 from dory_cli.commands.ops import register as _register_ops  # noqa: E402
 from dory_cli.commands.proposals import register as _register_proposals  # noqa: E402
 
 _register_auth(auth_app)
+_register_core(app)
 _register_dream(dream_app)
 _register_maintain(maintain_app)
+_register_memory(app, active_memory_engine_builder=lambda config: _build_active_memory_engine(config))
 _register_ops(ops_app)
 _register_proposals(proposals_app)
 
@@ -167,190 +142,6 @@ def init(ctx: typer.Context) -> None:
                 "index_root": str(config.index_root),
                 "auth_tokens_path": str(config.auth_tokens_path),
                 "initialized": True,
-            },
-            indent=2,
-            sort_keys=True,
-        )
-    )
-
-
-@app.command()
-def wake(
-    ctx: typer.Context,
-    budget: int = typer.Option(600, "--budget"),
-    agent: str = typer.Option("codex", "--agent"),
-    profile: str = typer.Option("default", "--profile"),
-    project: str | None = typer.Option(None, "--project", help="Optional project/entity handle to include in wake."),
-    cwd: str | None = typer.Option(None, "--cwd", help="Optional working directory for project inference."),
-) -> None:
-    config = _get_config(ctx)
-    resp = WakeBuilder(config.corpus_root).build(
-        WakeReq(budget_tokens=budget, agent=agent, profile=profile, project=project, cwd=cwd)
-    )
-    typer.echo(resp.block)
-
-
-@app.command("active-memory")
-def active_memory(
-    ctx: typer.Context,
-    prompt: str = typer.Argument(...),
-    agent: str = typer.Option("codex", "--agent"),
-    cwd: str | None = typer.Option(None, "--cwd"),
-    project: str | None = typer.Option(None, "--project", help="Optional project/entity handle to include."),
-    session_key: str | None = typer.Option(None, "--session-key", help="Optional session key for recall scoping."),
-    session_ids: list[str] = typer.Option([], "--session-id", help="Session id filter for recall evidence."),
-    session_agents: list[str] = typer.Option([], "--session-agent", help="Session agent filter for recall evidence."),
-    devices: list[str] = typer.Option([], "--device", help="Session device filter for recall evidence."),
-    session_statuses: list[str] = typer.Option([], "--session-status", help="Session status filter for recall evidence."),
-    since: str | None = typer.Option(None, "--since", help="Lower updated-time bound for recall evidence."),
-    until: str | None = typer.Option(None, "--until", help="Upper updated-time bound for recall evidence."),
-    profile: str = typer.Option("auto", "--profile"),
-    include_wake: bool = typer.Option(True, "--include-wake/--no-include-wake"),
-) -> None:
-    config = _get_config(ctx)
-    result = _build_active_memory_engine(config).build(
-        ActiveMemoryReq(
-            prompt=prompt,
-            agent=agent,
-            cwd=cwd,
-            project=project,
-            scope=SearchScope(
-                agent=session_agents,
-                device=devices,
-                session_id=session_ids,
-                session_key=session_key,
-                status=session_statuses,
-                since=since,
-                until=until,
-            ),
-            profile=profile,
-            include_wake=include_wake,
-        )
-    )
-    typer.echo(result.model_dump_json(indent=2))
-
-
-@app.command("memory-write")
-def memory_write(
-    ctx: typer.Context,
-    content: str = typer.Argument(..., help="Memory content to write"),
-    subject: str = typer.Option(..., "--subject", help="Fuzzy subject to route the memory to"),
-    action: str = typer.Option("write", "--action", help="Semantic write action"),
-    kind: str = typer.Option("fact", "--kind", help="Semantic memory kind"),
-    scope: str | None = typer.Option(None, "--scope", help="Optional routing scope"),
-    confidence: str | None = typer.Option(None, "--confidence", help="Optional confidence hint"),
-    reason: str | None = typer.Option(None, "--reason", help="Optional reason or context"),
-    source: str | None = typer.Option(None, "--source", help="Optional source label"),
-    agent: str | None = typer.Option(None, "--agent", help="Optional agent identity for provenance"),
-    session_id: str | None = typer.Option(None, "--session-id", help="Optional session id for provenance"),
-    origin_surface: str | None = typer.Option(None, "--origin-surface", help="Optional client/tool provenance label"),
-    soft: bool = typer.Option(False, "--soft/--no-soft", help="Quarantine instead of rejecting on ambiguity"),
-    dry_run: bool = typer.Option(False, "--dry-run/--no-dry-run", help="Preview routing without writing"),
-    force_inbox: bool = typer.Option(
-        False, "--force-inbox/--no-force-inbox", help="Bypass subject resolution and capture under inbox/semantic"
-    ),
-    allow_canonical: bool = typer.Option(
-        False,
-        "--allow-canonical/--no-allow-canonical",
-        help="Permit a live semantic write to canonical memory after preview",
-    ),
-) -> None:
-    config = _get_config(ctx)
-    request = MemoryWriteReq.model_validate(
-        {
-            "action": action,
-            "kind": kind,
-            "subject": subject,
-            "content": content,
-            "scope": scope,
-            "confidence": confidence,
-            "reason": reason,
-            "source": source,
-            "agent": agent,
-            "session_id": session_id,
-            "origin_surface": origin_surface,
-            "soft": soft,
-            "dry_run": dry_run,
-            "force_inbox": force_inbox,
-            "allow_canonical": allow_canonical,
-        }
-    )
-    result = _build_semantic_write_engine(config).write(request)
-    typer.echo(json.dumps(result.model_dump(mode="json"), indent=2, sort_keys=True))
-
-
-@app.command("purge")
-def purge(
-    ctx: typer.Context,
-    target: str = typer.Argument(..., help="Exact corpus-relative markdown path to hard-delete"),
-    expected_hash: str | None = typer.Option(None, "--expected-hash", help="Required for live purge"),
-    reason: str | None = typer.Option(None, "--reason", help="Required for live purge"),
-    dry_run: bool = typer.Option(
-        True, "--dry-run/--no-dry-run", help="Preview by default; pass --no-dry-run to delete"
-    ),
-    allow_canonical: bool = typer.Option(
-        False, "--allow-canonical/--no-allow-canonical", help="Permit protected/canonical paths"
-    ),
-    include_related_tombstone: bool = typer.Option(
-        False,
-        "--include-related-tombstone/--no-include-related-tombstone",
-        help="Also delete <target>.tombstone.md when present",
-    ),
-) -> None:
-    config = _get_config(ctx)
-    request = PurgeReq(
-        target=target,
-        expected_hash=expected_hash,
-        reason=reason,
-        dry_run=dry_run,
-        allow_canonical=allow_canonical,
-        include_related_tombstone=include_related_tombstone,
-    )
-    embedder = None if dry_run else build_runtime_embedder()
-    result = PurgeEngine(
-        root=config.corpus_root,
-        index_root=config.index_root,
-        embedder=embedder,
-    ).purge(request)
-    typer.echo(json.dumps(result.model_dump(mode="json"), indent=2, sort_keys=True))
-
-
-@app.command()
-def research(
-    ctx: typer.Context,
-    question: str = typer.Argument(...),
-    kind: str = typer.Option("report", "--kind"),
-    corpus: str = typer.Option("all", "--corpus"),
-    limit: int = typer.Option(8, "--limit"),
-    save: bool = typer.Option(True, "--save/--no-save"),
-) -> None:
-    config = _get_config(ctx)
-    engine = _build_research_engine(config)
-    research_resp = engine.research_from_req(
-        ResearchReq(
-            question=question,
-            kind=kind,  # type: ignore[arg-type]
-            corpus=corpus,  # type: ignore[arg-type]
-            limit=limit,
-            save=save,
-        )
-    )
-    if save:
-        artifact_resp = ArtifactWriter(
-            config.corpus_root,
-            index_root=config.index_root,
-            embedder=build_runtime_embedder(),
-        ).write(
-            research_resp.artifact,
-            created=str(date.today()),
-        )
-    else:
-        artifact_resp = None
-    typer.echo(
-        json.dumps(
-            {
-                "artifact": artifact_resp.model_dump(mode="json") if artifact_resp is not None else None,
-                "research": research_resp.model_dump(mode="json"),
             },
             indent=2,
             sort_keys=True,
@@ -782,256 +573,5 @@ def migrate_manifest(
         typer.echo(rendered)
 
 
-@app.command()
-def search(
-    ctx: typer.Context,
-    query: str = typer.Argument(...),
-    limit: int = typer.Option(10, "-n", "--limit"),
-    corpus: str = typer.Option("durable", "--corpus"),
-    mode: str = typer.Option("hybrid", "--mode"),
-    path_glob: str | None = typer.Option(None, "--path-glob"),
-    types: list[str] = typer.Option([], "--type"),
-    statuses: list[str] = typer.Option([], "--status"),
-    tags: list[str] = typer.Option([], "--tag"),
-    agents: list[str] = typer.Option([], "--agent"),
-    devices: list[str] = typer.Option([], "--device"),
-    session_ids: list[str] = typer.Option([], "--session-id"),
-    session_key: str | None = typer.Option(None, "--session-key"),
-    since: str | None = typer.Option(None, "--since"),
-    until: str | None = typer.Option(None, "--until"),
-    debug: bool = typer.Option(False, "--debug"),
-) -> None:
-    config = _get_config(ctx)
-    try:
-        engine = _build_dory_runtime(config).search_engine
-        resp = engine.search(
-            SearchReq(
-                query=query,
-                k=limit,
-                corpus=corpus,
-                mode=mode,
-                scope=SearchScope(
-                    path_glob=path_glob,
-                    type=types,
-                    status=statuses,
-                    tags=tags,
-                    agent=agents,
-                    device=devices,
-                    session_id=session_ids,
-                    session_key=session_key,
-                    since=since,
-                    until=until,
-                ),
-                debug=debug,
-            )
-        )
-    except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
-        _fail_with_runtime_error(str(err))
-    typer.echo(json.dumps(serialize_search_response(resp, debug=debug), indent=2, sort_keys=True))
-
-
-@app.command()
-def get(
-    ctx: typer.Context,
-    path: str = typer.Argument(...),
-    from_line: int = typer.Option(1, "--from"),
-    limit: int | None = typer.Option(None, "-n", "--lines"),
-) -> None:
-    config = _get_config(ctx)
-    target = _resolve_corpus_path(config.corpus_root, path)
-    text = target.read_text(encoding="utf-8")
-    typer.echo(_slice_lines(text, from_line, limit))
-
-
-@app.command()
-def status(ctx: typer.Context) -> None:
-    config = _get_config(ctx)
-    typer.echo(format_status(build_status(config.corpus_root, config.index_root)))
-
-
-def _format_duration(seconds: float | None) -> str:
-    if seconds is None or seconds <= 0:
-        return "--"
-    if seconds < 60:
-        return f"{seconds:.0f}s"
-    minutes, secs = divmod(int(seconds), 60)
-    if minutes < 60:
-        return f"{minutes}m{secs:02d}s"
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours}h{minutes:02d}m"
-
-
-def _make_progress_printer(*, tty: bool) -> Callable[[ReindexProgress], None]:
-    last_phase: dict[str, str] = {"value": ""}
-
-    def render(progress: ReindexProgress) -> None:
-        total = progress.total if progress.total > 0 else "?"
-        percent = ""
-        if progress.total > 0:
-            percent = f" ({progress.processed * 100 // progress.total}%)"
-        rate = f" {progress.rate:.1f}/s" if progress.rate else ""
-        eta = f" eta {_format_duration(progress.eta_s)}" if progress.eta_s else ""
-        elapsed = f" [{_format_duration(progress.elapsed_s)}]"
-        line = (
-            f"[reindex] {progress.phase} {progress.processed}/{total}{percent}"
-            f"{rate}{eta}{elapsed} {progress.message}"
-        )
-        stream = sys.stderr
-        if tty and progress.phase not in {"done", "plan"}:
-            if last_phase["value"] and last_phase["value"] != progress.phase:
-                stream.write("\n")
-            stream.write("\r\x1b[2K" + line)
-            stream.flush()
-        else:
-            if tty and last_phase["value"] and last_phase["value"] != progress.phase:
-                stream.write("\n")
-            stream.write(line + "\n")
-            stream.flush()
-        last_phase["value"] = progress.phase
-
-    return render
-
-
-def _format_plan(plan: ReconcilePlan) -> str:
-    lines = [
-        "Reconcile plan:",
-        f"  new:       {len(plan.new_paths)}",
-        f"  changed:   {len(plan.changed_paths)}",
-        f"  orphans:   {len(plan.orphan_paths)}",
-        f"  unchanged: {plan.unchanged_count}",
-    ]
-    if plan.embedding_model_changed:
-        lines.append("  model:     embedding model changed — full rebuild required")
-    return "\n".join(lines)
-
-
-def _format_session_plan(session_plan: object) -> str:
-    return (
-        "Session plane:\n"
-        f"  files:     {session_plan.session_files}\n"
-        f"  indexed:   {session_plan.session_docs_indexed}\n"
-        f"  missing:   {session_plan.missing_docs}\n"
-        f"  stale:     {session_plan.stale_docs}"
-    )
-
-
-@app.command()
-def reindex(
-    ctx: typer.Context,
-    plan: bool = typer.Option(
-        False, "--plan", help="Print the reconcile plan without touching the index."
-    ),
-    rebuild: bool = typer.Option(
-        False, "--rebuild", help="Force a full rebuild (preserves the DB file but replaces every row)."
-    ),
-    force: bool = typer.Option(
-        False, "--force", help="Deprecated alias for --rebuild."
-    ),
-    batch_size: int = typer.Option(
-        200, "--batch-size", min=1, help="Files per reconcile batch (smaller = finer resume granularity)."
-    ),
-    progress: bool = typer.Option(
-        True, "--progress/--no-progress", help="Print reindex progress to stderr."
-    ),
-) -> None:
-    config = _get_config(ctx)
-    try:
-        embedder = build_runtime_embedder()
-    except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
-        _fail_with_runtime_error(str(err))
-
-    if plan:
-        reconcile_plan = plan_reconcile(config.corpus_root, config.index_root, embedder)
-        session_plan = plan_session_sync(config.corpus_root, config.index_root / "session_plane.db")
-        typer.echo(_format_plan(reconcile_plan), err=True)
-        typer.echo(_format_session_plan(session_plan), err=True)
-        payload = asdict(reconcile_plan)
-        payload["session_plane"] = asdict(session_plan)
-        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
-        return
-
-    if force:
-        typer.echo(
-            "[reindex] --force is deprecated; use --rebuild (no directory wipe needed).",
-            err=True,
-        )
-        rebuild = True
-
-    progress_callback = (
-        _make_progress_printer(tty=sys.stderr.isatty()) if progress else None
-    )
-
-    try:
-        if rebuild:
-            result = reindex_corpus(
-                config.corpus_root,
-                config.index_root,
-                embedder,
-                progress=progress_callback,
-            )
-            payload = asdict(result)
-            payload["session_sync"] = asdict(
-                sync_session_files(config.corpus_root, config.index_root / "session_plane.db")
-            )
-            typer.echo(json.dumps(payload, indent=2, sort_keys=True))
-            return
-
-        reconcile_result = reconcile_corpus(
-            config.corpus_root,
-            config.index_root,
-            embedder,
-            batch_size=batch_size,
-            progress=progress_callback,
-        )
-    except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
-        _fail_with_runtime_error(str(err))
-    payload = asdict(reconcile_result)
-    payload["session_sync"] = asdict(sync_session_files(config.corpus_root, config.index_root / "session_plane.db"))
-    typer.echo(json.dumps(payload, indent=2, sort_keys=True))
-
-
-@app.command()
-def neighbors(
-    ctx: typer.Context,
-    path: str = typer.Argument(...),
-    direction: str = typer.Option("out", "--direction"),
-    depth: int = typer.Option(1, "--depth"),
-    max_edges: int = typer.Option(40, "--max-edges"),
-    exclude_prefix: list[str] | None = typer.Option(None, "--exclude-prefix"),
-) -> None:
-    config = _get_config(ctx)
-    result = LinkService(config.corpus_root, config.index_root).neighbors(
-        path,
-        direction=direction,
-        depth=depth,
-        max_edges=max_edges,
-        exclude_prefixes=exclude_prefix or (),
-    )
-    typer.echo(json.dumps(result, indent=2, sort_keys=True))
-
-
-@app.command()
-def backlinks(
-    ctx: typer.Context,
-    path: str = typer.Argument(...),
-    max_edges: int = typer.Option(40, "--max-edges"),
-    exclude_prefix: list[str] | None = typer.Option(None, "--exclude-prefix"),
-) -> None:
-    config = _get_config(ctx)
-    result = LinkService(config.corpus_root, config.index_root).backlinks(
-        path,
-        max_edges=max_edges,
-        exclude_prefixes=exclude_prefix or (),
-    )
-    typer.echo(json.dumps(result, indent=2, sort_keys=True))
-
-
-@app.command()
-def lint(ctx: typer.Context) -> None:
-    config = _get_config(ctx)
-    result = LinkService(config.corpus_root, config.index_root).lint()
-    typer.echo(json.dumps(result, indent=2, sort_keys=True))
-
 if __name__ == "__main__":
     app()
-

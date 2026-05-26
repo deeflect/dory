@@ -94,6 +94,9 @@ class HotContextPacket:
     partial: bool
     """True when the packet was assembled with degraded data."""
 
+    wake_context: tuple[SourceBackedItem, ...] = ()
+    """Rendered wake context that should appear after active-memory bullets."""
+
 
 # ---------------------------------------------------------------------------
 # Builder helpers
@@ -166,14 +169,17 @@ def render_packet_to_block(
     sections: list[str] = []
 
     # --- Active claims / memory ---
-    items = (
-        list(packet.active_claims)
-        + list(packet.observations)
-    )
+    items = list(packet.active_claims) + list(packet.observations)
     if items and include_active_claims:
         bullets = [f"- {item.text}" for item in items[:5]]
         if bullets:
             sections.append("## Active memory\n" + "\n".join(bullets))
+
+    # --- Wake context ---
+    if packet.wake_context:
+        wake_block = "\n\n".join(item.text for item in packet.wake_context if item.text).strip()
+        if wake_block:
+            sections.append(wake_block)
 
     # --- Durable evidence ---
     if packet.durable_evidence and include_durable:
@@ -220,7 +226,7 @@ def render_packet_summary(packet: HotContextPacket) -> str:
 
 def _fit_to_budget(block: str, *, budget_tokens: int) -> str:
     """Trim block to fit within budget, matching ``fit_block_to_budget``."""
-    _CHARS_PER_TOKEN = 3  # placeholder; actual value varies
+    _CHARS_PER_TOKEN = 4  # placeholder; actual value varies
     _MAX_BLOCK_CHARS = 3200
     _MIN_BLOCK_CHARS = 700
     char_limit = min(_MAX_BLOCK_CHARS, max(_MIN_BLOCK_CHARS, budget_tokens * _CHARS_PER_TOKEN))

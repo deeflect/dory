@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dory_core.hot_context import render_packet_to_block
 from dory_core.types import WakeReq
 from dory_core.wake import WakeBuilder
 
@@ -12,6 +13,22 @@ def test_wake_builder_returns_frozen_block(sample_corpus_root) -> None:
     assert resp.tokens_estimated > 0
     assert resp.block.startswith("---")
     assert resp.frozen_at.tzinfo is not None
+
+
+def test_wake_builder_can_emit_hot_context_packet(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    builder = WakeBuilder(tmp_path)
+    req = WakeReq(agent="claude-code", budget_tokens=300, include_recent_sessions=0)
+
+    resp = builder.build(req)
+    packet = builder.build_packet(req)
+
+    assert packet.profile == resp.profile
+    assert list(packet.sources) == resp.sources
+    assert packet.wake_context
+    assert packet.wake_context[0].text == resp.block
+    assert render_packet_to_block(packet, budget_tokens=300) == resp.block
 
 
 def test_wake_builder_loads_custom_profile_sections(tmp_path) -> None:

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from dory_core.config import DorySettings
+from dory_core.features import DoryFeatureFlags
 from dory_core.markdown_store import MarkdownStore
 from dory_core.openclaw_parity import OpenClawParityStore
 from dory_core.profiles import ProfileRegistry
@@ -44,6 +45,7 @@ class DoryStatus:
     query_reranker_model: str | None
     active_memory_llm_provider: str
     active_memory_llm_stages: str
+    features: dict[str, object]
     profiles: list[str]
     openclaw: OpenClawParityDiagnostics
     compat_matrix: dict[str, str]
@@ -98,6 +100,7 @@ def build_status(corpus_root: Path, index_root: Path, settings: DorySettings | N
         query_reranker_model=_status_reranker_model(resolved_settings),
         active_memory_llm_provider=resolved_settings.active_memory_llm_provider,
         active_memory_llm_stages=resolved_settings.active_memory_llm_stages,
+        features=DoryFeatureFlags.from_settings(resolved_settings).as_status_payload(),
         profiles=ProfileRegistry(corpus_root).profile_names(),
         openclaw=_load_openclaw_diagnostics(db_path),
         compat_matrix={
@@ -118,7 +121,7 @@ def format_status(status: DoryStatus) -> str:
     return json.dumps(payload, indent=2, sort_keys=True)
 
 
-_STATUS_DEBUG_FIELDS = {"corpus_root", "index_root", "embedding_batch_size", "openclaw", "compat_matrix"}
+_STATUS_DEBUG_FIELDS = {"corpus_root", "index_root", "embedding_batch_size", "features", "openclaw", "compat_matrix"}
 
 
 def serialize_status(status: DoryStatus, *, debug: bool = False) -> dict[str, Any]:

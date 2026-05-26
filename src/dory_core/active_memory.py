@@ -9,7 +9,6 @@ from typing import Protocol
 from dory_core.active_memory_policy import SourcePolicy, filter_active_memory_results, source_policy_for_request
 from dory_core.active_memory_render import (
     WikiHelperContext,
-    build_block,
     build_summary,
     confidence_for_results,
     empty_wiki_helper_context,
@@ -33,6 +32,7 @@ from dory_core.hot_context import (
     HotContextPacket,
     SourceBackedItem,
     dedupe_sources,
+    render_packet_to_block,
     source_backed_items_from_results,
 )
 from dory_core.markdown_excerpt import (
@@ -179,22 +179,6 @@ class ActiveMemoryEngine:
     ) -> ActiveMemoryResp:
         partial_warnings = warnings or []
         renderable_durable_results = preferred_active_memory_results(durable_results)
-        rendered_wake_block = wake_block_for_rendering(wake_block, renderable_durable_results, session_results)
-
-        # Build the typed hot-context packet as the internal carrier.
-        packet = self._build_packet(
-            req=req,
-            source_policy=source_policy,
-            helper=helper,
-            wake_block=wake_block,
-            wake_sources=wake_sources,
-            renderable_durable_results=renderable_durable_results,
-            session_results=session_results,
-            partial_warnings=partial_warnings,
-            entity_context=entity_context,
-        )
-
-        sources = list(packet.sources)
         evidence_root = self.root if deadline.total_ms > self.budget.composer_timeout_headroom_ms else None
         syn_bullets = synthesized_bullets(
             helper,
@@ -210,14 +194,23 @@ class ActiveMemoryEngine:
             if composition is not None and composition.summary
             else build_summary(helper, renderable_durable_results, session_results, wake_block, root=evidence_root)
         )
-        block = build_block(
-            helper,
-            rendered_wake_block,
-            renderable_durable_results,
-            session_results,
+        packet = self._build_packet(
+            req=req,
+            source_policy=source_policy,
+            helper=helper,
+            wake_block=wake_block,
+            wake_sources=wake_sources,
+            renderable_durable_results=renderable_durable_results,
+            session_results=session_results,
+            partial_warnings=partial_warnings,
+            entity_context=entity_context,
             memory_bullets=memory_bullets,
+            evidence_root=evidence_root,
+        )
+        sources = list(packet.sources)
+        block = render_packet_to_block(
+            packet,
             budget_tokens=req.budget_tokens,
-            root=evidence_root,
         )
         conf = confidence_for_results(renderable_durable_results, session_results)
         ctx_dict: dict[str, object] | None = None
@@ -255,6 +248,8 @@ class ActiveMemoryEngine:
         session_results: list[object],
         partial_warnings: list[str],
         entity_context: EntityContext | None = None,
+        memory_bullets: list[str] | None = None,
+        evidence_root: Path | None = None,
     ) -> HotContextPacket:
         """Assemble a typed ``HotContextPacket`` from the scattered internal data.
 
@@ -262,7 +257,6 @@ class ActiveMemoryEngine:
         rendering.  External response types (``ActiveMemoryResp``) are
         produced *from* this packet; they are not replaced by it.
         """
-        evidence_root = self.root
         rendered_wake_block = wake_block_for_rendering(wake_block, renderable_durable_results, session_results)
 
         # Build source-backed items from search results.
@@ -278,21 +272,10 @@ class ActiveMemoryEngine:
             root=evidence_root,
         )
 
-        # Collect active claims from the wake block and helper context.
-        active_claims: list[SourceBackedItem] = []
-        if rendered_wake_block:
-            # The first non-empty paragraph from the wake block is the
-            # most salient active claim.
-            for line in rendered_wake_block.splitlines():
-                stripped = line.strip()
-                if stripped and not stripped.startswith("#") and not stripped.startswith("<!--"):
-                    active_claims.append(SourceBackedItem(text=stripped))
-                    break
-        if helper.current_focus:
-            active_claims.append(
-                SourceBackedItem(text=helper.current_focus, source_path="wiki/hot.md")
-            )
-
+        # Active-memory response rendering uses the packet's active claims.
+        active_claims: list[SourceBackedItem] = [
+            SourceBackedItem(text=truncate_text(bullet, 220)) for bullet in memory_bullets or []
+        ]
         # Guardrails from source policy.
         guardrails: list[str] = []
         if source_policy.profile == "privacy":
@@ -316,6 +299,7 @@ class ActiveMemoryEngine:
             ),
             warnings=tuple(partial_warnings),
             partial=bool(partial_warnings),
+            wake_context=(SourceBackedItem(text=rendered_wake_block),) if rendered_wake_block else (),
         )
 
     def _helper_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> WikiHelperContext:

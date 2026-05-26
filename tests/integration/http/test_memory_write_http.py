@@ -257,8 +257,8 @@ def test_http_memory_write_returns_400_for_validation_errors(
             raise DoryValidationError("semantic write failed")
 
     monkeypatch.setattr(
-        "dory_http.app._build_semantic_write_engine",
-        lambda runtime: _BrokenEngine(),
+        "dory_core.runtime.DoryRuntime.memory_write",
+        lambda self, req: _BrokenEngine().write(req),
     )
     client = TestClient(build_app(corpus_root, index_root))
 

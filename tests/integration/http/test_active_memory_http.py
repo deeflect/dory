@@ -29,7 +29,7 @@ def test_active_memory_http_endpoint_returns_memory_block(tmp_path: Path, monkey
         sources=["core/active.md"],
     )
     stub = _StubActiveMemoryEngine(response)
-    monkeypatch.setattr("dory_http.app._build_active_memory_engine", lambda runtime: stub)
+    monkeypatch.setattr("dory_core.runtime.DoryRuntime.active_memory", lambda self, req: stub.build(req))
 
     client = TestClient(build_app(tmp_path / "corpus", tmp_path / "index"))
     result = client.post(
@@ -61,7 +61,7 @@ def test_active_memory_http_includes_debug_fields_when_requested(tmp_path: Path,
         sources=["core/active.md"],
     )
     stub = _StubActiveMemoryEngine(response)
-    monkeypatch.setattr("dory_http.app._build_active_memory_engine", lambda runtime: stub)
+    monkeypatch.setattr("dory_core.runtime.DoryRuntime.active_memory", lambda self, req: stub.build(req))
 
     client = TestClient(build_app(tmp_path / "corpus", tmp_path / "index"))
     result = client.post(
@@ -86,7 +86,10 @@ def test_active_memory_http_returns_503_for_embedding_provider_errors(tmp_path: 
         def build(self, req):
             raise EmbeddingProviderError("embedding backend unavailable")
 
-    monkeypatch.setattr("dory_http.app._build_active_memory_engine", lambda runtime: _BrokenActiveMemoryEngine())
+    monkeypatch.setattr(
+        "dory_core.runtime.DoryRuntime.active_memory",
+        lambda self, req: _BrokenActiveMemoryEngine().build(req),
+    )
 
     client = TestClient(build_app(tmp_path / "corpus", tmp_path / "index"))
     result = client.post(
@@ -106,7 +109,10 @@ def test_active_memory_http_unknown_profile_returns_validation_error(tmp_path: P
         def build(self, req):
             raise DoryValidationError("Unknown retrieval profile: 'nonexistent'")
 
-    monkeypatch.setattr("dory_http.app._build_active_memory_engine", lambda runtime: _BrokenActiveMemoryEngine())
+    monkeypatch.setattr(
+        "dory_core.runtime.DoryRuntime.active_memory",
+        lambda self, req: _BrokenActiveMemoryEngine().build(req),
+    )
 
     client = TestClient(build_app(tmp_path / "corpus", tmp_path / "index"))
     result = client.post(

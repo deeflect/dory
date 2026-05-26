@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from dory_core.frontmatter import load_markdown_document
 from dory_core.semantic_write import SemanticWriteEngine, SubjectMatch, SubjectResolver, build_semantic_write_plan
+from dory_core.semantic_write_artifacts import SemanticEvidenceStore
+from dory_core.semantic_write_plan import (
+    is_canonical_semantic_target,
+    primary_section_for_plan,
+    semantic_write_preview_message,
+    semantic_write_preview_payload,
+)
 from dory_core.types import MemoryWriteReq, MemoryWriteResp
 
 
@@ -68,6 +76,80 @@ def test_semantic_write_preview_includes_provenance_and_plan(tmp_path: Path) -> 
     assert resp.preview is not None
     assert resp.preview["target_path"] == "projects/sample/state.md"
     assert resp.preview["evidence_path"] == resp.evidence_path
+
+
+def test_semantic_write_plan_preview_helpers_describe_canonical_target(tmp_path: Path) -> None:
+    plan = build_semantic_write_plan(
+        tmp_path,
+        MemoryWriteReq(
+            action="write",
+            kind="state",
+            subject="Open Privacy Filter",
+            content="Open Privacy Filter is active.",
+            scope="project",
+        ),
+    )
+
+    message = semantic_write_preview_message(
+        plan,
+        action="would_create",
+        evidence_path="sources/semantic/2026/05/25/open-privacy-filter-write.md",
+    )
+    payload = semantic_write_preview_payload(
+        plan,
+        action="would_create",
+        evidence_path="sources/semantic/2026/05/25/open-privacy-filter-write.md",
+    )
+
+    assert is_canonical_semantic_target(plan) is True
+    assert primary_section_for_plan(plan) == "Current State"
+    assert "CANONICAL TARGET projects/open-privacy-filter/state.md" in message
+    assert payload == {
+        "action": "would_create",
+        "subject": "Open Privacy Filter",
+        "subject_ref": "project:open-privacy-filter",
+        "target_subject_ref": "project:open-privacy-filter",
+        "target_path": "projects/open-privacy-filter/state.md",
+        "family": "project",
+        "kind": "state",
+        "resolved_mode": "append",
+        "matched_by": "explicit_scope",
+        "match_confidence": "high",
+        "evidence_path": "sources/semantic/2026/05/25/open-privacy-filter-write.md",
+        "canonical_target": True,
+    }
+
+
+def test_semantic_evidence_store_plans_and_writes_artifact(tmp_path: Path) -> None:
+    plan = build_semantic_write_plan(
+        tmp_path,
+        MemoryWriteReq(
+            action="write",
+            kind="state",
+            subject="Open Privacy Filter",
+            content="Open Privacy Filter is active.",
+            scope="project",
+            agent="codex",
+            session_id="session-1",
+            origin_surface="unit-test",
+        ),
+    )
+    store = SemanticEvidenceStore(tmp_path)
+
+    artifact = store.plan(plan)
+    store.write(artifact)
+
+    assert artifact.path.startswith("sources/semantic/")
+    assert artifact.path.endswith("-write.md")
+    assert "open-privacy-filter" in artifact.path
+    document = load_markdown_document((tmp_path / artifact.path).read_text(encoding="utf-8"))
+    assert document.body == "Open Privacy Filter is active.\n"
+    assert document.frontmatter["source_kind"] == "semantic"
+    assert document.frontmatter["entity_id"] == "project:open-privacy-filter"
+    assert document.frontmatter["canonical_target"] == "projects/open-privacy-filter/state.md"
+    assert document.frontmatter["origin_surface"] == "unit-test"
+    assert document.frontmatter["agent"] == "codex"
+    assert document.frontmatter["session_id"] == "session-1"
 
 
 def test_semantic_write_reuses_existing_evidence_for_idempotent_replay(tmp_path: Path) -> None:

@@ -1,195 +1,51 @@
 from __future__ import annotations
 
 import argparse
-import contextvars
-import json
 import logging
 import uuid
-from urllib.parse import parse_qs, quote, urlencode
 from dataclasses import asdict, dataclass
-from datetime import date
-from hashlib import sha256
 from pathlib import Path
-from typing import Any, Literal, NoReturn
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import (
-    HTMLResponse,
     JSONResponse,
-    PlainTextResponse,
-    RedirectResponse,
     Response,
-    StreamingResponse,
 )
 import uvicorn
 
 from dory_core.config import DorySettings, resolve_runtime_paths
-from dory_core.digests import DigestReader
 from dory_core.embedding import (
     ContentEmbedder,
     EmbeddingConfigurationError,
-    EmbeddingProviderError,
     build_runtime_embedder,
 )
-from dory_core.errors import DoryValidationError
-from dory_core.frontmatter import load_markdown_document
-from dory_core.link import LinkService
 from dory_core.llm.openrouter import build_openrouter_client
 from dory_core.llm_rerank import build_reranker
 from dory_core.migration_engine import MigrationEngine
 from dory_core.migration_llm import MigrationLLM
-from dory_core.index.reindex import reindex_corpus
-from dory_core.openclaw_parity import OpenClawParityStore, list_public_artifacts
-from dory_core.profiles import ProfileRegistry
-from dory_core.purge import PurgeEngine
 from dory_core.query_expansion import OpenRouterQueryExpander
-from dory_core.runtime import DoryRuntime, build_dory_runtime, build_query_expander, build_retrieval_planner
-from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
-from dory_core.dreaming.proposals import (
-    ProposalStore,
-    apply_proposal,
-    create_semantic_write_proposal,
-    proposal_to_payload,
-    reject_proposal,
-)
-from dory_core.artifacts import ArtifactWriter
 from dory_core.research import ResearchEngine
-from dory_core.search import SearchEngine
-from dory_core.semantic_write import SemanticWriteEngine
-from dory_core.session_ingest import SessionIngestService
-from dory_core.status import build_status, serialize_status
+from dory_core.runtime import build_dory_runtime, build_query_expander, build_retrieval_planner
+from dory_core.retrieval_planner import OpenRouterRetrievalPlanner
 from dory_core.types import (
-    ActiveMemoryReq,
-    DigestReq,
     MigrateReq,
-    LinkReq,
-    RecallEventReq,
-    MemoryWriteReq,
-    MemoryProposalApplyReq,
-    MemoryProposalCreateReq,
-    MemoryProposalGetReq,
-    MemoryProposalListReq,
-    MemoryProposalRejectReq,
-    ResearchReq,
-    SearchReq,
-    SessionIngestReq,
-    WakeReq,
-    PurgeReq,
-    WriteReq,
-    serialize_active_memory_response,
-    serialize_search_response,
-    serialize_wake_response,
 )
-from dory_core.active_memory import ActiveMemoryEngine
-from dory_core.wake import WakeBuilder
-from dory_core.write import WriteEngine
-from dory_http.auth import (
-    WEB_AUTH_COOKIE,
-    WEB_SESSION_COOKIE,
-    authorize_request,
-    authorize_web_request,
-    login_web_password,
+from dory_http.api_routes import (
+    register_api_routes,
 )
-from dory_http.app_ui import (
-    proposal_counts,
-    proposal_view_for,
-    render_app_home,
-    render_app_proposals,
-    render_app_settings,
-    wiki_counts,
+from dory_http.auth import authorize_request
+from dory_http.errors import (
+    api_error_payload,
+    reset_request_id,
+    set_request_id,
 )
-from dory_http.metrics import render_metrics
-from dory_http.wiki import render_wiki_login, render_wiki_page, render_wiki_search
-from dory_mcp.tools import build_tool_schemas
+from dory_http.runtime import HttpRuntime
+from dory_http.web_routes import register_web_routes
 
 
 _logger = logging.getLogger(__name__)
-_request_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "dory_request_id", default=None
-)
-
-
-def current_request_id() -> str | None:
-    """Return the request ID bound to the current FastAPI request, if any."""
-    return _request_id_var.get()
-
-
-_HTTP_STATUS_CODE_TO_API_CODE = {
-    400: "bad_request",
-    401: "unauthorized",
-    403: "forbidden",
-    404: "not_found",
-    409: "conflict",
-    422: "validation_error",
-    503: "service_unavailable",
-}
-
-
-def _raise_api_error(
-    *,
-    status_code: int,
-    code: str,
-    message: str,
-    error_type: str,
-    cause: Exception,
-) -> NoReturn:
-    detail: dict[str, str] = {
-        "code": code,
-        "message": message,
-        "type": error_type,
-    }
-    request_id = current_request_id()
-    if request_id is not None:
-        detail["request_id"] = request_id
-    raise HTTPException(status_code=status_code, detail=detail) from cause
-
-
-def _api_error_payload(
-    *,
-    status_code: int,
-    detail: object,
-) -> dict[str, dict[str, Any]]:
-    """Normalize FastAPI HTTPException details into the contract envelope."""
-    if isinstance(detail, dict) and "code" in detail and "message" in detail:
-        error: dict[str, Any] = {
-            "code": str(detail.get("code")),
-            "message": str(detail.get("message")),
-            "type": str(detail.get("type", "http_error")),
-        }
-        for key, value in detail.items():
-            if key in error:
-                continue
-            error[key] = value
-    else:
-        error = {
-            "code": _HTTP_STATUS_CODE_TO_API_CODE.get(status_code, f"http_{status_code}"),
-            "message": str(detail) if detail is not None else "",
-            "type": "http_error",
-        }
-    request_id = current_request_id()
-    if request_id is not None and "request_id" not in error:
-        error["request_id"] = request_id
-    return {"error": error}
-
-
-@dataclass(frozen=True, slots=True)
-class HttpRuntime:
-    corpus_root: Path
-    index_root: Path
-    auth_tokens_path: Path | None
-    allow_no_auth: bool
-    embedder: ContentEmbedder
-    query_expander: OpenRouterQueryExpander | None
-    retrieval_planner: OpenRouterRetrievalPlanner | None
-    reranker: Any
-    rerank_candidate_limit: int
-    search_engine: SearchEngine
-    active_memory_engine: ActiveMemoryEngine
-    semantic_write_engine: SemanticWriteEngine
-    wake_builder: WakeBuilder
-
-
 @dataclass(frozen=True, slots=True)
 class ServeConfig:
     corpus_root: Path
@@ -208,27 +64,20 @@ def build_app(
     app = FastAPI()
     settings = DorySettings()
     runtime_embedder = embedder or build_runtime_embedder()
-    surface_runtime: DoryRuntime = build_dory_runtime(
+    surface_runtime = build_dory_runtime(
         corpus_root=Path(corpus_root),
         index_root=Path(index_root),
         settings=settings,
         embedder=runtime_embedder,
         reranker=build_reranker(settings),
+        research_engine_cls=ResearchEngine,
     )
     runtime = HttpRuntime(
         corpus_root=Path(corpus_root),
         index_root=Path(index_root),
         auth_tokens_path=Path(auth_tokens_path) if auth_tokens_path is not None else None,
         allow_no_auth=settings.allow_no_auth,
-        embedder=surface_runtime.embedder,
-        query_expander=surface_runtime.query_expander,
-        retrieval_planner=surface_runtime.retrieval_planner,
-        reranker=surface_runtime.reranker,
-        rerank_candidate_limit=surface_runtime.rerank_candidate_limit,
-        search_engine=surface_runtime.search_engine,
-        active_memory_engine=surface_runtime.active_memory_engine,
-        semantic_write_engine=surface_runtime.semantic_write_engine,
-        wake_builder=surface_runtime.wake_builder,
+        core=surface_runtime,
     )
 
     @app.exception_handler(HTTPException)
@@ -242,7 +91,7 @@ def build_app(
             )
         return JSONResponse(
             status_code=exc.status_code,
-            content=_api_error_payload(status_code=exc.status_code, detail=exc.detail),
+            content=api_error_payload(status_code=exc.status_code, detail=exc.detail),
             headers=exc.headers or None,
         )
 
@@ -252,7 +101,7 @@ def build_app(
     ) -> Response:
         if request.url.path.startswith("/wiki"):
             return JSONResponse(status_code=422, content={"detail": exc.errors()})
-        payload = _api_error_payload(
+        payload = api_error_payload(
             status_code=422,
             detail={
                 "code": "validation_error",
@@ -273,251 +122,21 @@ def build_app(
             request_id = incoming
         else:
             request_id = uuid.uuid4().hex
-        token = _request_id_var.set(request_id)
+        token = set_request_id(request_id)
         try:
             response = await call_next(request)
         finally:
-            _request_id_var.reset(token)
+            reset_request_id(token)
         response.headers["x-request-id"] = request_id
         return response
 
-    @app.get("/")
-    def app_root() -> RedirectResponse:
-        return RedirectResponse("/app", status_code=303)
-
-    @app.get("/app", response_class=HTMLResponse)
-    def app_home(request: Request) -> Response:
-        cookie_token = _authorize_web_or_redirect(request, runtime)
-        if isinstance(cookie_token, RedirectResponse):
-            return cookie_token
-        response = render_app_home(
-            status=build_status(runtime.corpus_root, runtime.index_root, settings),
-            proposal_counts=proposal_counts(runtime.corpus_root),
-            wiki_counts=wiki_counts(runtime.corpus_root),
-        )
-        _set_legacy_web_auth_cookie(response, request, cookie_token)
-        return response
-
-    @app.get("/app/proposals", response_class=HTMLResponse)
-    def app_proposals(
-        request: Request,
-        status: str = Query("pending"),
-        selected: str | None = Query(None),
-        notice: str | None = Query(None),
-    ) -> Response:
-        cookie_token = _authorize_web_or_redirect(request, runtime)
-        if isinstance(cookie_token, RedirectResponse):
-            return cookie_token
-        proposal_status = _proposal_status_param(status)
-        response = render_app_proposals(
-            view=proposal_view_for(runtime.corpus_root, status=proposal_status, selected_id=selected),
-            notice=notice,
-        )
-        _set_legacy_web_auth_cookie(response, request, cookie_token)
-        return response
-
-    @app.post("/app/proposals/{proposal_id}/apply", response_class=HTMLResponse)
-    def app_proposal_apply(proposal_id: str, request: Request) -> Response:
-        cookie_token = _authorize_web_or_redirect(request, runtime)
-        if isinstance(cookie_token, RedirectResponse):
-            return cookie_token
-        try:
-            _apply_memory_proposal_req(
-                MemoryProposalApplyReq(
-                    proposal_id=proposal_id,
-                    agent="dory-web",
-                    origin_surface="dory-web",
-                ),
-                runtime,
-            )
-        except HTTPException as err:
-            response = _proposal_action_error_response(request, runtime, proposal_id, err, cookie_token)
-            return response
-        return RedirectResponse(
-            f"/app/proposals?status=applied&selected={quote(proposal_id, safe='')}&notice=applied",
-            status_code=303,
-        )
-
-    @app.post("/app/proposals/{proposal_id}/reject", response_class=HTMLResponse)
-    def app_proposal_reject(proposal_id: str, request: Request) -> Response:
-        cookie_token = _authorize_web_or_redirect(request, runtime)
-        if isinstance(cookie_token, RedirectResponse):
-            return cookie_token
-        try:
-            _reject_memory_proposal_req(
-                MemoryProposalRejectReq(
-                    proposal_id=proposal_id,
-                    reason="Rejected from Dory web interface.",
-                    agent="dory-web",
-                    origin_surface="dory-web",
-                ),
-                runtime,
-            )
-        except HTTPException as err:
-            response = _proposal_action_error_response(request, runtime, proposal_id, err, cookie_token)
-            return response
-        return RedirectResponse(
-            f"/app/proposals?status=rejected&selected={quote(proposal_id, safe='')}&notice=rejected",
-            status_code=303,
-        )
-
-    @app.get("/app/settings", response_class=HTMLResponse)
-    def app_settings(request: Request) -> Response:
-        cookie_token = _authorize_web_or_redirect(request, runtime)
-        if isinstance(cookie_token, RedirectResponse):
-            return cookie_token
-        response = render_app_settings(
-            status=build_status(runtime.corpus_root, runtime.index_root, settings),
-            settings=settings,
-            tool_count=len(build_tool_schemas()),
-        )
-        _set_legacy_web_auth_cookie(response, request, cookie_token)
-        return response
-
-    @app.get("/wiki", response_class=HTMLResponse)
-    def wiki_index(request: Request) -> Response:
-        cookie_token = _authorize_web_or_redirect(request, runtime)
-        if isinstance(cookie_token, RedirectResponse):
-            return cookie_token
-        response = render_wiki_page(runtime.corpus_root, "")
-        _set_legacy_web_auth_cookie(response, request, cookie_token)
-        return response
-
-    @app.get("/wiki/login", response_class=HTMLResponse)
-    def wiki_login(next: str = Query("/wiki")) -> HTMLResponse:
-        return render_wiki_login(next_path=_safe_web_next(next))
-
-    @app.post("/wiki/login")
-    async def wiki_login_submit(request: Request) -> Response:
-        form = parse_qs((await request.body()).decode("utf-8", errors="replace"))
-        password = form.get("password", [""])[0]
-        next_path = _safe_web_next(form.get("next", ["/wiki"])[0])
-        try:
-            login = login_web_password(password)
-        except HTTPException as err:
-            if err.status_code == 401:
-                return render_wiki_login(
-                    next_path=next_path,
-                    error="Invalid password.",
-                    status_code=401,
-                )
-            raise
-        response = RedirectResponse(next_path, status_code=303)
-        _set_web_session_cookie(response, request, login.session_cookie)
-        return response
-
-    @app.get("/wiki/logout")
-    def wiki_logout() -> Response:
-        response = RedirectResponse("/wiki/login", status_code=303)
-        response.delete_cookie(WEB_AUTH_COOKIE)
-        response.delete_cookie(WEB_SESSION_COOKIE)
-        return response
-
-    @app.get("/wiki/search", response_class=HTMLResponse)
-    def wiki_search(
-        request: Request,
-        q: str = Query(""),
-    ) -> Response:
-        cookie_token = _authorize_web_or_redirect(request, runtime)
-        if isinstance(cookie_token, RedirectResponse):
-            return cookie_token
-        response = render_wiki_search(runtime.corpus_root, q)
-        _set_legacy_web_auth_cookie(response, request, cookie_token)
-        return response
-
-    @app.get("/wiki/{page:path}", response_class=HTMLResponse)
-    def wiki_page(page: str, request: Request) -> Response:
-        cookie_token = _authorize_web_or_redirect(request, runtime)
-        if isinstance(cookie_token, RedirectResponse):
-            return cookie_token
-        response = render_wiki_page(runtime.corpus_root, page)
-        _set_legacy_web_auth_cookie(response, request, cookie_token)
-        return response
+    register_web_routes(app, runtime, settings)
 
     @app.get("/healthz")
     def healthz() -> dict[str, bool]:
         return {"ok": True}
 
-    @app.post("/v1/wake")
-    def wake(req: WakeReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            return serialize_wake_response(runtime.wake_builder.build(req), debug=req.debug)
-        except DoryValidationError as err:
-            _raise_api_error(
-                status_code=400,
-                code="dory_validation_error",
-                message=str(err),
-                error_type="validation",
-                cause=err,
-            )
-
-    @app.post("/v1/search")
-    def search(req: SearchReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            response = _build_search_engine(runtime).search(req)
-            return serialize_search_response(response, debug=req.debug)
-        except EmbeddingProviderError as err:
-            raise HTTPException(status_code=503, detail=str(err)) from err
-
-    @app.post("/v1/digest")
-    def digest(req: DigestReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            payload = DigestReader(runtime.corpus_root).read(req).model_dump(mode="json")
-        except ValueError as err:
-            _raise_api_error(
-                status_code=400,
-                code="bad_digest_selector",
-                message=str(err),
-                error_type="validation",
-                cause=err,
-            )
-        if not req.debug:
-            for field in ("frontmatter", "hash"):
-                payload.pop(field, None)
-        return payload
-
-    @app.post("/v1/active-memory")
-    def active_memory(req: ActiveMemoryReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            return serialize_active_memory_response(_build_active_memory_engine(runtime).build(req), debug=req.debug)
-        except DoryValidationError as err:
-            _raise_api_error(
-                status_code=400,
-                code="dory_validation_error",
-                message=str(err),
-                error_type="validation",
-                cause=err,
-            )
-        except EmbeddingProviderError as err:
-            raise HTTPException(status_code=503, detail=str(err)) from err
-
-    @app.post("/v1/research")
-    def research(req: ResearchReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            research_resp = ResearchEngine(
-                search_engine=_build_search_engine(runtime)
-            ).research_from_req(req)
-            artifact_resp = None
-            if req.save:
-                artifact_resp = ArtifactWriter(
-                    runtime.corpus_root,
-                    index_root=runtime.index_root,
-                    embedder=runtime.embedder,
-                ).write(
-                    research_resp.artifact,
-                    created=str(date.today()),
-                )
-        except EmbeddingProviderError as err:
-            raise HTTPException(status_code=503, detail=str(err)) from err
-        return {
-            "artifact": artifact_resp.model_dump(mode="json") if artifact_resp is not None else None,
-            "research": research_resp.model_dump(mode="json"),
-        }
+    register_api_routes(app, runtime, settings)
 
     @app.post("/v1/migrate")
     def migrate(req: MigrateReq, request: Request) -> dict[str, Any]:
@@ -525,511 +144,11 @@ def build_app(
         result = _build_migration_engine(runtime, use_llm=req.use_llm).migrate(Path(req.legacy_root))
         return asdict(result)
 
-    @app.get("/v1/get")
-    def get(
-        request: Request,
-        path: str = Query(...),
-        from_line: int | None = Query(None, alias="from"),
-        legacy_from_line: int | None = Query(None, alias="from_line"),
-        lines: int | None = Query(None),
-        debug: bool = Query(False),
-    ) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        start_line = from_line if from_line is not None else legacy_from_line if legacy_from_line is not None else 1
-        target = _resolve_corpus_path(runtime.corpus_root, path)
-        text = target.read_text(encoding="utf-8")
-        sliced = _slice_lines(text, start_line, lines)
-        frontmatter: dict[str, object] = {}
-        try:
-            frontmatter = load_markdown_document(text).frontmatter
-        except ValueError:
-            frontmatter = {}
-        payload = {
-            "path": path,
-            "from": start_line,
-            "lines_returned": len(sliced.splitlines()) if sliced else 0,
-            "total_lines": len(text.splitlines()),
-            "frontmatter": frontmatter,
-            "hash": f"sha256:{sha256(text.encode('utf-8')).hexdigest()}",
-            "content": sliced,
-        }
-        if debug:
-            return payload
-        for field in ("lines_returned", "total_lines", "frontmatter", "hash"):
-            payload.pop(field, None)
-        return payload
-
-    @app.post("/v1/write")
-    def write(req: WriteReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            return (
-                WriteEngine(
-                    root=runtime.corpus_root,
-                    index_root=runtime.index_root,
-                    embedder=runtime.embedder,
-                )
-                .write(req)
-                .model_dump(mode="json")
-            )
-        except DoryValidationError as err:
-            _raise_api_error(
-                status_code=400,
-                code="dory_validation_error",
-                message=str(err),
-                error_type="validation",
-                cause=err,
-            )
-        except EmbeddingProviderError as err:
-            _raise_api_error(
-                status_code=503,
-                code="embedding_provider_error",
-                message=str(err),
-                error_type="backend",
-                cause=err,
-            )
-
-    @app.post("/v1/purge")
-    def purge(req: PurgeReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            return (
-                PurgeEngine(
-                    root=runtime.corpus_root,
-                    index_root=runtime.index_root,
-                    embedder=runtime.embedder,
-                )
-                .purge(req)
-                .model_dump(mode="json")
-            )
-        except DoryValidationError as err:
-            _raise_api_error(
-                status_code=400,
-                code="dory_validation_error",
-                message=str(err),
-                error_type="validation",
-                cause=err,
-            )
-        except EmbeddingProviderError as err:
-            _raise_api_error(
-                status_code=503,
-                code="embedding_provider_error",
-                message=str(err),
-                error_type="backend",
-                cause=err,
-            )
-
-    @app.post("/v1/memory-write")
-    def memory_write(req: MemoryWriteReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            return _build_semantic_write_engine(runtime).write(req).model_dump(mode="json")
-        except DoryValidationError as err:
-            _raise_api_error(
-                status_code=400,
-                code="dory_validation_error",
-                message=str(err),
-                error_type="validation",
-                cause=err,
-            )
-        except EmbeddingProviderError as err:
-            _raise_api_error(
-                status_code=503,
-                code="embedding_provider_error",
-                message=str(err),
-                error_type="backend",
-                cause=err,
-            )
-
-    @app.post("/v1/memory-proposals")
-    def memory_proposal_create(req: MemoryProposalCreateReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            proposal, path = create_semantic_write_proposal(
-                root=runtime.corpus_root,
-                engine=_build_semantic_write_engine(runtime),
-                req=req,
-            )
-        except DoryValidationError as err:
-            _raise_api_error(
-                status_code=400,
-                code="dory_validation_error",
-                message=str(err),
-                error_type="validation",
-                cause=err,
-            )
-        except EmbeddingProviderError as err:
-            _raise_api_error(
-                status_code=503,
-                code="embedding_provider_error",
-                message=str(err),
-                error_type="backend",
-                cause=err,
-            )
-        return {
-            "proposal_id": proposal.proposal_id,
-            "path": path.relative_to(runtime.corpus_root).as_posix(),
-            "proposal": proposal_to_payload(proposal),
-        }
-
-    @app.get("/v1/memory-proposals")
-    def memory_proposal_list(
-        request: Request,
-        status: str = Query("pending"),
-    ) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        proposal_status = _proposal_status_param(status)
-        proposals = ProposalStore(runtime.corpus_root).list(status=proposal_status)
-        return {"count": len(proposals), "proposals": proposals, "status": proposal_status}
-
-    @app.post("/v1/memory-proposals/list")
-    def memory_proposal_list_post(req: MemoryProposalListReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        proposals = ProposalStore(runtime.corpus_root).list(status=req.status)
-        return {"count": len(proposals), "proposals": proposals, "status": req.status}
-
-    @app.get("/v1/memory-proposals/{proposal_id}")
-    def memory_proposal_get(
-        proposal_id: str,
-        request: Request,
-        status: str = Query("pending"),
-    ) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        proposal_status = _proposal_status_param(status)
-        try:
-            proposal = ProposalStore(runtime.corpus_root).load(proposal_id, status=proposal_status)
-        except DoryValidationError as err:
-            _raise_api_error(
-                status_code=404,
-                code="proposal_not_found",
-                message=str(err),
-                error_type="not_found",
-                cause=err,
-            )
-        return proposal_to_payload(proposal)
-
-    @app.post("/v1/memory-proposals/get")
-    def memory_proposal_get_post(req: MemoryProposalGetReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            proposal = ProposalStore(runtime.corpus_root).load(req.proposal_id, status=req.status)
-        except DoryValidationError as err:
-            _raise_api_error(
-                status_code=404,
-                code="proposal_not_found",
-                message=str(err),
-                error_type="not_found",
-                cause=err,
-            )
-        return proposal_to_payload(proposal)
-
-    @app.post("/v1/memory-proposals/apply")
-    def memory_proposal_apply(req: MemoryProposalApplyReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        return _apply_memory_proposal_req(req, runtime)
-
-    @app.post("/v1/memory-proposals/{proposal_id}/apply")
-    def memory_proposal_apply_path(proposal_id: str, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        return _apply_memory_proposal_req(MemoryProposalApplyReq(proposal_id=proposal_id), runtime)
-
-    @app.post("/v1/memory-proposals/reject")
-    def memory_proposal_reject(req: MemoryProposalRejectReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        return _reject_memory_proposal_req(req, runtime)
-
-    @app.post("/v1/memory-proposals/{proposal_id}/reject")
-    def memory_proposal_reject_path(
-        proposal_id: str,
-        request: Request,
-        reason: str | None = Query(None),
-    ) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        return _reject_memory_proposal_req(MemoryProposalRejectReq(proposal_id=proposal_id, reason=reason), runtime)
-
-    @app.post("/v1/recall-event")
-    def recall_event(req: RecallEventReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        return _build_openclaw_parity_store(runtime).record_recall_event(req).model_dump(mode="json")
-
-    @app.get("/v1/public-artifacts")
-    def public_artifacts(request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        artifacts = list_public_artifacts(runtime.corpus_root)
-        return {
-            "count": len(artifacts),
-            "artifacts": [artifact.model_dump(mode="json") for artifact in artifacts],
-        }
-
-    @app.post("/v1/session-ingest")
-    def session_ingest(req: SessionIngestReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        try:
-            return (
-                SessionIngestService(
-                    corpus_root=runtime.corpus_root,
-                    session_db_path=runtime.index_root / "session_plane.db",
-                )
-                .ingest(req)
-                .model_dump(mode="json")
-            )
-        except DoryValidationError as err:
-            raise HTTPException(status_code=400, detail=str(err)) from err
-
-    @app.post("/v1/link")
-    def link(req: LinkReq, request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        service = LinkService(runtime.corpus_root, runtime.index_root)
-        if req.op == "neighbors":
-            if req.path is None:
-                raise HTTPException(status_code=400, detail="link neighbors requires path")
-            normalized_path = _resolve_corpus_path(runtime.corpus_root, req.path).relative_to(runtime.corpus_root)
-            return service.neighbors(
-                normalized_path.as_posix(),
-                direction=req.direction,
-                depth=req.depth,
-                max_edges=req.max_edges,
-                exclude_prefixes=req.exclude_prefixes,
-            )
-        if req.op == "backlinks":
-            if req.path is None:
-                raise HTTPException(status_code=400, detail="link backlinks requires path")
-            normalized_path = _resolve_corpus_path(runtime.corpus_root, req.path).relative_to(runtime.corpus_root)
-            return service.backlinks(
-                normalized_path.as_posix(),
-                max_edges=req.max_edges,
-                exclude_prefixes=req.exclude_prefixes,
-            )
-        if req.op == "lint":
-            return service.lint()
-        raise HTTPException(status_code=400, detail=f"unsupported link op: {req.op}")
-
-    @app.get("/v1/status")
-    def status(request: Request, debug: bool = Query(False)) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        return serialize_status(build_status(runtime.corpus_root, runtime.index_root, settings), debug=debug)
-
-    @app.get("/v1/profiles")
-    def profiles(request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        profile_list = ProfileRegistry(runtime.corpus_root).describe_profiles()
-        return {"count": len(profile_list), "profiles": profile_list}
-
-    @app.get("/v1/tools")
-    def tools(request: Request) -> dict[str, Any]:
-        _authorize_request(request, runtime)
-        return {"tools": build_tool_schemas()}
-
-    @app.get("/metrics", response_class=PlainTextResponse)
-    def metrics(request: Request) -> str:
-        _authorize_request(request, runtime)
-        return render_metrics(build_status(runtime.corpus_root, runtime.index_root, settings))
-
-    @app.get("/v1/stream")
-    def stream(
-        request: Request,
-        reindex: bool = Query(False),
-        force: bool = Query(False),
-    ) -> StreamingResponse:
-        _authorize_request(request, runtime)
-
-        def _events() -> str:
-            yield _sse_event("status", serialize_status(build_status(runtime.corpus_root, runtime.index_root, settings)))
-            if reindex:
-                try:
-                    if force and runtime.index_root.exists():
-                        import shutil
-
-                        shutil.rmtree(runtime.index_root)
-                    result = reindex_corpus(runtime.corpus_root, runtime.index_root, runtime.embedder)
-                    yield _sse_event("reindex", asdict(result))
-                except (EmbeddingConfigurationError, EmbeddingProviderError) as err:
-                    yield _sse_event("error", {"detail": str(err)})
-            yield _sse_event("done", {"ok": True})
-
-        return StreamingResponse(_events(), media_type="text/event-stream")
-
     return app
-
-
-def _apply_memory_proposal_req(req: MemoryProposalApplyReq, runtime: HttpRuntime) -> dict[str, Any]:
-    try:
-        result = apply_proposal(
-            root=runtime.corpus_root,
-            engine=_build_semantic_write_engine(runtime),
-            proposal_id=req.proposal_id,
-            agent=req.agent,
-            session_id=req.session_id,
-            origin_surface=req.origin_surface,
-        )
-    except DoryValidationError as err:
-        _raise_api_error(
-            status_code=409,
-            code="proposal_apply_failed",
-            message=str(err),
-            error_type="conflict",
-            cause=err,
-        )
-    except EmbeddingProviderError as err:
-        _raise_api_error(
-            status_code=503,
-            code="embedding_provider_error",
-            message=str(err),
-            error_type="backend",
-            cause=err,
-        )
-    return asdict(result)
-
-
-def _reject_memory_proposal_req(req: MemoryProposalRejectReq, runtime: HttpRuntime) -> dict[str, Any]:
-    try:
-        path = reject_proposal(root=runtime.corpus_root, proposal_id=req.proposal_id, reason=req.reason)
-    except DoryValidationError as err:
-        _raise_api_error(
-            status_code=404,
-            code="proposal_not_found",
-            message=str(err),
-            error_type="not_found",
-            cause=err,
-        )
-    return {"proposal_id": req.proposal_id, "path": path, "status": "rejected"}
-
-
-def _resolve_corpus_path(corpus_root: Path, relative_path: str) -> Path:
-    root = corpus_root.resolve()
-    target = (root / relative_path).resolve()
-    try:
-        target.relative_to(root)
-    except ValueError as err:
-        raise HTTPException(status_code=400, detail=f"path escapes corpus root: {relative_path}") from err
-    if not target.exists():
-        raise HTTPException(status_code=404, detail=f"path not found: {relative_path}")
-    return target
-
-
-def _slice_lines(text: str, start_line: int, limit: int | None) -> str:
-    if start_line < 1:
-        raise HTTPException(status_code=400, detail="'from' must be >= 1")
-    if limit is not None and limit < 1:
-        raise HTTPException(status_code=400, detail="'lines' must be >= 1")
-    lines = text.splitlines()
-    start_index = start_line - 1
-    end_index = len(lines) if limit is None else start_index + limit
-    return "\n".join(lines[start_index:end_index])
-
-
-def _sse_event(event: str, payload: dict[str, object]) -> str:
-    return f"event: {event}\ndata: {json.dumps(payload, sort_keys=True)}\n\n"
-
-
-def _authorize_web_or_redirect(
-    request: Request,
-    runtime: HttpRuntime,
-) -> str | RedirectResponse | None:
-    try:
-        return authorize_web_request(
-            request,
-            runtime.auth_tokens_path,
-            allow_no_auth=runtime.allow_no_auth,
-        )
-    except HTTPException as err:
-        if err.status_code != 401:
-            raise
-        next_path = _safe_web_next(_request_web_next(request))
-        return RedirectResponse(
-            f"/wiki/login?{urlencode({'next': next_path})}",
-            status_code=303,
-        )
-
-
-def _request_web_next(request: Request) -> str:
-    query = [(key, value) for key, value in request.query_params.multi_items() if key != "token"]
-    if not query:
-        return request.url.path
-    return f"{request.url.path}?{urlencode(query)}"
-
-
-def _safe_web_next(next_path: str) -> str:
-    if next_path in {"/wiki", "/app"}:
-        return next_path
-    if (
-        next_path.startswith(("/wiki/", "/wiki?", "/app/", "/app?"))
-        and not next_path.startswith("//")
-    ):
-        return next_path
-    return "/wiki"
-
-
-def _proposal_status_param(value: str) -> Literal["pending", "applied", "rejected"]:
-    if value in {"pending", "applied", "rejected"}:
-        return value  # type: ignore[return-value]
-    raise HTTPException(status_code=400, detail="status must be pending, applied, or rejected")
-
-
-def _proposal_action_error_response(
-    request: Request,
-    runtime: HttpRuntime,
-    proposal_id: str,
-    err: HTTPException,
-    cookie_token: str | None,
-) -> HTMLResponse:
-    message = _http_error_message(err)
-    response = render_app_proposals(
-        view=proposal_view_for(runtime.corpus_root, status="pending", selected_id=proposal_id),
-        error=message,
-    )
-    response.status_code = err.status_code
-    _set_legacy_web_auth_cookie(response, request, cookie_token)
-    return response
-
-
-def _http_error_message(err: HTTPException) -> str:
-    detail = err.detail
-    if isinstance(detail, dict):
-        message = detail.get("message")
-        if isinstance(message, str):
-            return message
-    return str(detail)
 
 
 def _authorize_request(request: Request, runtime: HttpRuntime) -> None:
     authorize_request(request, runtime.auth_tokens_path, allow_no_auth=runtime.allow_no_auth)
-
-
-def _set_legacy_web_auth_cookie(response: Response, request: Request, token: str | None) -> None:
-    if token is None:
-        return
-    response.set_cookie(
-        WEB_AUTH_COOKIE,
-        token,
-        max_age=60 * 60 * 24 * 30,
-        httponly=True,
-        secure=request.url.scheme == "https",
-        samesite="lax",
-    )
-
-
-def _set_web_session_cookie(response: Response, request: Request, session_cookie: str) -> None:
-    response.set_cookie(
-        WEB_SESSION_COOKIE,
-        session_cookie,
-        max_age=60 * 60 * 24 * 30,
-        httponly=True,
-        secure=request.url.scheme == "https",
-        samesite="lax",
-    )
-
-
-def _build_semantic_write_engine(runtime: HttpRuntime) -> SemanticWriteEngine:
-    return runtime.semantic_write_engine
-
-
-def _build_openclaw_parity_store(runtime: HttpRuntime) -> OpenClawParityStore:
-    return OpenClawParityStore(runtime.index_root)
-
-
-def _build_search_engine(runtime: HttpRuntime) -> SearchEngine:
-    return runtime.search_engine
 
 
 def _build_migration_engine(runtime: HttpRuntime, *, use_llm: bool = True) -> MigrationEngine:
@@ -1088,10 +207,6 @@ def _build_query_expander(settings: DorySettings) -> OpenRouterQueryExpander | N
 
 def _build_retrieval_planner(settings: DorySettings, *, purpose: str) -> OpenRouterRetrievalPlanner | None:
     return build_retrieval_planner(settings, purpose=purpose)
-
-
-def _build_active_memory_engine(runtime: HttpRuntime) -> ActiveMemoryEngine:
-    return runtime.active_memory_engine
 
 
 if __name__ == "__main__":

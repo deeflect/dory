@@ -16,7 +16,7 @@ def test_parse_serve_args_defaults() -> None:
     assert config.index_root == Path(".index")
 
 
-def test_main_dispatches_tcp(monkeypatch) -> None:
+def test_main_dispatches_tcp(monkeypatch, tmp_path: Path) -> None:
     calls: dict[str, object] = {}
 
     def fake_serve_tcp(core, host: str, port: int, *, auth_config=None) -> None:
@@ -25,7 +25,19 @@ def test_main_dispatches_tcp(monkeypatch) -> None:
     monkeypatch.setattr(mcp_server, "serve_tcp", fake_serve_tcp)
 
     mcp_server.main(
-        ["--mode", "tcp", "--host", "0.0.0.0", "--port", "9901", "--allow-no-auth"]
+        [
+            "--mode",
+            "tcp",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "9901",
+            "--corpus-root",
+            str(tmp_path / "corpus"),
+            "--index-root",
+            str(tmp_path / "index"),
+            "--allow-no-auth",
+        ]
     )
 
     assert calls["tcp"]["host"] == "0.0.0.0"
@@ -80,3 +92,4 @@ def test_runtime_core_reuses_search_engine(monkeypatch, tmp_path: Path, fake_emb
 
     assert len(constructed) == 1
     assert core.active_memory_engine.search_engine is core.search_engine
+    assert core.runtime.retrieval.search_backend is core.search_engine
