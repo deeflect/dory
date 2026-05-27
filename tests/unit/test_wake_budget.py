@@ -379,7 +379,7 @@ def test_wake_builder_includes_compiled_project_card_before_raw_state(tmp_path: 
     assert "projects/palace/state.md" in resp.sources
 
 
-def test_wake_builder_includes_general_compiled_concept_cards(tmp_path: Path) -> None:
+def test_wake_builder_coding_profile_skips_general_compiled_concept_cards(tmp_path: Path) -> None:
     (tmp_path / "core").mkdir(parents=True)
     (tmp_path / "wiki" / "people").mkdir(parents=True)
     (tmp_path / "wiki" / "concepts").mkdir(parents=True)
@@ -414,16 +414,15 @@ def test_wake_builder_includes_general_compiled_concept_cards(tmp_path: Path) ->
         WakeReq(agent="codex", profile="coding", budget_tokens=800, include_recent_sessions=0)
     )
 
-    assert "Dory is the memory system." in resp.block
-    # Coding retrieval denies people/**, so person cards stay out even if hot.
+    # Coding wake should stay operational. Generic generated concept/person
+    # cards belong in search/active-memory, not the startup block.
+    assert "Dory is the memory system." not in resp.block
     assert "Alice is a key collaborator." not in resp.block
-    # Cold card excluded
     assert "Bob is a minor contact." not in resp.block
-    # Non-canonical excluded
     assert "Old concept." not in resp.block
 
     assert "wiki/people/alice.md" not in resp.sources
-    assert "wiki/concepts/dory.md" in resp.sources
+    assert "wiki/concepts/dory.md" not in resp.sources
     assert "wiki/people/bob.md" not in resp.sources
     assert "wiki/concepts/old.md" not in resp.sources
 

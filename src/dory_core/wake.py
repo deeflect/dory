@@ -291,6 +291,7 @@ class WakeBuilder:
             self.root,
             project=project,
             retrieval_profile=self.profile_registry.retrieval_profile(profile),
+            max_general_cards=_general_compiled_card_limit(profile),
         )
         return [HotBlockSection(path=rel, content=content) for rel, content in raw]
 
@@ -377,6 +378,12 @@ def _summarize_session(section: HotBlockSection) -> str:
         body = line
         break
     return f"- {section.path.as_posix()}: {body[:120]}"
+
+
+def _general_compiled_card_limit(profile: WakeProfile) -> int:
+    if profile == "coding":
+        return 0
+    return 3
 
 
 def _extract_privacy_boundary_lines(content: str) -> list[str]:
