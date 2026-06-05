@@ -348,6 +348,58 @@ canonical: true
     }
 
 
+def test_active_memory_resolves_cwd_alias_to_canonical_project_context(tmp_path: Path) -> None:
+    class EmptySearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            del req
+            return _make_response([])
+
+    corpus_root = tmp_path / "corpus"
+    workspace = tmp_path / "workspace" / "mies"
+    workspace.mkdir(parents=True)
+    (corpus_root / "projects" / "palace").mkdir(parents=True)
+    (corpus_root / "projects" / "palace" / "state.md").write_text(
+        """---
+title: Palace
+type: project
+status: active
+canonical: true
+workspace_aliases:
+- mies
+---
+
+## Summary
+- Palace is the canonical project context for the Mies workspace.
+""",
+        encoding="utf-8",
+    )
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=corpus_root),
+        search_engine=EmptySearchEngine(),
+        root=corpus_root,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what matters for this project?",
+            agent="codex",
+            cwd=str(workspace),
+            include_wake=False,
+        )
+    )
+
+    assert "projects/palace/state.md" in result.sources
+    assert "Palace is the canonical project context for the Mies workspace." in result.block
+    assert result.entity_context == {
+        "entity_id": "project:palace",
+        "canonical_name": "Palace",
+        "family": "project",
+        "canonical_path": "projects/palace/state.md",
+        "matched_by": "project_handle",
+        "source_refs": ["projects/palace/state.md"],
+    }
+
+
 def test_active_memory_adds_resolved_entity_to_planning_context(tmp_path: Path) -> None:
     corpus_root = tmp_path / "corpus"
     workspace = tmp_path / "workspace"

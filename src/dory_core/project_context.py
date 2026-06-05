@@ -9,7 +9,25 @@ from dory_core.frontmatter import load_markdown_document
 from dory_core.slug import slugify_path_segment
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectContext:
+    slug: str
+    title: str
+    path: Path
+    target_path: str
+    matched_by: str
+    confidence: str
+
+    @property
+    def source_refs(self) -> tuple[str, ...]:
+        return (self.target_path,)
+
+
 def resolve_project_handle(*, project: str | None, cwd: str | None, root: Path | None) -> str | None:
+    context = resolve_project_context(project=project, cwd=cwd, root=root)
+    if context is not None:
+        return context.slug
+
     explicit = (project or "").strip()
     if explicit:
         path_handle = infer_project_handle_from_path(explicit, cwd=cwd)
@@ -25,7 +43,26 @@ def resolve_project_handle(*, project: str | None, cwd: str | None, root: Path |
     return None
 
 
+def resolve_project_context(*, project: str | None, cwd: str | None, root: Path | None) -> ProjectContext | None:
+    explicit = (project or "").strip()
+    if explicit:
+        explicit_candidates = []
+        path_handle = infer_project_handle_from_path(explicit, cwd=cwd)
+        if path_handle:
+            explicit_candidates.append((path_handle, "project_path"))
+        explicit_candidates.append((explicit, "project"))
+        return _resolve_first_project_context(root, explicit_candidates)
+
+    cwd_candidates = [(candidate, "cwd") for candidate in _project_handle_candidates_from_cwd(cwd)]
+    return _resolve_first_project_context(root, cwd_candidates)
+
+
 def resolve_project_path(root: Path | None, project: str) -> Path | None:
+    context = _resolve_project_context_for_value(root, project, matched_by="project")
+    return context.path if context is not None else None
+
+
+def _resolve_project_context_for_value(root: Path | None, project: str, *, matched_by: str) -> ProjectContext | None:
     if root is None:
         return None
     projects_root = root / "projects"
@@ -40,14 +77,33 @@ def resolve_project_path(root: Path | None, project: str) -> Path | None:
     for wanted in wanted_values:
         direct = projects_root / wanted / "state.md"
         if direct.exists():
-            return direct
+            return _project_context_from_path(direct, projects_root=projects_root, matched_by=matched_by, confidence="high")
 
     entries = _project_entries(projects_root)
     for entry in entries:
         if any(wanted in entry.lookup_values for wanted in wanted_values):
-            return entry.path
+            return _project_context_from_entry(entry, projects_root=projects_root, matched_by=matched_by, confidence="high")
 
-    return _best_fuzzy_project_match(entries, wanted_values)
+    fuzzy_entry = _best_fuzzy_project_match(entries, wanted_values)
+    if fuzzy_entry is None:
+        return None
+    return _project_context_from_entry(fuzzy_entry, projects_root=projects_root, matched_by="fuzzy", confidence="medium")
+
+
+def _resolve_first_project_context(root: Path | None, candidates: list[tuple[str, str]]) -> ProjectContext | None:
+    seen: set[str] = set()
+    for candidate, matched_by in candidates:
+        normalized = candidate.strip()
+        if not normalized:
+            continue
+        key = slugify_path_segment(normalized)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        context = _resolve_project_context_for_value(root, normalized, matched_by=matched_by)
+        if context is not None:
+            return context
+    return None
 
 
 def infer_project_handle_from_path(value: str, *, cwd: str | None = None) -> str | None:
@@ -72,18 +128,25 @@ def infer_project_handle_from_path(value: str, *, cwd: str | None = None) -> str
 
 
 def infer_project_handle_from_cwd(cwd: str | None) -> str | None:
+    return next(iter(_project_handle_candidates_from_cwd(cwd)), None)
+
+
+def _project_handle_candidates_from_cwd(cwd: str | None) -> list[str]:
     if cwd is None or not cwd.strip():
-        return None
+        return []
     path = Path(cwd).expanduser()
     candidates: list[str] = []
     for ancestor in (path, *path.parents):
         candidates.extend(_project_names_from_local_manifests(ancestor))
     candidates.extend(part for part in reversed(path.parts) if part and part not in {"/", "."})
+    handles: list[str] = []
+    seen: set[str] = set()
     for candidate in candidates:
         normalized = slugify_path_segment(candidate)
-        if normalized:
-            return normalized
-    return None
+        if normalized and normalized not in seen:
+            handles.append(normalized)
+            seen.add(normalized)
+    return handles
 
 
 def _project_names_from_local_manifests(path: Path) -> list[str]:
@@ -115,6 +178,7 @@ def _project_names_from_local_manifests(path: Path) -> list[str]:
 @dataclass(frozen=True, slots=True)
 class _ProjectEntry:
     path: Path
+    title: str
     lookup_values: frozenset[str]
 
 
@@ -125,21 +189,28 @@ def _project_entries(projects_root: Path) -> list[_ProjectEntry]:
             document = load_markdown_document(path.read_text(encoding="utf-8"))
         except ValueError:
             continue
-        values = [
-            str(document.frontmatter.get("title", "")),
-            str(document.frontmatter.get("slug", "")),
-            path.parent.name,
-        ]
-        aliases = document.frontmatter.get("aliases", [])
-        if isinstance(aliases, list):
-            values.extend(str(alias) for alias in aliases)
+        title = str(document.frontmatter.get("title", "")).strip() or path.parent.name.replace("-", " ").title()
+        values = [title, str(document.frontmatter.get("slug", "")), path.parent.name]
+        values.extend(_frontmatter_lookup_values(document.frontmatter))
         entries.append(
             _ProjectEntry(
                 path=path,
+                title=title,
                 lookup_values=frozenset(slugify_path_segment(value) for value in values if value.strip()),
             )
         )
     return entries
+
+
+def _frontmatter_lookup_values(frontmatter: dict[str, object]) -> list[str]:
+    values: list[str] = []
+    for key in ("aliases", "workspace_aliases", "local_aliases", "repo", "repos", "repositories"):
+        raw = frontmatter.get(key)
+        if isinstance(raw, str):
+            values.append(raw)
+        elif isinstance(raw, list):
+            values.extend(str(value) for value in raw if isinstance(value, str))
+    return values
 
 
 def _lookup_candidates(value: str) -> list[str]:
@@ -157,21 +228,64 @@ def _lookup_candidates(value: str) -> list[str]:
     return candidates
 
 
-def _best_fuzzy_project_match(entries: list[_ProjectEntry], wanted_values: list[str]) -> Path | None:
+def _best_fuzzy_project_match(entries: list[_ProjectEntry], wanted_values: list[str]) -> _ProjectEntry | None:
     if not wanted_values:
         return None
-    scored: list[tuple[int, str, Path]] = []
+    scored: list[tuple[int, str, _ProjectEntry]] = []
     for entry in entries:
         score = max(_fuzzy_score(wanted, value) for wanted in wanted_values for value in entry.lookup_values)
         if score >= 60:
-            scored.append((score, entry.path.as_posix(), entry.path))
+            scored.append((score, entry.path.as_posix(), entry))
     if not scored:
         return None
     scored.sort(reverse=True)
-    best_score, _best_name, best_path = scored[0]
+    best_score, _best_name, best_entry = scored[0]
     if len(scored) > 1 and best_score == scored[1][0]:
         return None
-    return best_path
+    return best_entry
+
+
+def _project_context_from_path(
+    path: Path,
+    *,
+    projects_root: Path,
+    matched_by: str,
+    confidence: str,
+) -> ProjectContext:
+    title = path.parent.name.replace("-", " ").title()
+    try:
+        document = load_markdown_document(path.read_text(encoding="utf-8"))
+    except ValueError:
+        pass
+    else:
+        raw_title = document.frontmatter.get("title")
+        if isinstance(raw_title, str) and raw_title.strip():
+            title = raw_title.strip()
+    return ProjectContext(
+        slug=path.parent.name,
+        title=title,
+        path=path,
+        target_path=path.relative_to(projects_root.parent).as_posix(),
+        matched_by=matched_by,
+        confidence=confidence,
+    )
+
+
+def _project_context_from_entry(
+    entry: _ProjectEntry,
+    *,
+    projects_root: Path,
+    matched_by: str,
+    confidence: str,
+) -> ProjectContext:
+    return ProjectContext(
+        slug=entry.path.parent.name,
+        title=entry.title,
+        path=entry.path,
+        target_path=entry.path.relative_to(projects_root.parent).as_posix(),
+        matched_by=matched_by,
+        confidence=confidence,
+    )
 
 
 def _fuzzy_score(wanted: str, candidate: str) -> int:

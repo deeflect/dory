@@ -278,6 +278,8 @@ class MemoryWriteReq(BaseModel):
     subject: str
     content: str
     scope: Literal["person", "project", "concept", "decision", "core"] | None = None
+    project: str | None = None
+    cwd: str | None = None
     confidence: Literal["high", "medium", "low"] | None = None
     reason: str | None = None
     source: str | None = None
@@ -321,6 +323,8 @@ class MemoryProposalCreateReq(BaseModel):
     subject: str
     content: str
     scope: Literal["person", "project", "concept", "decision", "core"] | None = None
+    project: str | None = None
+    cwd: str | None = None
     confidence: Literal["high", "medium", "low"] | None = None
     reason: str | None = None
     source: str | None = None

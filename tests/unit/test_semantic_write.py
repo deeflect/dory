@@ -283,6 +283,71 @@ def test_build_semantic_write_plan_creates_new_project_from_explicit_scope(tmp_p
     assert plan.target_exists is False
 
 
+def test_build_semantic_write_plan_uses_cwd_for_current_project_subject(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace" / "mies"
+    workspace.mkdir(parents=True)
+    (tmp_path / "projects" / "palace").mkdir(parents=True)
+    (tmp_path / "projects" / "palace" / "state.md").write_text(
+        """---
+title: Palace
+type: project
+workspace_aliases:
+- mies
+---
+# Palace
+""",
+        encoding="utf-8",
+    )
+
+    plan = build_semantic_write_plan(
+        tmp_path,
+        MemoryWriteReq(
+            action="write",
+            kind="state",
+            subject="this project",
+            content="Palace has canonical context from the current workspace.",
+            scope="project",
+            cwd=str(workspace),
+        ),
+    )
+
+    assert plan.subject_ref == "project:palace"
+    assert plan.target_subject_ref == "project:palace"
+    assert plan.target_path == "projects/palace/state.md"
+    assert plan.matched_by == "project_cwd"
+
+
+def test_build_semantic_write_plan_keeps_personal_scope_from_cwd_project_bleed(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace" / "mies"
+    workspace.mkdir(parents=True)
+    (tmp_path / "projects" / "palace").mkdir(parents=True)
+    (tmp_path / "projects" / "palace" / "state.md").write_text(
+        "---\ntitle: Palace\nworkspace_aliases:\n- mies\n---\n# Palace\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "people").mkdir(parents=True)
+    (tmp_path / "people" / "alex.md").write_text(
+        "---\ntitle: Alex\naliases:\n- user\n---\n# Alex\n",
+        encoding="utf-8",
+    )
+
+    plan = build_semantic_write_plan(
+        tmp_path,
+        MemoryWriteReq(
+            action="write",
+            kind="preference",
+            subject="user",
+            content="User prefers concise project handoffs.",
+            scope="person",
+            cwd=str(workspace),
+        ),
+    )
+
+    assert plan.subject_ref == "person:alex"
+    assert plan.target_path == "people/alex.md"
+    assert plan.family == "person"
+
+
 def test_build_semantic_write_plan_does_not_create_people_from_explicit_scope(tmp_path: Path) -> None:
     try:
         build_semantic_write_plan(

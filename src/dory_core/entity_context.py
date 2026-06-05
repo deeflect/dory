@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from dory_core.project_context import resolve_project_handle, resolve_project_path
+from dory_core.project_context import resolve_project_context
 
 if TYPE_CHECKING:
     from dory_core.entity_registry import EntityRegistry
@@ -125,19 +125,16 @@ def resolve_entity_context(
     # Only attempt project resolution when the caller hints at a project,
     # or when no family filter is active (wide net).
     if family is None or family == "project":
-        handle = resolve_project_handle(project=subject, cwd=cwd, root=root)
-        if handle:
-            project_path = resolve_project_path(root, handle)
-            if project_path is not None:
-                rel_path = project_path.relative_to(root).as_posix() if root else None
-                return EntityContext(
-                    entity_id=f"project:{handle}",
-                    canonical_name=handle.replace("-", " ").title(),
-                    family="project",
-                    canonical_path=rel_path,
-                    matched_by="project_handle",
-                    source_refs=(rel_path,) if rel_path else (),
-                )
+        context = resolve_project_context(project=subject, cwd=cwd, root=root)
+        if context is not None:
+            return EntityContext(
+                entity_id=f"project:{context.slug}",
+                canonical_name=context.title,
+                family="project",
+                canonical_path=context.target_path,
+                matched_by="project_handle",
+                source_refs=context.source_refs,
+            )
 
     return None
 

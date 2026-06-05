@@ -163,6 +163,43 @@ aliases:
     assert "projects/palace/state.md" in resp.sources
 
 
+def test_wake_builder_uses_canonical_project_slug_after_cwd_alias_resolution(tmp_path: Path) -> None:
+    corpus_root = tmp_path / "corpus"
+    workspace = tmp_path / "workspace" / "mies"
+    workspace.mkdir(parents=True)
+    (corpus_root / "core").mkdir(parents=True)
+    (corpus_root / "projects" / "palace").mkdir(parents=True)
+    (corpus_root / "wiki" / "projects").mkdir(parents=True)
+    (corpus_root / "core" / "active.md").write_text("# Active\n\nGlobal context.\n", encoding="utf-8")
+    (corpus_root / "projects" / "palace" / "state.md").write_text(
+        """---
+title: Palace
+type: project
+slug: palace
+workspace_aliases:
+- mies
+---
+
+## Summary
+- Alias-routed raw project state.
+""",
+        encoding="utf-8",
+    )
+    (corpus_root / "wiki" / "projects" / "palace.md").write_text(
+        "---\ntitle: Palace\ntype: wiki\nstatus: active\ncanonical: true\n"
+        "temperature: warm\nsource_kind: generated\n---\n\n# Palace\n\n- Alias-routed compiled project card.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(corpus_root).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=800, include_recent_sessions=0, cwd=str(workspace))
+    )
+
+    assert "Alias-routed compiled project card." in resp.block
+    assert "Alias-routed raw project state." in resp.block
+    assert resp.sources[:2] == ["wiki/projects/palace.md", "projects/palace/state.md"]
+
+
 def test_wake_builder_resolves_fuzzy_project_handle(tmp_path: Path) -> None:
     (tmp_path / "core").mkdir(parents=True)
     (tmp_path / "projects" / "agent-mission-control").mkdir(parents=True)

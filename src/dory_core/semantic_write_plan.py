@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 from dory_core.canonical_pages import canonical_title_from_subject
+from dory_core.project_context import ProjectContext, resolve_project_context
 from dory_core.slug import canonical_target_for_subject, normalize_migration_slug
 from dory_core.subject_resolver import SubjectMatch, SubjectResolver, SubjectResolverLike
 from dory_core.types import MemoryWriteAction, MemoryWriteKind, MemoryWriteReq
@@ -44,7 +45,13 @@ def build_semantic_write_plan(
     resolver: SubjectResolverLike | None = None,
 ) -> SemanticWritePlan:
     resolver = resolver or SubjectResolver(root)
-    match = resolver.resolve(req.subject, scope=req.scope)
+    match = None
+    if _should_prefer_project_context(req):
+        match = _project_match_from_request(root, req)
+    if match is None:
+        match = resolver.resolve(req.subject, scope=req.scope)
+    if match is None:
+        match = _project_match_from_request(root, req)
     if match is None or _should_create_new_explicit_dream_subject(match, req):
         match = _new_subject_match_from_explicit_scope(req)
     if match is None:
@@ -172,6 +179,56 @@ def _new_subject_match_from_explicit_scope(req: MemoryWriteReq) -> SubjectMatch 
         matched_by="explicit_scope",
         confidence="high",
     )
+
+
+_CURRENT_PROJECT_SUBJECTS = {
+    "current-project",
+    "repo",
+    "repository",
+    "this-project",
+    "workspace",
+}
+
+
+def _project_match_from_request(root: Path, req: MemoryWriteReq) -> SubjectMatch | None:
+    if req.scope != "project":
+        return None
+    subject = req.subject.strip()
+    project = (req.project or "").strip()
+    if project:
+        context = resolve_project_context(project=project, cwd=req.cwd, root=root)
+    elif normalize_migration_slug(subject) in _CURRENT_PROJECT_SUBJECTS:
+        context = resolve_project_context(project=None, cwd=req.cwd, root=root)
+    else:
+        context = resolve_project_context(project=subject, cwd=req.cwd, root=root)
+    if context is None:
+        return None
+    return _project_subject_match(context)
+
+
+def _should_prefer_project_context(req: MemoryWriteReq) -> bool:
+    if req.scope != "project":
+        return False
+    if (req.project or "").strip():
+        return True
+    return normalize_migration_slug(req.subject.strip()) in _CURRENT_PROJECT_SUBJECTS
+
+
+def _project_subject_match(context: ProjectContext) -> SubjectMatch:
+    return SubjectMatch(
+        subject_ref=f"project:{context.slug}",
+        family="project",
+        title=context.title,
+        target_path=context.target_path,
+        matched_by=f"project_{context.matched_by}",
+        confidence=_project_match_confidence(context),
+    )
+
+
+def _project_match_confidence(context: ProjectContext) -> Literal["high", "medium", "low"]:
+    if context.confidence in {"high", "medium", "low"}:
+        return context.confidence  # type: ignore[return-value]
+    return "medium"
 
 
 def _should_create_new_explicit_dream_subject(match: SubjectMatch, req: MemoryWriteReq) -> bool:

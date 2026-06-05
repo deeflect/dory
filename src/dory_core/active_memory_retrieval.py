@@ -9,7 +9,7 @@ from dory_core.active_memory_policy import (
     is_active_memory_candidate,
 )
 from dory_core.markdown_excerpt import canonical_file_excerpt, first_content_excerpt, strip_frontmatter
-from dory_core.project_context import resolve_project_handle, resolve_project_path
+from dory_core.project_context import resolve_project_context
 from dory_core.types import ActiveMemoryReq, SearchReq, SearchResult, SearchScope
 
 
@@ -111,13 +111,11 @@ def dedupe_results_by_path(results: list[object]) -> list[object]:
 def project_state_result(req: ActiveMemoryReq, *, root: Path | None) -> SearchResult | None:
     if root is None:
         return None
-    handle = resolve_project_handle(project=req.project, cwd=req.cwd, root=root)
-    if handle is None:
+    context = resolve_project_context(project=req.project, cwd=req.cwd, root=root)
+    if context is None:
         return None
-    project_path = resolve_project_path(root, handle)
-    if project_path is None:
-        return None
-    rel_path = project_path.relative_to(root).as_posix()
+    project_path = context.path
+    rel_path = context.target_path
     try:
         text = project_path.read_text(encoding="utf-8")
     except OSError:

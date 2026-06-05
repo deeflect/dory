@@ -60,6 +60,8 @@ class ProposalAction:
     subject: str
     content: str
     scope: Literal["person", "project", "concept", "decision", "core"] | None = None
+    project: str | None = None
+    cwd: str | None = None
     confidence: Literal["high", "medium", "low"] | None = None
     reason: str | None = None
     source: str | None = None
@@ -208,6 +210,8 @@ def load_proposal(path: Path) -> ProposalDocument:
                     action.get("scope"),
                     {"person", "project", "concept", "decision", "core"},
                 ),  # type: ignore[arg-type]
+                project=_optional_string(action.get("project")),
+                cwd=_optional_string(action.get("cwd")),
                 confidence=_optional_enum(
                     action.get("confidence"),
                     {"high", "medium", "low"},
@@ -326,6 +330,8 @@ def create_semantic_write_proposal(
         subject=req.subject,
         content=req.content,
         scope=req.scope,
+        project=req.project,
+        cwd=req.cwd,
         confidence=req.confidence,
         reason=req.reason,
         source=req.source,
@@ -513,6 +519,8 @@ def _memory_write_req_from_proposal_req(
         subject=req.subject,
         content=req.content,
         scope=req.scope,
+        project=req.project,
+        cwd=req.cwd,
         confidence=req.confidence,
         reason=req.reason,
         source=req.source,
@@ -542,6 +550,8 @@ def _memory_write_req_from_action(
         subject=action.subject,
         content=action.content,
         scope=action.scope,
+        project=action.project,
+        cwd=action.cwd,
         confidence=action.confidence,
         reason=action.reason or proposal.reason,
         source=action.source,
