@@ -601,6 +601,51 @@ def test_active_memory_health_prompt_uses_health_query_hints(tmp_path: Path) -> 
     assert "Dory cleanup" not in result.block
 
 
+def test_active_memory_health_prompt_ignores_llm_composer(tmp_path: Path) -> None:
+    class HealthSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="projects/dee-supplement-plan/state.md",
+                        snippet="Supplement plan project state is relevant.",
+                        score=0.9,
+                        confidence="high",
+                    )
+                ]
+            )
+
+    class BadComposer:
+        def compose_active_memory(self, **kwargs) -> ActiveMemoryComposition:  # pragma: no cover - test stub
+            del kwargs
+            return ActiveMemoryComposition(
+                summary="Unrelated session decision.",
+                bullets=("logs/sessions/example.md: unrelated session decision.",),
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=HealthSearchEngine(),
+        root=tmp_path,
+        composer=BadComposer(),
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="What is my current supplement plan?",
+            agent="hermes",
+            profile="assistant",
+            include_wake=False,
+            timeout_ms=10000,
+        )
+    )
+
+    assert "Supplement plan project state is relevant." in result.block
+    assert "unrelated session decision" not in result.block
+
+
 def test_active_memory_health_prompt_does_not_fall_back_to_wake(tmp_path: Path) -> None:
     class EmptySearchEngine:
         def search(self, req: SearchReq):  # pragma: no cover - test stub

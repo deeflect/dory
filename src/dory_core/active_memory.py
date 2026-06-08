@@ -130,6 +130,7 @@ class ActiveMemoryEngine:
             renderable_durable_results = preferred_active_memory_results(durable_results)
             composition = self._trusted_composition(
                 req,
+                source_policy,
                 planning_context,
                 wake_block,
                 renderable_durable_results,
@@ -475,6 +476,7 @@ class ActiveMemoryEngine:
     def _trusted_composition(
         self,
         req: ActiveMemoryReq,
+        source_policy: SourcePolicy,
         context: ActiveMemoryPlanningContext,
         wake_block: str,
         durable_results: list[object],
@@ -482,6 +484,8 @@ class ActiveMemoryEngine:
         *,
         deadline: "_Deadline",
     ) -> ActiveMemoryComposition | None:
+        if source_policy.prompt_context == "health":
+            return None
         composition = self._compose(req, context, wake_block, durable_results, session_results, deadline=deadline)
         if _composition_conflicts_with_evidence(composition, durable_results):
             return None
