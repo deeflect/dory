@@ -390,6 +390,105 @@ canonical: true
     assert "Sample is the active focus this week." not in result.block
 
 
+def test_active_memory_project_context_suppresses_helper_bullets(tmp_path: Path) -> None:
+    class SupplementSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="projects/supplements/state.md",
+                        snippet="Supplement plan is the project-local current truth.",
+                        score=0.9,
+                        confidence="high",
+                    )
+                ]
+            )
+
+    corpus_root = tmp_path / "corpus"
+    (corpus_root / "wiki").mkdir(parents=True)
+    (corpus_root / "wiki" / "hot.md").write_text(
+        "---\ntitle: Hot Cache\n---\n\n"
+        "## Recent Pages\n"
+        "- 2026-04-19: Your AI Has Employees [concepts]\n"
+        "- 2026-04-19: X Growth System [projects]\n",
+        encoding="utf-8",
+    )
+    (corpus_root / "projects" / "supplements").mkdir(parents=True)
+    (corpus_root / "projects" / "supplements" / "state.md").write_text(
+        "---\ntitle: Supplements\ntype: project\nstatus: active\ncanonical: true\n---\n\n"
+        "## Summary\n- Supplement plan is the project-local current truth.\n",
+        encoding="utf-8",
+    )
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=corpus_root),
+        search_engine=SupplementSearchEngine(),
+        root=corpus_root,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what is current for the supplement plan?",
+            agent="hermes",
+            profile="assistant",
+            project="supplements",
+            include_wake=False,
+        )
+    )
+
+    assert "Supplement plan is the project-local current truth." in result.block
+    assert "Your AI Has Employees" not in result.block
+    assert "X Growth System" not in result.block
+
+
+def test_active_memory_assistant_does_not_infer_project_from_cwd(tmp_path: Path) -> None:
+    class SupplementSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="projects/supplements/state.md",
+                        snippet="Supplement plan is the relevant current state.",
+                        score=0.9,
+                        confidence="high",
+                    )
+                ]
+            )
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "pyproject.toml").write_text('[project]\nname = "dory"\n', encoding="utf-8")
+    corpus_root = tmp_path / "corpus"
+    (corpus_root / "projects" / "dory").mkdir(parents=True)
+    (corpus_root / "projects" / "dory" / "state.md").write_text(
+        "---\ntitle: Dory\ntype: project\n---\n\n## Summary\n- Dory project state.\n",
+        encoding="utf-8",
+    )
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=corpus_root),
+        search_engine=SupplementSearchEngine(),
+        root=corpus_root,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what is my current supplement plan?",
+            agent="hermes",
+            profile="assistant",
+            cwd=str(workspace),
+            include_wake=False,
+        )
+    )
+
+    assert result.entity_context is None
+    assert "projects/supplements/state.md" in result.sources
+    assert "projects/dory/state.md" not in result.sources
+    assert "Supplement plan is the relevant current state." in result.block
+
+
 def test_active_memory_resolves_cwd_alias_to_canonical_project_context(tmp_path: Path) -> None:
     class EmptySearchEngine:
         def search(self, req: SearchReq):  # pragma: no cover - test stub

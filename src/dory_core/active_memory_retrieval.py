@@ -156,7 +156,10 @@ def with_project_result(
     *,
     root: Path | None,
     source_policy: SourcePolicy,
+    entity_context: object | None,
 ) -> list[object]:
+    if entity_context is None:
+        return results
     project_result = project_state_result(req, root=root)
     if project_result is None or not source_policy.allows_result_path(
         str(getattr(project_result, "path", "") or ""), corpus="durable"

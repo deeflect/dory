@@ -103,7 +103,7 @@ def topic_scoped_helper_context(
     prompt: str,
     source_policy: SourcePolicy,
 ) -> WikiHelperContext:
-    if source_policy.profile not in {"coding", "writing"}:
+    if source_policy.profile in {"privacy"}:
         return helper
 
     prompt_tokens = topic_tokens(prompt)

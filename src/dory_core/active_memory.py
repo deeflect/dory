@@ -112,17 +112,19 @@ class ActiveMemoryEngine:
             # broad retrieval.  This gives downstream code (planning,
             # search scoping) a typed entity packet without calling an LLM.
             if req.resolve_entity_context and self.root is not None:
-                entity_context = resolve_default_entity_context(
-                    project=req.project,
-                    cwd=req.cwd,
-                    root=self.root,
-                )
-            helper = self._helper_context(req, source_policy)
+                entity_context = self._resolve_entity_context(req, source_policy)
+            helper = self._helper_context(req, source_policy, entity_context)
             wake_block, wake_sources = self._wake_context(req, source_policy)
             planning_context = self._planning_context(helper, entity_context)
             plan = self._plan(req, planning_context, deadline=deadline)
             durable_results, session_results = self._retrieve_evidence(req, plan, source_policy, deadline=deadline)
-            durable_results = with_project_result(req, durable_results, root=self.root, source_policy=source_policy)
+            durable_results = with_project_result(
+                req,
+                durable_results,
+                root=self.root,
+                source_policy=source_policy,
+                entity_context=entity_context,
+            )
             durable_results = suppress_global_context_for_entity(durable_results, entity_context)
             renderable_durable_results = preferred_active_memory_results(durable_results)
             composition = self._trusted_composition(
@@ -315,7 +317,31 @@ class ActiveMemoryEngine:
             wake_context=(SourceBackedItem(text=rendered_wake_block),) if rendered_wake_block else (),
         )
 
-    def _helper_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> WikiHelperContext:
+    def _resolve_entity_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> EntityContext | None:
+        if self.root is None:
+            return None
+        if req.project:
+            return resolve_default_entity_context(
+                project=req.project,
+                cwd=req.cwd,
+                root=self.root,
+            )
+        if req.cwd and _allows_cwd_project_inference(req, source_policy):
+            return resolve_default_entity_context(
+                project=None,
+                cwd=req.cwd,
+                root=self.root,
+            )
+        return None
+
+    def _helper_context(
+        self,
+        req: ActiveMemoryReq,
+        source_policy: SourcePolicy,
+        entity_context: EntityContext | None,
+    ) -> WikiHelperContext:
+        if entity_context is not None:
+            return empty_wiki_helper_context()
         helper = (
             load_wiki_helper_context(self.root)
             if source_policy.retrieval.use_helper_context
@@ -348,12 +374,19 @@ class ActiveMemoryEngine:
                 budget_tokens=min(req.budget_tokens, 600),
                 agent=req.agent,
                 profile=source_policy.retrieval.wake_profile,
-                project=resolve_project_handle(project=req.project, cwd=req.cwd, root=self.root),
+                project=self._wake_project_handle(req, source_policy),
                 include_recent_sessions=3 if source_policy.include_session_context else 0,
                 include_pinned_decisions=source_policy.retrieval.include_pinned_decisions,
             )
         )
         return wake.block, wake.sources
+
+    def _wake_project_handle(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> str | None:
+        if req.project:
+            return resolve_project_handle(project=req.project, cwd=req.cwd, root=self.root)
+        if req.cwd and _allows_cwd_project_inference(req, source_policy):
+            return resolve_project_handle(project=None, cwd=req.cwd, root=self.root)
+        return None
 
     def _retrieve_evidence(
         self,
@@ -526,6 +559,13 @@ def _dedupe_strings(items: list[str]) -> list[str]:
         seen.add(key)
         deduped.append(value)
     return deduped
+
+
+def _allows_cwd_project_inference(req: ActiveMemoryReq, source_policy: SourcePolicy) -> bool:
+    if source_policy.profile in {"coding", "admin"}:
+        return True
+    agent = req.agent.strip().casefold()
+    return agent in {"codex", "claude", "claude-code", "opencode", "openclaw"}
 
 
 def _composition_conflicts_with_evidence(composition: object | None, durable_results: list[object]) -> bool:
