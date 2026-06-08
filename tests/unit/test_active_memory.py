@@ -835,6 +835,75 @@ source_kind: canonical
     assert "Global environment" not in result.block
 
 
+def test_active_memory_project_coding_filters_unrelated_project_hits(tmp_path: Path) -> None:
+    (tmp_path / "projects" / "dory").mkdir(parents=True)
+    (tmp_path / "projects" / "dory" / "state.md").write_text(
+        """---
+title: Dory
+type: project
+status: active
+canonical: true
+source_kind: canonical
+---
+
+## Summary
+- Dory retrieval behavior is the coding target.
+""",
+        encoding="utf-8",
+    )
+
+    class CodingSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="projects/memory-system/state.md",
+                        snippet="Memory-system support context for Dory retrieval behavior.",
+                        score=0.9,
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="projects/personal-branding-master-plan/state.md",
+                        snippet="Brand content planning should not enter Dory coding memory.",
+                        score=0.85,
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="projects/content-command-center/state.md",
+                        snippet="Content scanner notes should not enter Dory coding memory.",
+                        score=0.8,
+                        confidence="high",
+                    ),
+                ]
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=CodingSearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="I'm coding in the Dory public repo and changing retrieval behavior.",
+            agent="codex",
+            profile="coding",
+            project="dory",
+            include_wake=False,
+        )
+    )
+
+    assert "projects/dory/state.md" in result.sources
+    assert "projects/memory-system/state.md" in result.sources
+    assert "projects/personal-branding-master-plan/state.md" not in result.sources
+    assert "projects/content-command-center/state.md" not in result.sources
+    assert "Dory retrieval behavior is the coding target." in result.block
+    assert "Brand content planning" not in result.block
+    assert "Content scanner notes" not in result.block
+
+
 def test_active_memory_adds_resolved_entity_to_planning_context(tmp_path: Path) -> None:
     corpus_root = tmp_path / "corpus"
     workspace = tmp_path / "workspace"

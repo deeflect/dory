@@ -650,7 +650,7 @@ def _suppress_unrelated_project_results(
     results: list[object],
     entity_context: EntityContext | None,
 ) -> list[object]:
-    if entity_context is None or source_policy.prompt_context != "writing":
+    if entity_context is None or source_policy.prompt_context not in {"coding", "writing"}:
         return results
     if str(getattr(entity_context, "family", "") or "") != "project":
         return results
@@ -673,6 +673,12 @@ def _suppress_unrelated_project_results(
         if path in entity_paths or _is_writing_support_path(path):
             filtered.append(result)
             continue
+        if source_policy.prompt_context == "coding":
+            if _is_coding_support_project(path, entity_paths):
+                filtered.append(result)
+            elif not path.startswith("projects/"):
+                filtered.append(result)
+            continue
         if path.startswith("projects/") and _is_related_writing_project(path, result, prompt_tokens):
             filtered.append(result)
             continue
@@ -683,6 +689,10 @@ def _suppress_unrelated_project_results(
 
 def _is_writing_support_path(path: str) -> bool:
     return path == "core/soul.md" or path.startswith(("knowledge/personal/", "knowledge/writing/"))
+
+
+def _is_coding_support_project(path: str, entity_paths: set[str]) -> bool:
+    return "projects/dory/state.md" in entity_paths and path == "projects/memory-system/state.md"
 
 
 def _is_related_writing_project(path: str, result: object, prompt_tokens: set[str]) -> bool:
