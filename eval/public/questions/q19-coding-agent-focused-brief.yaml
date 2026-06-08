@@ -1,0 +1,15 @@
+id: q19
+question: "For coding-agent tasks, what should Dory provide directly and what should stay behind tools?"
+expected_sources:
+  - references/memory-behavior.md
+expected_keywords:
+  - "focused task brief"
+  - "raw search snippets"
+  - "available through tools"
+type: task-grounded
+freshness_sensitive: false
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards coding-agent context bloat by preferring concise active-memory briefs
+  over raw evidence injection.

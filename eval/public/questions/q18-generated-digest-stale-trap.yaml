@@ -1,0 +1,15 @@
+id: q18
+question: "Should generated digests become active-memory current truth automatically?"
+expected_sources:
+  - references/memory-behavior.md
+expected_keywords:
+  - "Generated digests are searchable historical evidence"
+  - "should not become active-memory current truth"
+  - "reviewed promotion"
+type: negation
+freshness_sensitive: true
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards stale-context leakage from generated summaries into active-memory
+  current-truth claims.

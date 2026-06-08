@@ -12,6 +12,8 @@ from dory_core.markdown_excerpt import canonical_file_excerpt, first_content_exc
 from dory_core.project_context import resolve_project_context
 from dory_core.types import ActiveMemoryReq, SearchReq, SearchResult, SearchScope
 
+_ENTITY_SCOPED_GLOBAL_CONTEXT_PATHS = {"core/active.md"}
+
 
 def expanded_candidate_limit(k: int, *, source_policy: SourcePolicy | None, corpus: str) -> int:
     if source_policy is None or not source_policy.needs_prefilter_expansion(corpus=corpus):
@@ -53,7 +55,11 @@ def search_candidates(
             path = str(getattr(result, "path", "") or "")
             if not path:
                 continue
-            if not is_active_memory_candidate(result, corpus=corpus):
+            if not is_active_memory_candidate(
+                result,
+                corpus=corpus,
+                active_profile=source_policy.profile if source_policy is not None else "general",
+            ):
                 continue
             if source_policy is not None and not source_policy.allows_result_path(path, corpus=corpus):
                 continue
@@ -157,3 +163,15 @@ def with_project_result(
     ):
         return results
     return dedupe_results_by_path([project_result, *results])
+
+
+def suppress_global_context_for_entity(results: list[object], entity_context: object | None) -> list[object]:
+    if entity_context is None:
+        return results
+    if str(getattr(entity_context, "family", "") or "") != "project":
+        return results
+    return [
+        result
+        for result in results
+        if str(getattr(result, "path", "") or "") not in _ENTITY_SCOPED_GLOBAL_CONTEXT_PATHS
+    ]

@@ -46,6 +46,33 @@ def test_wake_builder_coding_profile_prioritizes_operational_context(sample_corp
     ]
 
 
+def test_wake_builder_project_scope_uses_project_state_instead_of_global_active(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "projects" / "supplements").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nGlobal Dory cleanup context.\n", encoding="utf-8")
+    (tmp_path / "core" / "env.md").write_text("# Env\n\nRuntime context.\n", encoding="utf-8")
+    (tmp_path / "core" / "defaults.md").write_text("# Defaults\n\nDefault tools.\n", encoding="utf-8")
+    (tmp_path / "projects" / "supplements" / "state.md").write_text(
+        "---\ntitle: Supplements\ntype: project\n---\n\n## Summary\n- Supplement project current truth.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(
+            agent="codex",
+            profile="coding",
+            project="supplements",
+            budget_tokens=400,
+            include_recent_sessions=0,
+        )
+    )
+
+    assert "Supplement project current truth." in resp.block
+    assert "Global Dory cleanup context." not in resp.block
+    assert "core/active.md" not in resp.sources
+    assert resp.sources == ["projects/supplements/state.md", "core/env.md", "core/defaults.md"]
+
+
 def test_wake_builder_truncates_when_budget_is_tight(sample_corpus_root) -> None:
     resp = WakeBuilder(sample_corpus_root).build(WakeReq(agent="claude-code", budget_tokens=12))
 
@@ -159,12 +186,31 @@ def test_wake_builder_coding_profile_skips_private_project_state(tmp_path: Path)
     ]
 
 
-def test_wake_builder_includes_recent_sessions_when_budget_allows(sample_corpus_root) -> None:
-    resp = WakeBuilder(sample_corpus_root).build(WakeReq(agent="codex", budget_tokens=200, include_recent_sessions=1))
+def test_wake_builder_includes_only_completed_recent_sessions_when_budget_allows(tmp_path: Path) -> None:
+    sessions_root = tmp_path / "logs" / "sessions" / "codex"
+    sessions_root.mkdir(parents=True)
+    active = sessions_root / "2026-04-08-active.md"
+    done = sessions_root / "2026-04-07-done.md"
+    active.write_text(
+        "---\ntitle: Active\ntype: session\nstatus: active\n---\n\nActive in-progress note.\n",
+        encoding="utf-8",
+    )
+    done.write_text(
+        "---\ntitle: Done\ntype: session\nstatus: done\n---\n\nCompleted handoff note.\n",
+        encoding="utf-8",
+    )
+    os.utime(active, (200, 200))
+    os.utime(done, (100, 100))
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", budget_tokens=200, include_recent_sessions=1, include_pinned_decisions=False)
+    )
 
     assert "## Recent sessions" in resp.block
-    assert "logs/sessions/claude-code/2026-04-07.md" in resp.block
-    assert resp.sources[-1] == "logs/sessions/claude-code/2026-04-07.md"
+    assert "logs/sessions/codex/2026-04-07-done.md" in resp.block
+    assert "Completed handoff note." in resp.block
+    assert "logs/sessions/codex/2026-04-08-active.md" not in resp.block
+    assert resp.sources[-1] == "logs/sessions/codex/2026-04-07-done.md"
 
 
 def test_wake_builder_includes_decisions_when_requested(sample_corpus_root) -> None:
@@ -520,6 +566,40 @@ def test_wake_builder_includes_compiled_project_card_before_raw_state(tmp_path: 
     # Both should be in sources
     assert "wiki/projects/palace.md" in resp.sources
     assert "projects/palace/state.md" in resp.sources
+
+
+def test_wake_builder_truncates_oversized_first_compiled_card(tmp_path: Path) -> None:
+    class FirstCardTokenCounter:
+        def count(self, text: str, *, agent: str = "default") -> int:
+            del agent
+            if "Oversized compiled card line" in text:
+                return max(5, text.count("Oversized compiled card line") * 20)
+            return 1
+
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "projects" / "palace").mkdir(parents=True)
+    (tmp_path / "wiki" / "projects").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    (tmp_path / "projects" / "palace" / "state.md").write_text(
+        "---\ntitle: Palace\nstatus: active\ncanonical: true\nsource_kind: canonical\ntemperature: hot\n---\n\nRaw state.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "wiki" / "projects" / "palace.md").write_text(
+        "---\ntitle: Palace compiled\ntype: wiki\nstatus: active\ncanonical: true\n"
+        "temperature: hot\nsource_kind: generated\n---\n\n# Palace\n\n"
+        + "\n".join(f"Oversized compiled card line {index}." for index in range(20))
+        + "\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path, token_counter=FirstCardTokenCounter()).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=25, include_recent_sessions=0, project="palace")
+    )
+
+    assert "wiki/projects/palace.md" in resp.sources
+    assert "wake section truncated" in resp.block
+    assert "Oversized compiled card line 19." not in resp.block
+    assert resp.tokens_estimated <= 25
 
 
 def test_wake_builder_coding_profile_skips_general_compiled_concept_cards(tmp_path: Path) -> None:

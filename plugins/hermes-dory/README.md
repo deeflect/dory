@@ -33,6 +33,7 @@ Environment variables:
 - `DORY_HERMES_WAKE_RECENT_SESSIONS`
 - `DORY_HERMES_WAKE_INCLUDE_PINNED_DECISIONS`
 - `DORY_HERMES_ACTIVE_MEMORY_INCLUDE_WAKE`
+- `DORY_HERMES_INJECT_RETRIEVED_EVIDENCE`
 - `DORY_HERMES_SEARCH_K`
 - `DORY_HERMES_SEARCH_MODE`
 
@@ -84,6 +85,8 @@ Wake/active-memory notes:
 - a custom profile can define wake section files plus retrieval `allow`, `deny`, `boosts`, `sessions`, `use_helper_context`, and pinned-decision policy
 - set `active_memory_include_wake: false` when Hermes already calls wake during prefetch to avoid duplicate context
 - `wake`, `active_memory`, and prefetch helpers can forward `project` or `cwd`; `active_memory` and prefetch helpers can also forward session recall `scope`
+- automatic context injection uses the active-memory block as the brief and falls back to wake when active-memory is empty
+- search result paths remain available in the prefetch trace and tools; raw search snippets are not appended unless `inject_retrieved_evidence: true`
 
 Write safety notes:
 
@@ -115,6 +118,7 @@ Memory mode notes:
 - `hybrid`: prefetch context and expose Dory tools
 - `context`: prefetch context only
 - `tools`: Dory tools only, no auto-injected context
+- `inject_retrieved_evidence` defaults false; keep it false for normal Hermes use so workers receive concise briefs instead of active-memory plus a second evidence dump
 
 ## Install
 

@@ -56,6 +56,21 @@ Treat wake as framing, not proof that every canonical file was loaded. Search + 
 
 Default search results include path, lines, snippet, `evidence_class`, `confidence`, and stale warnings. Debug-only internals (`score`, `score_normalized`, `rank_score`, and `frontmatter`) require `debug=true`; agents should trust the returned order instead of reading score fields. Prefer canonical/current evidence for current-state answers; treat `inbox`, `raw`, and `session` hits as supporting material unless the user explicitly asked for raw or recent material. Active memory may keep stale evidence as a fallback, but it prefers fresh durable hits when composing the returned block.
 
+## Direct Context vs Briefs
+
+Give workers the smallest context surface that lets them continue the task:
+
+| Worker | Direct Context | Brief / Tool Context | Do Not Inject By Default |
+|---|---|---|---|
+| Codex / Claude coding | One project-aware `dory_wake(profile="coding", budget_tokens=1200)` at session start | `dory_active_memory(profile="coding", include_wake=false)` for task-specific continuation; `dory_search` + `dory_get` for exact evidence | raw sessions, full canonical profile pages, `core/user.md`, `core/soul.md`, `people/**`, generated wiki/cache pages |
+| Hermes | The active-memory block from provider prefetch; wake only as fallback when active-memory is empty | source paths in trace, `dory_search`, `dory_get`, `dory_digest`, `dory_research(kind="briefing")`, proposal tools | active-memory plus a second raw search-snippet dump, raw transcripts, unreviewed research, secrets/private data |
+| OpenClaw / opencode | Project-aware wake plus repo-local docs/rules | Dory tools for durable memory and exact evidence | personal profile context unless requested |
+
+Search results are evidence candidates, not prompt context. For coding agents,
+prefer supervisor/task briefs over direct memory-provider access when a worker is
+spawned for a narrow task: the supervisor can call Dory, cite source paths, and
+pass only the current decision, relevant project state, and rollback risks.
+
 ## Write policy
 
 Write only when at least one of these is true:

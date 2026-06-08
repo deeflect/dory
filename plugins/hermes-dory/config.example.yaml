@@ -10,6 +10,9 @@ wake_profile: coding
 wake_recent_sessions: 5
 wake_include_pinned_decisions: true
 active_memory_include_wake: false
+inject_retrieved_evidence: false
+# false = inject active-memory brief only; search results stay in trace/tools
+# true = append raw search snippets for legacy/debug workflows
 search_k: 8
 search_mode: hybrid
 # Preferred API-native values: hybrid, recall, bm25, text, keyword, vector, exact

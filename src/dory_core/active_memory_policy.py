@@ -215,7 +215,7 @@ def active_memory_path_weight(path: str) -> float:
     return 0.0
 
 
-def is_active_memory_candidate(result: object, *, corpus: str) -> bool:
+def is_active_memory_candidate(result: object, *, corpus: str, active_profile: str = "general") -> bool:
     path = str(getattr(result, "path", "") or "")
     if not path or path.endswith(".tombstone.md"):
         return False
@@ -223,13 +223,17 @@ def is_active_memory_candidate(result: object, *, corpus: str) -> bool:
         return False
     if corpus == "durable" and path.startswith("wiki/"):
         return False
-    if corpus == "durable" and path.startswith(("inbox/quarantine/", "archive/")):
+    if corpus == "durable" and path.startswith(("inbox/", "archive/")):
         return False
     frontmatter = _result_frontmatter(result)
     status = str(frontmatter.get("status", "")).strip().lower()
-    if status in {"stale", "superseded", "quarantined", "quarantine"}:
+    if status in {"retired", "stale", "superseded", "quarantined", "quarantine"}:
         return False
     if corpus == "durable" and status == "raw":
+        return False
+    if corpus == "durable" and _is_historical_or_generated_source(path, frontmatter):
+        return False
+    if corpus == "durable" and _is_private_or_sensitive_source(frontmatter, active_profile=active_profile):
         return False
     confidence = str(getattr(result, "confidence", "") or "").strip().lower()
     if corpus == "durable" and confidence == "low":
@@ -251,7 +255,7 @@ def filter_active_memory_results(
     return [
         result
         for result in results
-        if is_active_memory_candidate(result, corpus=corpus)
+        if is_active_memory_candidate(result, corpus=corpus, active_profile=source_policy.profile)
         and source_policy.allows_result_path(str(getattr(result, "path", "") or ""), corpus=corpus)
     ]
 
@@ -265,6 +269,34 @@ def source_policy_for_request(req: ActiveMemoryReq, *, profile_registry: Profile
         retrieval=retrieval,
         include_session_context=session_included,
     )
+
+
+def _is_historical_or_generated_source(path: str, frontmatter: dict[str, object]) -> bool:
+    temperature = str(frontmatter.get("temperature", "") or "").strip().lower()
+    if temperature == "cold":
+        return True
+
+    source_kind = str(frontmatter.get("source_kind", "") or "").strip().lower()
+    if source_kind in {"raw", "session", "imported", "legacy"}:
+        return True
+    if source_kind == "generated":
+        return True
+    if path.startswith(("digests/", "logs/daily/", "logs/weekly/", "sources/semantic/")):
+        return True
+    return False
+
+
+def _is_private_or_sensitive_source(frontmatter: dict[str, object], *, active_profile: str) -> bool:
+    visibility = str(frontmatter.get("visibility", "") or "").strip().lower()
+    if visibility == "private" and active_profile in {"coding", "writing", "general", "assistant", "admin"}:
+        return True
+
+    sensitivity = str(frontmatter.get("sensitivity", "") or "").strip().lower()
+    if sensitivity in {"credentials", "contact", "financial", "legal", "health"}:
+        return True
+    if sensitivity == "personal" and active_profile in {"coding", "privacy", "admin"}:
+        return True
+    return False
 
 
 def topic_tokens(text: str) -> frozenset[str]:

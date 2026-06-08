@@ -186,6 +186,31 @@ def test_bridge_syncs_local_sessions_before_wake(monkeypatch) -> None:
     assert '"sent":1' in result
 
 
+def test_bridge_applies_coding_wake_defaults(monkeypatch) -> None:
+    bridge = _load_bridge_module()
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(bridge.os, "getcwd", lambda: "/tmp/current-project")
+
+    def fake_http_post(endpoint: str, body=None):
+        captured["endpoint"] = endpoint
+        captured["body"] = body
+        return {"profile": "coding", "block": "## Wake"}
+
+    monkeypatch.setattr(bridge, "http_post", fake_http_post)
+    monkeypatch.setattr(bridge, "sync_sessions_before_wake", lambda: None)
+
+    bridge.handle_tool_call("dory_wake", {})
+
+    assert captured["endpoint"] == "/v1/wake"
+    assert captured["body"] == {
+        "agent": "claude-code",
+        "budget_tokens": 1200,
+        "profile": "coding",
+        "include_recent_sessions": 0,
+        "cwd": "/tmp/current-project",
+    }
+
+
 def test_bridge_session_sync_can_be_disabled(monkeypatch) -> None:
     bridge = _load_bridge_module()
     monkeypatch.setenv("DORY_SYNC_SESSIONS_ON_WAKE", "false")

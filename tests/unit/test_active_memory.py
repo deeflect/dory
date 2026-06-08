@@ -350,6 +350,46 @@ canonical: true
     }
 
 
+def test_active_memory_project_context_suppresses_global_active(tmp_path: Path) -> None:
+    corpus_root = tmp_path / "corpus"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "pyproject.toml").write_text('[project]\nname = "supplements"\n', encoding="utf-8")
+    (corpus_root / "projects" / "supplements").mkdir(parents=True)
+    (corpus_root / "projects" / "supplements" / "state.md").write_text(
+        """---
+title: Supplements
+type: project
+status: active
+canonical: true
+---
+
+## Summary
+- Supplement plan is the project-local current truth.
+""",
+        encoding="utf-8",
+    )
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=corpus_root),
+        search_engine=_StubSearchEngine(),
+        root=corpus_root,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what is current for this project?",
+            agent="codex",
+            cwd=str(workspace),
+            include_wake=False,
+        )
+    )
+
+    assert "projects/supplements/state.md" in result.sources
+    assert "core/active.md" not in result.sources
+    assert "Supplement plan is the project-local current truth." in result.block
+    assert "Sample is the active focus this week." not in result.block
+
+
 def test_active_memory_resolves_cwd_alias_to_canonical_project_context(tmp_path: Path) -> None:
     class EmptySearchEngine:
         def search(self, req: SearchReq):  # pragma: no cover - test stub
@@ -482,6 +522,79 @@ def test_active_memory_filters_low_trust_durable_evidence(tmp_path: Path) -> Non
     assert "projects/stale/state.md" not in result.sources
     assert "Low-signal identity session." not in result.block
     assert "Stale project note." not in result.block
+
+
+def test_active_memory_excludes_historical_generated_and_private_sources(tmp_path: Path) -> None:
+    class MixedHistorySearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="digests/daily/2026-04-14.md",
+                        snippet="Generated digest should remain searchable-only.",
+                        score=0.99,
+                        frontmatter={"source_kind": "generated", "temperature": "warm", "status": "active"},
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="archive/imported/legacy-profile.md",
+                        snippet="Imported archive should not become active memory.",
+                        score=0.97,
+                        frontmatter={"source_kind": "imported", "temperature": "warm", "status": "active"},
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="sources/semantic/project-dory.md",
+                        snippet="Semantic evidence artifact should not be injected as current truth.",
+                        score=0.95,
+                        frontmatter={"source_kind": "semantic", "temperature": "cold", "status": "active"},
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="knowledge/private/boundary.md",
+                        snippet="Private note should stay out of coding active memory.",
+                        score=0.9,
+                        frontmatter={"visibility": "private", "sensitivity": "personal", "status": "active"},
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="projects/dory/state.md",
+                        snippet="Dory current state survives stricter active-memory filtering.",
+                        score=0.4,
+                        frontmatter={
+                            "canonical": True,
+                            "source_kind": "canonical",
+                            "temperature": "hot",
+                            "status": "active",
+                        },
+                        confidence="high",
+                    ),
+                ]
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=MixedHistorySearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="fix Dory memory behavior for coding agents",
+            agent="codex",
+            profile="coding",
+            include_wake=False,
+        )
+    )
+
+    assert result.sources == ["projects/dory/state.md"]
+    assert "Dory current state survives" in result.block
+    assert "Generated digest" not in result.block
+    assert "Imported archive" not in result.block
+    assert "Semantic evidence artifact" not in result.block
+    assert "Private note" not in result.block
 
 
 def test_active_memory_coding_prompt_excludes_personal_wake_and_search_hits(tmp_path: Path) -> None:

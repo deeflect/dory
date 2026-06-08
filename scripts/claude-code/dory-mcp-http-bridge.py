@@ -73,7 +73,12 @@ _POST_TOOL_ENDPOINTS: dict[str, str] = {
 # Bridge-side default injection. These are client-context defaults that don't
 # belong in the server's Pydantic models.
 _CLIENT_DEFAULTS: dict[str, dict[str, Any]] = {
-    "dory_wake": {"agent": "claude-code", "profile": "coding", "include_recent_sessions": 0},
+    "dory_wake": {
+        "agent": "claude-code",
+        "budget_tokens": 1200,
+        "profile": "coding",
+        "include_recent_sessions": 0,
+    },
     "dory_active_memory": {"agent": "claude-code"},
     "dory_write": {"agent": "claude-code"},
     "dory_memory_write": {"agent": "claude-code"},

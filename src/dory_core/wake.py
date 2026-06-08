@@ -56,6 +56,8 @@ class WakeBuilder:
         profile_sections = self._load_hot_block_sections(profile=req.profile, agent=req.agent, warnings=warnings)
         if unresolved_coding_project:
             profile_sections = _without_global_active(profile_sections)
+        elif project_context is not None:
+            profile_sections = _without_global_active(profile_sections)
         sections.extend(profile_sections)
 
         # L1: Raw project state after compiled cards
@@ -241,11 +243,13 @@ class WakeBuilder:
             sessions_root.rglob("*.md"),
             key=lambda path: (path.stat().st_mtime, path.as_posix()),
             reverse=True,
-        )[:limit]
+        )
         sections: list[HotBlockSection] = []
         for path in session_paths:
             text = path.read_text(encoding="utf-8").strip()
             if not text:
+                continue
+            if not _is_recent_session_wake_candidate(text):
                 continue
             sections.append(
                 HotBlockSection(
@@ -253,6 +257,8 @@ class WakeBuilder:
                     content=text,
                 )
             )
+            if len(sections) >= limit:
+                break
         return sections
 
     def _resolve_sessions_root(self) -> Path | None:
@@ -348,16 +354,39 @@ class WakeBuilder:
         for section in sections:
             if section.path in seen_sources:
                 continue
-            section_tokens = self._count_tokens(section.content, agent=agent)
+            content = section.content
+            section_tokens = self._count_tokens(content, agent=agent)
+            if not rendered_sections and section_tokens > budget_tokens:
+                content = self._fit_section_to_budget(content, budget_tokens, agent=agent)
+                section_tokens = self._count_tokens(content, agent=agent)
             separator_tokens = self._count_tokens("\n\n", agent=agent) if rendered_sections else 0
             if rendered_sections and current_tokens + separator_tokens + section_tokens > budget_tokens:
                 break
-            rendered_sections.append(section.content)
+            rendered_sections.append(content)
             sources.append(str(section.path))
             seen_sources.add(section.path)
             current_tokens += section_tokens + separator_tokens
 
         return "\n\n".join(rendered_sections), sources
+
+    def _fit_section_to_budget(self, content: str, budget_tokens: int, *, agent: str) -> str:
+        lines: list[str] = []
+        suffix = "<!-- wake section truncated to fit requested budget -->"
+        content = _visible_truncation_content(content)
+        suffix_tokens = self._count_tokens("\n\n" + suffix, agent=agent)
+        line_budget = max(1, budget_tokens - suffix_tokens)
+        for line in content.splitlines():
+            candidate = "\n".join([*lines, line]).strip()
+            if not candidate:
+                lines.append(line)
+                continue
+            if self._count_tokens(candidate, agent=agent) > line_budget:
+                break
+            lines.append(line)
+        excerpt = "\n".join(lines).strip()
+        if not excerpt:
+            return suffix
+        return f"{excerpt}\n\n{suffix}".strip()
 
     def _append_recent_sessions(
         self,
@@ -450,6 +479,26 @@ def _safe_frontmatter(content: str) -> dict[str, object]:
         return load_markdown_document(content).frontmatter
     except ValueError:
         return {}
+
+
+def _is_recent_session_wake_candidate(content: str) -> bool:
+    frontmatter = _safe_frontmatter(content)
+    status = str(frontmatter.get("status", "") or "").strip().casefold()
+    if not status:
+        return True
+    return status in {"done", "complete", "completed"}
+
+
+def _visible_truncation_content(content: str) -> str:
+    try:
+        document = load_markdown_document(content)
+    except ValueError:
+        return content
+    title = str(document.frontmatter.get("title", "") or "").strip()
+    body = document.body.strip()
+    if title and not body.startswith("#"):
+        return f"# {title}\n\n{body}".strip()
+    return body or (f"# {title}" if title else content)
 
 
 def _summarize_session(section: HotBlockSection) -> str:

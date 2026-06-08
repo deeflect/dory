@@ -30,6 +30,7 @@ def test_hermes_provider_config_loads_from_env() -> None:
             "DORY_HERMES_WAKE_RECENT_SESSIONS": "7",
             "DORY_HERMES_WAKE_INCLUDE_PINNED_DECISIONS": "false",
             "DORY_HERMES_ACTIVE_MEMORY_INCLUDE_WAKE": "true",
+            "DORY_HERMES_INJECT_RETRIEVED_EVIDENCE": "true",
             "DORY_HERMES_SEARCH_K": "11",
             "DORY_HERMES_SEARCH_MODE": "exact",
         }
@@ -44,6 +45,7 @@ def test_hermes_provider_config_loads_from_env() -> None:
     assert config.wake_recent_sessions == 7
     assert config.wake_include_pinned_decisions is False
     assert config.active_memory_include_wake is True
+    assert config.inject_retrieved_evidence is True
     assert config.search_k == 11
     assert config.search_mode == "exact"
 
@@ -66,6 +68,7 @@ memory:
       wake_recent_sessions: 3
       wake_include_pinned_decisions: false
       active_memory_include_wake: true
+      inject_retrieved_evidence: true
       search_k: 6
       search_mode: semantic
 """.strip()
@@ -87,6 +90,7 @@ memory:
     assert config.wake_recent_sessions == 3
     assert config.wake_include_pinned_decisions is False
     assert config.active_memory_include_wake is True
+    assert config.inject_retrieved_evidence is True
     assert config.search_k == 6
     assert config.search_mode == "semantic"
 
@@ -320,8 +324,102 @@ def test_hermes_prefetch_bundle_exposes_injection_trace() -> None:
         "wake_sources": ["profiles/coding/active.md"],
         "active_memory_sources": ["core/active.md", "knowledge/dev/hermes.md"],
         "search_result_paths": ["projects/dory/state.md", "knowledge/dev/hermes.md"],
-        "injected_paths": ["core/active.md", "knowledge/dev/hermes.md", "projects/dory/state.md"],
+        "injected_paths": ["core/active.md", "knowledge/dev/hermes.md"],
     }
+
+
+def test_hermes_memory_section_does_not_append_search_evidence_by_default() -> None:
+    module = _load_provider_module()
+
+    class _FakeResponse:
+        status_code = 200
+
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class _FakeClient:
+        def request(self, method: str, path: str, **kwargs):
+            del method, kwargs
+            if path == "/v1/wake":
+                return _FakeResponse({"block": "## Wake", "sources": ["core/active.md"]})
+            if path == "/v1/search":
+                return _FakeResponse(
+                    {
+                        "results": [
+                            {"path": "projects/dory/state.md", "snippet": "Search-only evidence."},
+                        ]
+                    }
+                )
+            if path == "/v1/active-memory":
+                return _FakeResponse(
+                    {
+                        "kind": "memory",
+                        "block": "## Active memory\n- Focused brief.",
+                        "sources": ["core/active.md"],
+                    }
+                )
+            return _FakeResponse({"ok": True})
+
+    provider = module.DoryMemoryProvider(base_url="http://dory.local:8766", client=_FakeClient())
+
+    memory_section = provider.build_memory_section("fix Dory Hermes memory")
+
+    assert "## Active memory" in memory_section
+    assert "Focused brief." in memory_section
+    assert "## Retrieved Evidence" not in memory_section
+    assert "Search-only evidence." not in memory_section
+
+
+def test_hermes_memory_section_can_opt_into_legacy_search_evidence() -> None:
+    module = _load_provider_module()
+
+    class _FakeResponse:
+        status_code = 200
+
+        def __init__(self, payload: dict[str, object]) -> None:
+            self._payload = payload
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class _FakeClient:
+        def request(self, method: str, path: str, **kwargs):
+            del method, kwargs
+            if path == "/v1/wake":
+                return _FakeResponse({"block": "## Wake", "sources": ["core/active.md"]})
+            if path == "/v1/search":
+                return _FakeResponse(
+                    {
+                        "results": [
+                            {"path": "projects/dory/state.md", "snippet": "Search-only evidence."},
+                        ]
+                    }
+                )
+            if path == "/v1/active-memory":
+                return _FakeResponse(
+                    {
+                        "kind": "memory",
+                        "block": "## Active memory\n- Focused brief.",
+                        "sources": ["core/active.md"],
+                    }
+                )
+            return _FakeResponse({"ok": True})
+
+    provider = module.DoryMemoryProvider(
+        base_url="http://dory.local:8766",
+        client=_FakeClient(),
+        inject_retrieved_evidence=True,
+    )
+
+    memory_section = provider.build_memory_section("fix Dory Hermes memory")
+    prefetched = provider.prefetch_bundle("fix Dory Hermes memory")
+
+    assert "## Retrieved Evidence" in memory_section
+    assert "Search-only evidence." in memory_section
+    assert prefetched["trace"]["injected_paths"] == ["core/active.md", "projects/dory/state.md"]
 
 
 def test_hermes_casual_prefetch_trace_records_skipped_search() -> None:

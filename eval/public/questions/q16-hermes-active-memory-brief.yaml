@@ -1,0 +1,15 @@
+id: q16
+question: "For Hermes automatic prefetch, what should be injected first and when should wake be used?"
+expected_sources:
+  - references/memory-behavior.md
+expected_keywords:
+  - "active-memory brief first"
+  - "fall back to wake only when active memory is empty"
+  - "legacy raw evidence dump"
+type: task-grounded
+freshness_sensitive: false
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards Hermes memory UX: active-memory is the injected brief, while raw search
+  snippets stay out of normal automatic context.

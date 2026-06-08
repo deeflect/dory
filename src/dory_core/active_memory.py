@@ -23,6 +23,7 @@ from dory_core.active_memory_retrieval import (
     active_memory_rerank_mode,
     preferred_active_memory_results,
     search_candidates,
+    suppress_global_context_for_entity,
     with_project_result,
 )
 from dory_core.entity_context import (
@@ -122,6 +123,7 @@ class ActiveMemoryEngine:
             plan = self._plan(req, planning_context, deadline=deadline)
             durable_results, session_results = self._retrieve_evidence(req, plan, source_policy, deadline=deadline)
             durable_results = with_project_result(req, durable_results, root=self.root, source_policy=source_policy)
+            durable_results = suppress_global_context_for_entity(durable_results, entity_context)
             renderable_durable_results = preferred_active_memory_results(durable_results)
             composition = self._trusted_composition(
                 req,

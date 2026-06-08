@@ -9,8 +9,9 @@ scope: public-safe
 # Memory Kernel Roadmap
 
 This folder contains the memory-kernel planning surface. The authoritative
-execution plan is [final-plan.md](final-plan.md); older draft files remain for
-comparison and background only.
+execution plan is [final-plan.md](final-plan.md). The Hermes/coding-agent
+behavior slice is [dory-hermes-memory-behavior-plan.md](dory-hermes-memory-behavior-plan.md).
+Older draft files remain for comparison and background only.
 
 The goal is not to clone another memory product. The goal is to keep Dory small and dependable while borrowing the useful shape from three places:
 
@@ -21,10 +22,12 @@ The goal is not to clone another memory product. The goal is to keep Dory small 
 ## Review order
 
 1. [final-plan.md](final-plan.md) — active execution plan, delta matrix, slices, and gates.
-2. [architecture.md](architecture.md) — target shape and non-goals.
-3. [implementation-slices.md](implementation-slices.md) — earlier draft slice plan retained for comparison.
-4. [comparison-notes.md](comparison-notes.md) — what to borrow from Honcho, Hermes, Hindsight, OpenViking, ByteRover, and similar projects.
-5. [validation-gates.md](validation-gates.md) — earlier gate draft retained for comparison; prefer the runnable gates in `final-plan.md`.
+2. [dory-hermes-memory-behavior-plan.md](dory-hermes-memory-behavior-plan.md) — active Dory + Hermes UX recommendation, provider decision, concrete structure rules, and eval suite.
+3. [cleanup-ledger-template.md](cleanup-ledger-template.md) — public-safe template for non-destructive cleanup review queues.
+4. [architecture.md](architecture.md) — target shape and non-goals.
+5. [implementation-slices.md](implementation-slices.md) — earlier draft slice plan retained for comparison.
+6. [comparison-notes.md](comparison-notes.md) — what to borrow from Honcho, Hermes, Hindsight, OpenViking, ByteRover, and similar projects.
+7. [validation-gates.md](validation-gates.md) — earlier gate draft retained for comparison; prefer the runnable gates in `final-plan.md`.
 
 ## What changed in docs
 

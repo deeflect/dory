@@ -1,0 +1,15 @@
+id: q20
+question: "Should Honcho replace Dory as the canonical memory substrate in the public memory behavior plan?"
+expected_sources:
+  - references/memory-behavior.md
+expected_keywords:
+  - "Honcho is a deferred experiment"
+  - "not a replacement"
+  - "canonical markdown and claim-event source of truth"
+type: negation
+freshness_sensitive: false
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards the provider decision: Honcho can be benchmarked for conversational
+  modeling, but Dory remains canonical.

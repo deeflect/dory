@@ -54,14 +54,20 @@ exact eval/test/scratch cleanup; live purge requires `reason` and matching
 
 Do not persist transient conversation turns.
 
-**Core files** to prefer as authoritative sources:
+**Profile-specific sources** to prefer:
 
-- `core/user.md` — user profile and stable preferences
-- `core/soul.md` — writing/communication style
-- `core/env.md` — local environment and topology
-- `core/identity.md` — public identity/positioning rules
-- `core/active.md` — current focus
-- `core/defaults.md` — default models, tools, and operating assumptions
+- Coding/project work: prefer `projects/<slug>/state.md`, `core/active.md`,
+  `core/env.md`, and `core/defaults.md`. Do not pull `core/user.md`,
+  `core/soul.md`, `core/identity.md`, `people/**`, or
+  `knowledge/personal/**` unless the user asks for personal/profile context.
+- Writing/voice work: prefer `knowledge/personal/writing-voice.md`,
+  `core/soul.md`, and task/project state. Avoid unrelated people/profile pages.
+- Privacy/boundary work: use `profile="privacy"` and boundary-only wake/context.
+  Treat private identifiers, contact details, credentials, financial, legal, and
+  health material as searchable evidence only when the task explicitly requires
+  it.
+- General assistant work: use `dory_active_memory` for the brief first, then
+  exact `dory_get` on cited sources when details matter.
 
 **Full integration guide:** see `docs/agent-integration.md`.
 <!-- dory-policy:END -->

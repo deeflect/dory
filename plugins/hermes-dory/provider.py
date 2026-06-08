@@ -124,6 +124,7 @@ class DoryMemoryProvider(MemoryProvider):
         wake_recent_sessions: int = 5,
         wake_include_pinned_decisions: bool = True,
         active_memory_include_wake: bool = False,
+        inject_retrieved_evidence: bool = False,
         search_k: int = 8,
         search_mode: SearchMode = "hybrid",
         memory_mode: MemoryMode = "hybrid",
@@ -138,6 +139,7 @@ class DoryMemoryProvider(MemoryProvider):
         self.wake_recent_sessions = wake_recent_sessions
         self.wake_include_pinned_decisions = wake_include_pinned_decisions
         self.active_memory_include_wake = active_memory_include_wake
+        self.inject_retrieved_evidence = inject_retrieved_evidence
         self.search_k = search_k
         self.search_mode = search_mode
         self.memory_mode = memory_mode
@@ -151,6 +153,7 @@ class DoryMemoryProvider(MemoryProvider):
                 wake_recent_sessions != 5,
                 wake_include_pinned_decisions is not True,
                 active_memory_include_wake is not False,
+                inject_retrieved_evidence is not False,
                 search_k != 8,
                 search_mode != "hybrid",
                 memory_mode != "hybrid",
@@ -190,6 +193,7 @@ class DoryMemoryProvider(MemoryProvider):
             wake_recent_sessions=config.wake_recent_sessions,
             wake_include_pinned_decisions=config.wake_include_pinned_decisions,
             active_memory_include_wake=config.active_memory_include_wake,
+            inject_retrieved_evidence=config.inject_retrieved_evidence,
             search_k=config.search_k,
             search_mode=config.search_mode,
             memory_mode=config.memory_mode,
@@ -605,6 +609,11 @@ class DoryMemoryProvider(MemoryProvider):
                 "default": False,
             },
             {
+                "key": "inject_retrieved_evidence",
+                "description": "Append raw search snippets to automatic Hermes context. Disabled by default; active-memory is the injected brief.",
+                "default": False,
+            },
+            {
                 "key": "search_k",
                 "description": "Default number of search results to request.",
                 "default": 8,
@@ -634,6 +643,7 @@ class DoryMemoryProvider(MemoryProvider):
                 values.get("active_memory_include_wake"),
                 default=False,
             ),
+            "inject_retrieved_evidence": _bool_val(values.get("inject_retrieved_evidence"), default=False),
             "search_k": _int_val(values.get("search_k"), default=8),
         }
         target.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
@@ -1112,7 +1122,7 @@ class DoryMemoryProvider(MemoryProvider):
         if block:
             lines.append(block)
             lines.append("")
-        if isinstance(results, list) and results:
+        if self.inject_retrieved_evidence and isinstance(results, list) and results:
             lines.append("## Retrieved Evidence")
             for result in results[:5]:
                 if not isinstance(result, dict):
@@ -1224,6 +1234,7 @@ class DoryMemoryProvider(MemoryProvider):
         self.wake_recent_sessions = config.wake_recent_sessions
         self.wake_include_pinned_decisions = config.wake_include_pinned_decisions
         self.active_memory_include_wake = config.active_memory_include_wake
+        self.inject_retrieved_evidence = config.inject_retrieved_evidence
         self.search_k = config.search_k
         self.search_mode = config.search_mode
         self.memory_mode = config.memory_mode
@@ -1301,9 +1312,11 @@ class DoryMemoryProvider(MemoryProvider):
         wake_sources = _string_list(wake_payload.get("sources"))
         active_memory_sources = _string_list(active_memory_payload.get("sources"))
         search_result_paths = _search_result_paths(search_payload)
-        injected_paths = _dedupe_strings([*active_memory_sources, *search_result_paths])
+        injected_paths = _dedupe_strings(active_memory_sources)
         if not injected_paths:
             injected_paths = wake_sources
+        if self.inject_retrieved_evidence:
+            injected_paths = _dedupe_strings([*injected_paths, *search_result_paths])
         return PrefetchTrace(
             profile=plan.profile,
             include_search=plan.include_search,

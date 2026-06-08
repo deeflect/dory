@@ -1,0 +1,15 @@
+id: q17
+question: "Where should current truth live, and where should historical evidence live?"
+expected_sources:
+  - references/memory-behavior.md
+expected_keywords:
+  - "Current truth belongs in canonical project state"
+  - "Historical evidence belongs in session logs"
+  - "semantic evidence artifacts"
+type: freshness
+freshness_sensitive: true
+task_grounded: true
+difficulty: medium
+notes: >
+  Guards the target boundary between canonical current truth and historical
+  evidence that remains searchable but should not be injected as current state.

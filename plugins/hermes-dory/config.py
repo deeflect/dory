@@ -39,6 +39,7 @@ _DORY_CONFIG_KEYS = {
     "wake_recent_sessions",
     "wake_include_pinned_decisions",
     "active_memory_include_wake",
+    "inject_retrieved_evidence",
     "search_k",
     "search_mode",
     "memory_mode",
@@ -224,6 +225,7 @@ class HermesDoryProviderConfig:
     wake_recent_sessions: int = 5
     wake_include_pinned_decisions: bool = True
     active_memory_include_wake: bool = False
+    inject_retrieved_evidence: bool = False
     search_k: int = 8
     search_mode: SearchMode = "hybrid"
     memory_mode: MemoryMode = "hybrid"
@@ -245,6 +247,10 @@ class HermesDoryProviderConfig:
             ),
             active_memory_include_wake=_safe_bool(
                 source.get("DORY_HERMES_ACTIVE_MEMORY_INCLUDE_WAKE"),
+                default=False,
+            ),
+            inject_retrieved_evidence=_safe_bool(
+                source.get("DORY_HERMES_INJECT_RETRIEVED_EVIDENCE"),
                 default=False,
             ),
             search_k=_safe_int(source.get("DORY_HERMES_SEARCH_K"), default=8),
@@ -292,6 +298,11 @@ class HermesDoryProviderConfig:
                     dory_section,
                     "active_memory_include_wake",
                     fallback=env_config.active_memory_include_wake,
+                ),
+                inject_retrieved_evidence=_pick_config_bool(
+                    dory_section,
+                    "inject_retrieved_evidence",
+                    fallback=env_config.inject_retrieved_evidence,
                 ),
                 search_k=_pick_config_int(dory_section, "search_k", fallback=env_config.search_k),
                 search_mode=_safe_search_mode(
