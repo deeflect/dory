@@ -117,6 +117,7 @@ class ActiveMemoryEngine:
             wake_block, wake_sources = self._wake_context(req, source_policy)
             planning_context = self._planning_context(helper, entity_context)
             plan = self._plan(req, planning_context, deadline=deadline)
+            plan = self._augment_plan_for_context(plan, source_policy)
             durable_results, session_results = self._retrieve_evidence(req, plan, source_policy, deadline=deadline)
             durable_results = with_project_result(
                 req,
@@ -369,6 +370,8 @@ class ActiveMemoryEngine:
     def _wake_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> tuple[str, list[str]]:
         if not req.include_wake:
             return "", []
+        if source_policy.prompt_context == "health":
+            return "", []
         wake = self.wake_builder.build(
             WakeReq(
                 budget_tokens=min(req.budget_tokens, 600),
@@ -383,10 +386,36 @@ class ActiveMemoryEngine:
 
     def _wake_project_handle(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> str | None:
         if req.project:
-            return resolve_project_handle(project=req.project, cwd=req.cwd, root=self.root)
+            handle = resolve_project_handle(project=req.project, cwd=req.cwd, root=self.root)
+            if handle is not None:
+                return handle
+            if req.cwd and _allows_cwd_project_inference(req, source_policy):
+                return resolve_project_handle(project=None, cwd=req.cwd, root=self.root)
+            return None
         if req.cwd and _allows_cwd_project_inference(req, source_policy):
             return resolve_project_handle(project=None, cwd=req.cwd, root=self.root)
         return None
+
+    def _augment_plan_for_context(
+        self,
+        plan: ActiveMemoryRetrievalPlan,
+        source_policy: SourcePolicy,
+    ) -> ActiveMemoryRetrievalPlan:
+        if source_policy.prompt_context != "health":
+            return plan
+        health_queries = (
+            "supplement plan",
+            "current supplement plan",
+            "cut phase supplement plan",
+        )
+        durable_queries = _dedupe_strings([*health_queries, *plan.durable_queries])
+        return ActiveMemoryRetrievalPlan(
+            durable_queries=tuple(durable_queries),
+            session_queries=plan.session_queries,
+            include_sessions=plan.include_sessions,
+            durable_limit=max(plan.durable_limit, 8),
+            session_limit=plan.session_limit,
+        )
 
     def _retrieve_evidence(
         self,

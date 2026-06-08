@@ -12,7 +12,7 @@ from dory_core.markdown_excerpt import canonical_file_excerpt, first_content_exc
 from dory_core.project_context import resolve_project_context
 from dory_core.types import ActiveMemoryReq, SearchReq, SearchResult, SearchScope
 
-_ENTITY_SCOPED_GLOBAL_CONTEXT_PATHS = {"core/active.md"}
+_ENTITY_SCOPED_GLOBAL_CONTEXT_PATHS = {"core/active.md", "core/env.md", "core/defaults.md"}
 
 
 def expanded_candidate_limit(k: int, *, source_policy: SourcePolicy | None, corpus: str) -> int:
@@ -173,8 +173,8 @@ def suppress_global_context_for_entity(results: list[object], entity_context: ob
         return results
     if str(getattr(entity_context, "family", "") or "") != "project":
         return results
-    return [
-        result
-        for result in results
-        if str(getattr(result, "path", "") or "") not in _ENTITY_SCOPED_GLOBAL_CONTEXT_PATHS
-    ]
+    entity_path = str(getattr(entity_context, "canonical_path", "") or "")
+    suppressed = set(_ENTITY_SCOPED_GLOBAL_CONTEXT_PATHS)
+    if entity_path != "projects/dory/state.md":
+        suppressed.add("projects/memory-system/state.md")
+    return [result for result in results if str(getattr(result, "path", "") or "") not in suppressed]

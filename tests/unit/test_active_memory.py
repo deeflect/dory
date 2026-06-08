@@ -548,6 +548,87 @@ def test_active_memory_health_prompt_filters_non_health_context(tmp_path: Path) 
     assert "Branding context" not in result.block
 
 
+def test_active_memory_health_prompt_uses_health_query_hints(tmp_path: Path) -> None:
+    class QuerySensitiveHealthSearchEngine:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            self.queries.append(req.query)
+            if req.corpus == "sessions":
+                return _make_response([])
+            if req.query == "supplement plan":
+                return _make_response(
+                    [
+                        _make_result(
+                            path="projects/dee-supplement-plan/state.md",
+                            snippet="Supplement plan project state is relevant.",
+                            score=0.9,
+                            confidence="high",
+                        )
+                    ]
+                )
+            return _make_response(
+                [
+                    _make_result(
+                        path="core/active.md",
+                        snippet="Dory cleanup should not answer supplement questions.",
+                        score=0.99,
+                        confidence="high",
+                    )
+                ]
+            )
+
+    search_engine = QuerySensitiveHealthSearchEngine()
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=search_engine,
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="What is my current supplement plan and what should I do today?",
+            agent="hermes",
+            profile="assistant",
+            include_wake=True,
+        )
+    )
+
+    assert search_engine.queries[0] == "supplement plan"
+    assert result.sources == ["projects/dee-supplement-plan/state.md"]
+    assert "Supplement plan project state is relevant." in result.block
+    assert "Dory cleanup" not in result.block
+
+
+def test_active_memory_health_prompt_does_not_fall_back_to_wake(tmp_path: Path) -> None:
+    class EmptySearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            del req
+            return _make_response([])
+
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nDory cleanup context.\n", encoding="utf-8")
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=EmptySearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="What is my current supplement plan?",
+            agent="hermes",
+            profile="assistant",
+            include_wake=True,
+        )
+    )
+
+    assert result.kind == "none"
+    assert result.block == ""
+    assert result.sources == []
+
+
 def test_active_memory_resolves_cwd_alias_to_canonical_project_context(tmp_path: Path) -> None:
     class EmptySearchEngine:
         def search(self, req: SearchReq):  # pragma: no cover - test stub
