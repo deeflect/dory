@@ -63,7 +63,7 @@ def test_wake_profile_empty_name_uses_default(tmp_path) -> None:
 def test_wake_profile_known_builtin_succeeds(tmp_path) -> None:
     registry = ProfileRegistry(tmp_path)
 
-    for name in ("default", "coding", "writing", "privacy", "casual"):
+    for name in ("default", "assistant", "coding", "writing", "privacy", "casual", "admin"):
         profile = registry.wake_profile(name)
         assert len(profile.sections) > 0
 
@@ -93,9 +93,33 @@ def test_retrieval_profile_empty_name_uses_general(tmp_path) -> None:
 def test_retrieval_profile_known_builtin_succeeds(tmp_path) -> None:
     registry = ProfileRegistry(tmp_path)
 
-    for name in ("general", "coding", "writing", "privacy", "personal"):
+    for name in ("general", "assistant", "coding", "writing", "privacy", "personal", "admin"):
         profile = registry.retrieval_profile(name)
         assert profile.wake_profile is not None
+
+
+def test_assistant_profile_loads_personal_context_without_identity_dump(tmp_path) -> None:
+    registry = ProfileRegistry(tmp_path)
+
+    wake = registry.wake_profile("assistant")
+    retrieval = registry.retrieval_profile("assistant")
+
+    assert wake.sections == ("core/user.md", "core/soul.md", "core/active.md", "core/defaults.md")
+    assert "core/identity.md" not in wake.sections
+    assert retrieval.wake_profile == "assistant"
+    assert retrieval.sessions == "intent_only"
+
+
+def test_admin_profile_blocks_personal_context(tmp_path) -> None:
+    registry = ProfileRegistry(tmp_path)
+
+    wake = registry.wake_profile("admin")
+    retrieval = registry.retrieval_profile("admin")
+
+    assert wake.sections == ("core/active.md", "core/env.md", "core/defaults.md")
+    assert retrieval.wake_profile == "admin"
+    assert "people/**" in retrieval.deny
+    assert "knowledge/personal/**" in retrieval.deny
 
 
 def test_custom_profile_from_yaml_wake_works(tmp_path) -> None:

@@ -242,7 +242,7 @@ class TestRenderPacketToBlock:
             project=None,
             entity_context=(),
             active_claims=(),
-            observations=(SourceBackedItem(text="Observation"),),
+            observations=(SourceBackedItem(text="Observation", source_path="projects/dory/state.md"),),
             durable_evidence=(),
             session_evidence=(),
             sources=(),
@@ -251,7 +251,7 @@ class TestRenderPacketToBlock:
         )
         block = render_packet_to_block(pkt, budget_tokens=400)
         assert "## Active memory" in block
-        assert "- Observation" in block
+        assert "- Observation (source: projects/dory/state.md)" in block
 
     def test_durable_evidence_section(self) -> None:
         pkt = HotContextPacket(

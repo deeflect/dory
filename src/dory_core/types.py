@@ -39,6 +39,7 @@ class WakeResp(BaseModel):
     block: str
     sources: list[str]
     frozen_at: datetime
+    warnings: list[str] = Field(default_factory=list)
 
 
 class SearchScope(BaseModel):
@@ -162,6 +163,8 @@ def serialize_wake_response(response: WakeResp, *, debug: bool = False) -> dict[
         return payload
     for field in _WAKE_DEBUG_FIELDS:
         payload.pop(field, None)
+    if not payload.get("warnings"):
+        payload.pop("warnings", None)
     return payload
 
 
@@ -211,6 +214,8 @@ def serialize_active_memory_response(response: ActiveMemoryResp, *, debug: bool 
         return payload
     for field in _ACTIVE_MEMORY_DEBUG_FIELDS:
         payload.pop(field, None)
+    if payload.get("entity_context") is None:
+        payload.pop("entity_context", None)
     return payload
 
 

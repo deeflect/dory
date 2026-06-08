@@ -31,6 +31,22 @@ def test_wake_builder_can_emit_hot_context_packet(tmp_path: Path) -> None:
     assert render_packet_to_block(packet, budget_tokens=300) == resp.block
 
 
+def test_wake_builder_packet_preserves_warnings(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace" / "unknown"
+    workspace.mkdir(parents=True)
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nGlobal context.\n", encoding="utf-8")
+    builder = WakeBuilder(tmp_path)
+    req = WakeReq(agent="codex", profile="coding", budget_tokens=300, include_recent_sessions=0, cwd=str(workspace))
+
+    packet = builder.build_packet(req)
+
+    assert packet.partial
+    assert packet.warnings == (
+        "Project or cwd did not resolve to a known project; coding wake skipped global active context.",
+    )
+
+
 def test_wake_builder_loads_custom_profile_sections(tmp_path) -> None:
     (tmp_path / "core").mkdir(parents=True)
     (tmp_path / "profiles" / "brand").mkdir(parents=True)

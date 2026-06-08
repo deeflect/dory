@@ -8,7 +8,7 @@ from dory_core.compiled_wiki import collect_compiled_cards
 from dory_core.frontmatter import load_markdown_document
 from dory_core.hot_context import HotContextPacket, SourceBackedItem
 from dory_core.profiles import ProfileRegistry
-from dory_core.project_context import resolve_project_handle, resolve_project_path
+from dory_core.project_context import resolve_project_context, resolve_project_handle, resolve_project_path
 from dory_core.token_counting import TokenCounter, build_token_counter
 from dory_core.types import WakeProfile, WakeReq, WakeResp
 
@@ -37,7 +37,15 @@ class WakeBuilder:
         self.profile_registry = ProfileRegistry(self.root)
 
     def build(self, req: WakeReq) -> WakeResp:
+        project_context = resolve_project_context(project=req.project, cwd=req.cwd, root=self.root)
         project_handle = resolve_project_handle(project=req.project, cwd=req.cwd, root=self.root)
+        project_signal = _has_project_signal(req.project, req.cwd)
+        unresolved_coding_project = req.profile == "coding" and project_signal and project_context is None
+        warnings: list[str] = []
+        if unresolved_coding_project:
+            warnings.append(
+                "Project or cwd did not resolve to a known project; coding wake skipped global active context."
+            )
 
         # L0: Compiled wiki cards (project card + general hot cards) — high-priority context
         compiled_sections = self._collect_compiled_cards(project=project_handle, profile=req.profile)
@@ -45,13 +53,17 @@ class WakeBuilder:
         sections = list(compiled_sections)  # compiled cards first (L0)
 
         # L1: Profile hot sections
-        sections.extend(self._load_hot_block_sections(profile=req.profile, agent=req.agent))
+        profile_sections = self._load_hot_block_sections(profile=req.profile, agent=req.agent, warnings=warnings)
+        if unresolved_coding_project:
+            profile_sections = _without_global_active(profile_sections)
+        sections.extend(profile_sections)
 
         # L1: Raw project state after compiled cards
         project_section = self._load_project_section(
             project_handle,
             profile=req.profile,
             agent=req.agent,
+            warnings=warnings,
         )
         if project_section is not None:
             # Insert just after compiled cards, before profile sections
@@ -75,6 +87,7 @@ class WakeBuilder:
             block=block,
             sources=sources,
             frozen_at=datetime.now(tz=UTC),
+            warnings=warnings,
         )
 
     def build_packet(self, req: WakeReq) -> HotContextPacket:
@@ -91,30 +104,43 @@ class WakeBuilder:
             durable_evidence=(),
             session_evidence=(),
             sources=tuple(wake.sources),
-            warnings=(),
-            partial=False,
+            warnings=tuple(wake.warnings),
+            partial=bool(wake.warnings),
             wake_context=(SourceBackedItem(text=wake.block),) if wake.block else (),
         )
 
-    def _load_hot_block_sections(self, *, profile: WakeProfile = "default", agent: str) -> list[HotBlockSection]:
+    def _load_hot_block_sections(
+        self,
+        *,
+        profile: WakeProfile = "default",
+        agent: str,
+        warnings: list[str],
+    ) -> list[HotBlockSection]:
         sections: list[HotBlockSection] = []
         # Profiles keep wake deterministic while letting agents spend their
         # startup budget on task-specific context first.
         for name in self.profile_registry.wake_profile(profile).sections:
-            section = self._load_named_section(name=name, profile=profile, agent=agent)
+            section = self._load_named_section(name=name, profile=profile, agent=agent, warnings=warnings)
             if section is None:
                 continue
             sections.append(section)
         return sections
 
-    def _load_named_section(self, *, name: str, profile: WakeProfile, agent: str) -> HotBlockSection | None:
+    def _load_named_section(
+        self,
+        *,
+        name: str,
+        profile: WakeProfile,
+        agent: str,
+        warnings: list[str],
+    ) -> HotBlockSection | None:
         if name == "privacy_boundaries":
             return self._load_privacy_boundaries_section(agent=agent)
         rel_path = _resolve_wake_section_path(name)
         if rel_path is None:
             return None
         path = self.root / rel_path
-        return self._load_file_section(path, name=name, profile=profile, agent=agent)
+        return self._load_file_section(path, name=name, profile=profile, agent=agent, warnings=warnings)
 
     def _load_file_section(
         self,
@@ -123,14 +149,25 @@ class WakeBuilder:
         name: str,
         profile: WakeProfile,
         agent: str,
+        warnings: list[str],
     ) -> HotBlockSection | None:
         if not path.exists():
             return None
         if not _is_within_root(path, self.root):
             return None
         content = path.read_text(encoding="utf-8").strip()
+        rel_path = path.relative_to(self.root)
+        denied_reason = _wake_source_denial(
+            rel_path=rel_path,
+            content=content,
+            profile=profile,
+            profile_registry=self.profile_registry,
+        )
+        if denied_reason is not None:
+            warnings.append(f"Wake source skipped {rel_path.as_posix()}: {denied_reason}.")
+            return None
         return HotBlockSection(
-            path=path.relative_to(self.root),
+            path=rel_path,
             content=self._compact_profile_section(
                 name=name,
                 content=content,
@@ -268,13 +305,14 @@ class WakeBuilder:
         *,
         profile: WakeProfile,
         agent: str,
+        warnings: list[str],
     ) -> HotBlockSection | None:
         if project is None or not project.strip():
             return None
         path = resolve_project_path(self.root, project)
         if path is None:
             return None
-        return self._load_file_section(path, name="project", profile=profile, agent=agent)
+        return self._load_file_section(path, name="project", profile=profile, agent=agent, warnings=warnings)
 
     def _collect_compiled_cards(
         self,
@@ -357,6 +395,61 @@ class WakeBuilder:
 
     def _count_tokens(self, text: str, *, agent: str) -> int:
         return self.token_counter.count(text, agent=agent)
+
+
+def _wake_source_denial(
+    *,
+    rel_path: Path,
+    content: str,
+    profile: WakeProfile,
+    profile_registry: ProfileRegistry,
+) -> str | None:
+    rel = rel_path.as_posix()
+    retrieval_profile = profile_registry.retrieval_profile(profile)
+    if not retrieval_profile.allows_path(rel, corpus="durable"):
+        return "denied by active profile source policy"
+
+    if rel_path.parts[:1] in (( "inbox",), ("archive",)):
+        return "inbox and archive files are not wake-eligible"
+    if rel.startswith("logs/sessions/") or rel.startswith("sessions/"):
+        return "raw session files are not wake-eligible"
+
+    frontmatter = _safe_frontmatter(content)
+    if not frontmatter:
+        return None
+
+    status = str(frontmatter.get("status", "") or "").strip().casefold()
+    if status in {"retired", "superseded", "stale", "quarantined", "quarantine", "raw"}:
+        return f"status {status!r} is not wake-eligible"
+
+    temperature = str(frontmatter.get("temperature", "") or "").strip().casefold()
+    if temperature == "cold":
+        return "cold memory is not wake-eligible"
+
+    source_kind = str(frontmatter.get("source_kind", "") or "").strip().casefold()
+    if source_kind in {"raw", "session", "imported"}:
+        return f"source_kind {source_kind!r} is not wake-eligible"
+    if source_kind == "generated" and not rel.startswith("wiki/"):
+        return "generated non-wiki memory is not wake-eligible"
+
+    visibility = str(frontmatter.get("visibility", "") or "").strip().casefold()
+    if visibility == "private" and profile in {"coding", "writing", "privacy", "admin"}:
+        return f"profile {profile!r} does not load private files at wake"
+
+    sensitivity = str(frontmatter.get("sensitivity", "") or "").strip().casefold()
+    if sensitivity in {"credentials", "contact", "financial", "legal", "health"}:
+        return f"sensitivity {sensitivity!r} is not wake-eligible"
+    if sensitivity == "personal" and profile in {"coding", "privacy", "admin"}:
+        return f"profile {profile!r} does not load personal files at wake"
+
+    return None
+
+
+def _safe_frontmatter(content: str) -> dict[str, object]:
+    try:
+        return load_markdown_document(content).frontmatter
+    except ValueError:
+        return {}
 
 
 def _summarize_session(section: HotBlockSection) -> str:
@@ -505,3 +598,11 @@ def _section_budget_key(name: str) -> str:
     if path.suffix == ".md":
         return path.stem
     return path.as_posix()
+
+
+def _has_project_signal(project: str | None, cwd: str | None) -> bool:
+    return bool((project or "").strip() or (cwd or "").strip())
+
+
+def _without_global_active(sections: list[HotBlockSection]) -> list[HotBlockSection]:
+    return [section for section in sections if section.path != Path("core/active.md")]

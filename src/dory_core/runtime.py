@@ -8,6 +8,7 @@ from typing import Any
 
 from dory_core.active_memory import ActiveMemoryEngine
 from dory_core.artifacts import ArtifactWriter
+from dory_core.claim_store import ClaimStore
 from dory_core.config import DorySettings
 from dory_core.digests import DigestReader
 from dory_core.dreaming.proposals import (
@@ -24,6 +25,8 @@ from dory_core.link import LinkService
 from dory_core.llm.active_memory import build_active_memory_components
 from dory_core.llm.openrouter import build_openrouter_client
 from dory_core.llm_rerank import build_reranker
+from dory_core.observation_retrieval import ObservationRetrieval
+from dory_core.observation_store import ObservationStore
 from dory_core.purge import PurgeEngine
 from dory_core.query_expansion import OpenRouterQueryExpander
 from dory_core.kernel_retrieval import KernelRetrievalEngine
@@ -262,11 +265,15 @@ def build_dory_runtime(
         reranker=resolved_reranker,
         rerank_candidate_limit=resolved_rerank_candidate_limit,
     )
+    claim_store = _load_claim_store(resolved_corpus_root)
+    observation_retrieval = _load_observation_retrieval(resolved_corpus_root)
     retrieval = RetrievalFacade(
         search_backend=search_engine,
         kernel_engine=KernelRetrievalEngine(
             root=resolved_corpus_root,
             search_engine=search_engine,
+            claim_store=claim_store,
+            observation_retrieval=observation_retrieval,
             link_service=LinkService(resolved_corpus_root, resolved_index_root),
         ),
     )
@@ -276,6 +283,7 @@ def build_dory_runtime(
         wake_builder=wake_builder,
         search_engine=search_engine,
         root=resolved_corpus_root,
+        observation_retrieval=observation_retrieval,
         planner=active_memory_planner,
         composer=active_memory_composer,
     )
@@ -307,6 +315,20 @@ def build_dory_runtime(
 # ---------------------------------------------------------------------------
 SurfaceRuntime = DoryRuntime
 build_surface_runtime = build_dory_runtime
+
+
+def _load_claim_store(corpus_root: Path) -> ClaimStore | None:
+    claim_store_path = corpus_root / ".dory" / "claim-store.db"
+    if not claim_store_path.exists():
+        return None
+    return ClaimStore(claim_store_path)
+
+
+def _load_observation_retrieval(corpus_root: Path) -> ObservationRetrieval | None:
+    observation_store_path = corpus_root / ".dory" / "observation-store.db"
+    if not observation_store_path.exists():
+        return None
+    return ObservationRetrieval(ObservationStore(observation_store_path))
 
 
 def build_query_expander(settings: DorySettings) -> OpenRouterQueryExpander | None:

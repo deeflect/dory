@@ -104,6 +104,23 @@ def test_wake_response_keeps_debug_fields_when_requested() -> None:
     assert "frozen_at" in payload
 
 
+def test_wake_response_includes_non_empty_warnings_by_default() -> None:
+    response = WakeResp(
+        profile="coding",
+        tokens_estimated=123,
+        block="## Wake",
+        sources=["core/active.md"],
+        frozen_at=datetime.now(tz=UTC),
+        warnings=["Project context was not resolved."],
+    )
+
+    assert serialize_wake_response(response) == {
+        "profile": "coding",
+        "block": "## Wake",
+        "warnings": ["Project context was not resolved."],
+    }
+
+
 def test_active_memory_response_hides_debug_fields_by_default() -> None:
     response = ActiveMemoryResp(
         kind="memory",

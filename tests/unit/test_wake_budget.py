@@ -79,6 +79,86 @@ profiles:
     assert resp.sources == ["core/active.md", "core/defaults.md"]
 
 
+def test_wake_builder_applies_source_policy_to_profile_sections(tmp_path: Path) -> None:
+    (tmp_path / "notes").mkdir(parents=True)
+    (tmp_path / "inbox").mkdir(parents=True)
+    (tmp_path / "profiles.yaml").write_text(
+        """
+profiles:
+  policy-test:
+    wake:
+      sections:
+        - notes/warm.md
+        - notes/stale.md
+        - notes/cold.md
+        - notes/private.md
+        - notes/generated.md
+        - inbox/raw.md
+""".strip(),
+        encoding="utf-8",
+    )
+    (tmp_path / "notes" / "warm.md").write_text(
+        "---\ntitle: Warm\ntemperature: warm\nstatus: active\n---\n\nWarm wake context.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "notes" / "stale.md").write_text(
+        "---\ntitle: Stale\nstatus: stale\n---\n\nStale wake context.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "notes" / "cold.md").write_text(
+        "---\ntitle: Cold\ntemperature: cold\n---\n\nCold wake context.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "notes" / "private.md").write_text(
+        "---\ntitle: Private\nvisibility: private\n---\n\nPrivate wake context.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "notes" / "generated.md").write_text(
+        "---\ntitle: Generated\nsource_kind: generated\n---\n\nGenerated wake context.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "inbox" / "raw.md").write_text(
+        "---\ntitle: Raw\nstatus: active\n---\n\nInbox wake context.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="policy-test", budget_tokens=800, include_pinned_decisions=False)
+    )
+
+    assert "Warm wake context." in resp.block
+    assert "Stale wake context." not in resp.block
+    assert "Cold wake context." not in resp.block
+    assert "Private wake context." in resp.block
+    assert "Generated wake context." not in resp.block
+    assert "Inbox wake context." not in resp.block
+    assert resp.sources == ["notes/warm.md", "notes/private.md"]
+    assert resp.warnings == [
+        "Wake source skipped notes/stale.md: status 'stale' is not wake-eligible.",
+        "Wake source skipped notes/cold.md: cold memory is not wake-eligible.",
+        "Wake source skipped notes/generated.md: generated non-wiki memory is not wake-eligible.",
+        "Wake source skipped inbox/raw.md: inbox and archive files are not wake-eligible.",
+    ]
+
+
+def test_wake_builder_coding_profile_skips_private_project_state(tmp_path: Path) -> None:
+    (tmp_path / "projects" / "dory").mkdir(parents=True)
+    (tmp_path / "projects" / "dory" / "state.md").write_text(
+        "---\ntitle: Dory\ntype: project\nvisibility: private\nsensitivity: personal\n---\n\nPrivate project state.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", project="dory", budget_tokens=400, include_recent_sessions=0)
+    )
+
+    assert resp.block == ""
+    assert resp.sources == []
+    assert resp.warnings == [
+        "Wake source skipped projects/dory/state.md: profile 'coding' does not load private files at wake."
+    ]
+
+
 def test_wake_builder_includes_recent_sessions_when_budget_allows(sample_corpus_root) -> None:
     resp = WakeBuilder(sample_corpus_root).build(WakeReq(agent="codex", budget_tokens=200, include_recent_sessions=1))
 
@@ -237,7 +317,33 @@ def test_wake_builder_ignores_ambiguous_fuzzy_project_handle(tmp_path: Path) -> 
 
     assert "First fuzzy context." not in resp.block
     assert "Second fuzzy context." not in resp.block
-    assert resp.sources[0] == "core/active.md"
+    assert "Global context." not in resp.block
+    assert "core/active.md" not in resp.sources
+    assert resp.warnings == [
+        "Project or cwd did not resolve to a known project; coding wake skipped global active context."
+    ]
+
+
+def test_wake_builder_coding_profile_skips_global_active_for_unresolved_cwd(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace" / "unknown-project"
+    workspace.mkdir(parents=True)
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nUnrelated global project state.\n", encoding="utf-8")
+    (tmp_path / "core" / "env.md").write_text("# Env\n\nAgent runtime context.\n", encoding="utf-8")
+    (tmp_path / "core" / "defaults.md").write_text("# Defaults\n\nRetrieve before claims.\n", encoding="utf-8")
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=400, include_recent_sessions=0, cwd=str(workspace))
+    )
+
+    assert "Unrelated global project state." not in resp.block
+    assert "Agent runtime context." in resp.block
+    assert "Retrieve before claims." in resp.block
+    assert "core/active.md" not in resp.sources
+    assert resp.sources == ["core/env.md", "core/defaults.md"]
+    assert resp.warnings == [
+        "Project or cwd did not resolve to a known project; coding wake skipped global active context."
+    ]
 
 
 def test_wake_builder_resolves_project_from_relative_path_handle(tmp_path: Path) -> None:

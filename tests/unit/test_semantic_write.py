@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from dory_core.frontmatter import load_markdown_document
+from dory_core.observation_retrieval import ObservationRetrieval
+from dory_core.observation_store import ObservationStore
 from dory_core.semantic_write import SemanticWriteEngine, SubjectMatch, SubjectResolver, build_semantic_write_plan
 from dory_core.semantic_write_artifacts import SemanticEvidenceStore
 from dory_core.semantic_write_plan import (
@@ -76,6 +78,44 @@ def test_semantic_write_preview_includes_provenance_and_plan(tmp_path: Path) -> 
     assert resp.preview is not None
     assert resp.preview["target_path"] == "projects/sample/state.md"
     assert resp.preview["evidence_path"] == resp.evidence_path
+
+
+def test_semantic_write_does_not_create_observation_store_by_default(tmp_path: Path) -> None:
+    engine = SemanticWriteEngine(tmp_path, resolver_client=None)
+
+    engine.write(
+        MemoryWriteReq(
+            action="write",
+            kind="state",
+            subject="Dory",
+            content="Dory write path should avoid accidental observation side effects.",
+            scope="project",
+            allow_canonical=True,
+        )
+    )
+
+    assert not (tmp_path / ".dory" / "observation-store.db").exists()
+
+
+def test_semantic_write_refreshes_existing_observation_store(tmp_path: Path) -> None:
+    ObservationStore(tmp_path / ".dory" / "observation-store.db")
+    engine = SemanticWriteEngine(tmp_path, resolver_client=None)
+
+    engine.write(
+        MemoryWriteReq(
+            action="write",
+            kind="state",
+            subject="Dory",
+            content="Dory writes refresh the observation index when it exists.",
+            scope="project",
+            allow_canonical=True,
+        )
+    )
+
+    retrieval = ObservationRetrieval(ObservationStore(tmp_path / ".dory" / "observation-store.db"))
+    observations = retrieval.find_by_entity("project:dory")
+    assert len(observations) == 1
+    assert observations[0].content == "Dory writes refresh the observation index when it exists."
 
 
 def test_semantic_write_plan_preview_helpers_describe_canonical_target(tmp_path: Path) -> None:

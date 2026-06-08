@@ -155,7 +155,7 @@ def render_packet_to_block(
     *,
     budget_tokens: int,
     include_active_claims: bool = True,
-    include_observations: bool = False,
+    include_observations: bool = True,
     include_durable: bool = True,
     include_session: bool = True,
 ) -> str:
@@ -169,9 +169,11 @@ def render_packet_to_block(
     sections: list[str] = []
 
     # --- Active claims / memory ---
-    items = list(packet.active_claims) + list(packet.observations)
+    items = list(packet.active_claims)
+    if include_observations:
+        items += list(packet.observations)
     if items and include_active_claims:
-        bullets = [f"- {item.text}" for item in items[:5]]
+        bullets = [f"- {_render_active_item(item)}" for item in items[:5]]
         if bullets:
             sections.append("## Active memory\n" + "\n".join(bullets))
 
@@ -238,3 +240,9 @@ def _fit_to_budget(block: str, *, budget_tokens: int) -> str:
         if len(section_safe) >= _MIN_BLOCK_CHARS:
             return section_safe
     return truncated + "…"
+
+
+def _render_active_item(item: SourceBackedItem) -> str:
+    if not item.source_path:
+        return item.text
+    return f"{item.text} (source: {item.source_path})"

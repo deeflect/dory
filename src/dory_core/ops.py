@@ -16,6 +16,7 @@ from dory_core.claims import Claim, EvidenceRef
 from dory_core.dreaming.events import SessionClosedEvent
 from dory_core.dreaming.extract import DistillationWriter, OpenRouterSessionDistiller
 from dory_core.dreaming.proposals import ProposalGenerator
+from dory_core.dreaming.proposals import ProposalStore
 from dory_core.dreaming.recall import RecallPromotionRunner
 from dory_core.embedding import ContentEmbedder
 from dory_core.compiled_wiki import render_compiled_page, render_compiled_page_from_claim_records
@@ -25,6 +26,8 @@ from dory_core.llm.openrouter import OpenRouterClient
 from dory_core.maintenance import MaintenanceReportWriter, OpenRouterMaintenanceInspector
 from dory_core.maintenance import MemoryHealthDashboard
 from dory_core.frontmatter import load_markdown_document
+from dory_core.observation_builder import ObservationBuilder
+from dory_core.observation_store import ObservationStore
 from dory_core.wiki_indexes import WikiIndexBuilder
 from dory_core.session_sync import sync_session_files
 from dory_core.watch import BufferedMarkdownChangeHandler, WatchCoalescer, is_session_markdown
@@ -268,6 +271,68 @@ def run_compiled_wiki_refresh(corpus_root: Path) -> list[str]:
 
 def run_wiki_index_refresh(corpus_root: Path) -> list[str]:
     return WikiIndexBuilder(corpus_root).refresh()
+
+
+def run_observation_refresh(corpus_root: Path) -> dict[str, int | str | bool]:
+    root = Path(corpus_root)
+    claim_store_path = root / ".dory" / "claim-store.db"
+    observation_store_path = root / ".dory" / "observation-store.db"
+    if not claim_store_path.exists():
+        return {
+            "claim_store_found": False,
+            "observations_created": 0,
+            "source_claims": 0,
+            "observation_store": str(observation_store_path.relative_to(root)),
+        }
+    result = ObservationBuilder(
+        ClaimStore(claim_store_path),
+        ObservationStore(observation_store_path),
+    ).rebuild_from_claims()
+    return {
+        "claim_store_found": True,
+        "observations_created": result["observations_created"],
+        "source_claims": result["source_claims"],
+        "observation_store": str(observation_store_path.relative_to(root)),
+    }
+
+
+def run_memory_activity(corpus_root: Path, *, limit: int = 10) -> dict[str, object]:
+    root = Path(corpus_root)
+    claim_store = _load_claim_store(root)
+    proposal_store = ProposalStore(root)
+    observation_store_path = root / ".dory" / "observation-store.db"
+    activity: dict[str, object] = {
+        "claim_store_found": claim_store is not None,
+        "recent_claim_events": [],
+        "observation_store_found": observation_store_path.exists(),
+        "observations": {"active": 0, "stale": 0, "total": 0},
+        "proposals": {
+            "pending": len(proposal_store.list(status="pending")),
+            "applied": len(proposal_store.list(status="applied")),
+            "rejected": len(proposal_store.list(status="rejected")),
+        },
+    }
+    if claim_store is not None:
+        activity["recent_claim_events"] = [
+            {
+                "entity_id": event.entity_id,
+                "event_type": event.event_type,
+                "kind": event.kind,
+                "claim_status": event.claim_status,
+                "statement": event.statement,
+                "evidence_path": event.evidence_path,
+                "created_at": event.created_at,
+            }
+            for event in claim_store.recent_event_details(limit=max(0, limit))
+        ]
+    if observation_store_path.exists():
+        store = ObservationStore(observation_store_path)
+        activity["observations"] = {
+            "active": store.count_observations(status="active"),
+            "stale": len(store.list_observations(freshness="stale", limit=10000)),
+            "total": store.count_observations(),
+        }
+    return activity
 
 
 class EvalOnceRunner:

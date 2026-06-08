@@ -9,21 +9,30 @@ import yaml
 
 from dory_core.errors import DoryValidationError
 
-BuiltinWakeProfile = Literal["default", "casual", "coding", "writing", "privacy"]
-BuiltinActiveMemoryProfile = Literal["general", "coding", "writing", "privacy", "personal"]
+BuiltinWakeProfile = Literal["default", "casual", "assistant", "coding", "writing", "privacy", "admin"]
+BuiltinActiveMemoryProfile = Literal["general", "assistant", "coding", "writing", "privacy", "personal", "admin"]
 SessionsPolicy = Literal["intent_only", "always", "never"]
 
 _DEFAULT_WAKE_SECTION_ORDERS: dict[str, tuple[str, ...]] = {
     "default": ("core/user.md", "core/soul.md", "core/env.md", "core/active.md", "core/identity.md", "core/defaults.md"),
     "casual": ("core/user.md", "core/soul.md", "core/identity.md", "core/defaults.md", "core/active.md", "core/env.md"),
+    "assistant": ("core/user.md", "core/soul.md", "core/active.md", "core/defaults.md"),
     "coding": ("core/active.md", "core/env.md", "core/defaults.md"),
     "writing": ("core/soul.md", "knowledge/personal/writing-voice.md", "core/defaults.md", "core/active.md"),
-    "privacy": ("privacy_boundaries", "core/defaults.md", "core/soul.md"),
+    "privacy": ("privacy_boundaries", "core/defaults.md"),
+    "admin": ("core/active.md", "core/env.md", "core/defaults.md"),
 }
 
 _DEFAULT_WAKE_SECTION_BUDGETS: dict[str, dict[str, int]] = {
     "default": {"project": 360},
     "casual": {"project": 320},
+    "assistant": {
+        "user": 360,
+        "soul": 360,
+        "active": 360,
+        "defaults": 180,
+        "project": 260,
+    },
     "coding": {
         "active": 480,
         "env": 340,
@@ -45,6 +54,12 @@ _DEFAULT_WAKE_SECTION_BUDGETS: dict[str, dict[str, int]] = {
         "defaults": 260,
         "soul": 180,
         "project": 220,
+    },
+    "admin": {
+        "active": 420,
+        "env": 420,
+        "defaults": 220,
+        "project": 260,
     },
 }
 
@@ -173,6 +188,14 @@ def _builtin_retrieval_profile(name: str) -> RetrievalProfileConfig:
             sessions="never",
             use_helper_context=False,
         )
+    if name == "assistant":
+        return RetrievalProfileConfig(
+            wake_profile="assistant",
+            include_pinned_decisions=True,
+            include_durable_context=True,
+            sessions="intent_only",
+            use_helper_context=True,
+        )
     if name == "coding":
         return RetrievalProfileConfig(
             wake_profile="coding",
@@ -190,6 +213,15 @@ def _builtin_retrieval_profile(name: str) -> RetrievalProfileConfig:
             sessions="intent_only",
             use_helper_context=True,
             deny=("core/user.md", "core/identity.md", "people/**"),
+        )
+    if name == "admin":
+        return RetrievalProfileConfig(
+            wake_profile="admin",
+            include_pinned_decisions=True,
+            include_durable_context=True,
+            sessions="intent_only",
+            use_helper_context=True,
+            deny=("core/user.md", "core/soul.md", "core/identity.md", "people/**", "knowledge/personal/**"),
         )
     if name == "personal":
         return RetrievalProfileConfig(

@@ -8,6 +8,8 @@ import pytest
 
 from dory_core.active_memory import ActiveMemoryEngine, BudgetConfig
 from dory_core.active_memory_render import WikiHelperContext, synthesized_bullets
+from dory_core.observation_retrieval import ObservationRetrieval
+from dory_core.observation_store import ObservationEvidence, ObservationStore
 from dory_core.retrieval_planner import ActiveMemoryComposition, ActiveMemoryPlanningContext, ActiveMemoryRetrievalPlan
 from dory_core.types import ActiveMemoryReq, SearchReq, SearchScope, WakeReq, WakeResp
 from dory_core.wake import WakeBuilder
@@ -1533,3 +1535,104 @@ def test_active_memory_normal_response_not_partial(tmp_path: Path) -> None:
 
     assert result.partial is False
     assert result.warnings == []
+
+
+def test_active_memory_injects_admitted_entity_observations(tmp_path: Path) -> None:
+    class EmptySearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            del req
+            return _make_response([])
+
+    (tmp_path / "projects" / "dory").mkdir(parents=True)
+    (tmp_path / "projects" / "dory" / "state.md").write_text(
+        "---\ntitle: Dory\ntype: project\nstatus: active\n---\n\nDory project state.\n",
+        encoding="utf-8",
+    )
+    store = ObservationStore(tmp_path / "observations.db")
+    store.add_observation(
+        title="state: Dory memory UX",
+        content="Dory should keep project context low-bloat and source-backed.",
+        entity_ids=("project:dory",),
+        evidence_rows=(
+            ObservationEvidence(
+                "",
+                "claim-1",
+                "projects/dory/state.md",
+                "Dory should keep project context low-bloat.",
+                "high",
+                None,
+            ),
+        ),
+    )
+    store.add_observation(
+        title="state: other project",
+        content="Other project context must not leak into Dory.",
+        entity_ids=("project:other",),
+        evidence_rows=(ObservationEvidence("", "claim-2", "projects/other/state.md", "quote", "high", None),),
+    )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=EmptySearchEngine(),
+        root=tmp_path,
+        observation_retrieval=ObservationRetrieval(store),
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what context matters for the Dory memory rework?",
+            agent="codex",
+            project="dory",
+            include_wake=False,
+        )
+    )
+
+    assert result.kind == "memory"
+    assert (
+        "Dory should keep project context low-bloat and source-backed. "
+        "(source: projects/dory/state.md)"
+    ) in result.block
+    assert "Other project context" not in result.block
+    assert result.sources == ["projects/dory/state.md"]
+
+
+def test_active_memory_warns_when_entity_observations_are_withheld(tmp_path: Path) -> None:
+    class EmptySearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            del req
+            return _make_response([])
+
+    (tmp_path / "projects" / "dory").mkdir(parents=True)
+    (tmp_path / "projects" / "dory" / "state.md").write_text(
+        "---\ntitle: Dory\ntype: project\nstatus: active\n---\n\nDory project state.\n",
+        encoding="utf-8",
+    )
+    store = ObservationStore(tmp_path / "observations.db")
+    store.add_observation(
+        title="state: stale Dory context",
+        content="Stale context should be reviewed before injection.",
+        entity_ids=("project:dory",),
+        freshness="stale",
+        evidence_rows=(ObservationEvidence("", "claim-1", "projects/dory/state.md", "quote", "high", None),),
+    )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=EmptySearchEngine(),
+        root=tmp_path,
+        observation_retrieval=ObservationRetrieval(store),
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="what context matters for the Dory memory rework?",
+            agent="codex",
+            project="dory",
+            include_wake=False,
+        )
+    )
+
+    assert result.kind == "memory"
+    assert "Stale context should be reviewed before injection." not in result.block
+    assert result.partial is False
+    assert result.warnings == ["Stale or low-confidence observations were withheld from active memory."]

@@ -76,7 +76,7 @@ export interface MemorySearchManager {
       cwd?: string;
       project?: string;
       sessionKey?: string;
-      profile?: "auto" | "general" | "coding" | "writing" | "privacy" | "personal";
+      profile?: "auto" | "general" | "assistant" | "coding" | "writing" | "privacy" | "personal" | "admin";
       timeoutMs?: number;
       rerank?: DoryRerankMode;
     },
@@ -997,7 +997,7 @@ export class DoryMemorySearchManager implements MemorySearchManager {
       cwd?: string;
       project?: string;
       sessionKey?: string;
-      profile?: "auto" | "general" | "coding" | "writing" | "privacy" | "personal";
+      profile?: "auto" | "general" | "assistant" | "coding" | "writing" | "privacy" | "personal" | "admin";
       timeoutMs?: number;
       rerank?: DoryRerankMode;
     },

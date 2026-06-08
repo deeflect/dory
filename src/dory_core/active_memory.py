@@ -6,6 +6,7 @@ from pathlib import Path
 from time import monotonic
 from typing import Protocol
 
+from dory_core.active_memory_admission import ObservationRetrievalBackend, admit_observations
 from dory_core.active_memory_policy import SourcePolicy, filter_active_memory_results, source_policy_for_request
 from dory_core.active_memory_render import (
     WikiHelperContext,
@@ -87,6 +88,7 @@ class ActiveMemoryEngine:
     wake_builder: _WakeBuilder
     search_engine: _SearchEngine
     root: Path | None = None
+    observation_retrieval: ObservationRetrievalBackend | None = None
     planner: ActiveMemoryPlanner | None = None
     composer: ActiveMemoryComposer | None = None
     budget: BudgetConfig = field(default_factory=BudgetConfig)
@@ -232,7 +234,7 @@ class ActiveMemoryEngine:
             confidence=conf,
             sources=sources,
             partial=bool(partial_warnings),
-            warnings=partial_warnings,
+            warnings=list(packet.warnings),
             entity_context=ctx_dict,
         )
 
@@ -276,6 +278,14 @@ class ActiveMemoryEngine:
         active_claims: list[SourceBackedItem] = [
             SourceBackedItem(text=truncate_text(bullet, 220)) for bullet in memory_bullets or []
         ]
+        observation_admission = admit_observations(
+            observation_retrieval=self.observation_retrieval,
+            entity_context=entity_context,
+            source_policy=source_policy,
+            max_items=2,
+        )
+        observations = observation_admission.items
+
         # Guardrails from source policy.
         guardrails: list[str] = []
         if source_policy.profile == "privacy":
@@ -289,15 +299,16 @@ class ActiveMemoryEngine:
             project=entity_context,
             entity_context=(entity_context,) if entity_context is not None else (),
             active_claims=tuple(active_claims),
-            observations=(),
+            observations=observations,
             durable_evidence=durable_items,
             session_evidence=session_items,
             sources=dedupe_sources(
                 wake_sources if rendered_wake_block else [],
                 [str(getattr(r, "path", "")) for r in renderable_durable_results[:4]],
                 [str(getattr(r, "path", "")) for r in session_results[:3]],
+                [item.source_path or "" for item in observations],
             ),
-            warnings=tuple(partial_warnings),
+            warnings=(*partial_warnings, *observation_admission.warnings),
             partial=bool(partial_warnings),
             wake_context=(SourceBackedItem(text=rendered_wake_block),) if rendered_wake_block else (),
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -18,6 +19,8 @@ from dory_core.embedding import ContentEmbedder
 from dory_core.errors import DoryValidationError
 from dory_core.frontmatter import load_markdown_document
 from dory_core.llm.openrouter import OpenRouterClient, build_openrouter_client
+from dory_core.observation_builder import ObservationBuilder
+from dory_core.observation_store import ObservationStore
 from dory_core.slug import normalize_migration_slug
 from dory_core.config import DorySettings
 from dory_core.semantic_write_artifacts import SemanticEvidenceArtifact, SemanticEvidenceStore
@@ -52,6 +55,9 @@ __all__ = [
     "RegistryBackedSubjectResolver",
     "build_semantic_write_plan",
 ]
+
+_logger = logging.getLogger(__name__)
+
 
 class SemanticWriteEngine:
     def __init__(
@@ -293,6 +299,7 @@ class SemanticWriteEngine:
 
         self.claim_recorder.record(plan, evidence_path=semantic_evidence.path)
         self.claim_recorder.sync_registry(plan, requested_subject=req.subject)
+        self._refresh_observations_if_present()
         if should_rewrite_canonical_from_claims(plan):
             response = self.canonical_publisher.rewrite_from_claims(plan, requested_subject=req.subject)
         if plan.family != "core" and plan.resolved_mode == "forget":
@@ -315,6 +322,18 @@ class SemanticWriteEngine:
             matched_by=plan.matched_by,
             message=None,
         )
+
+    def _refresh_observations_if_present(self) -> None:
+        observation_store_path = self.root / ".dory" / "observation-store.db"
+        if not observation_store_path.exists():
+            return
+        try:
+            ObservationBuilder(
+                self.claim_store,
+                ObservationStore(observation_store_path),
+            ).rebuild_from_claims()
+        except Exception:
+            _logger.exception("semantic write succeeded but observation refresh failed")
 
     def _write_forced_inbox(self, req: MemoryWriteReq) -> MemoryWriteResp:
         target_path = self._forced_inbox_target(req)

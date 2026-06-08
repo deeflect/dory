@@ -64,12 +64,13 @@ def test_serialize_status_hides_debug_fields_by_default() -> None:
         query_reranker_model="qwen3-rerank",
         active_memory_llm_provider="local",
         active_memory_llm_stages="compose",
+        features={"query_expansion": False},
         openclaw=OpenClawParityDiagnostics(
             flush_enabled=False,
             recall_tracking_enabled=True,
             artifact_listing_enabled=True,
         ),
-        profiles={},
+        profiles=[],
         compat_matrix={"wake": "ok"},
     )
 
@@ -78,6 +79,7 @@ def test_serialize_status_hides_debug_fields_by_default() -> None:
     assert "corpus_root" not in payload
     assert "index_root" not in payload
     assert "embedding_batch_size" not in payload
+    assert "features" not in payload
     assert "openclaw" not in payload
     assert "compat_matrix" not in payload
     assert payload["embedding_model"] == "qwen3-embed"
@@ -112,12 +114,13 @@ def test_serialize_status_keeps_debug_fields_when_requested() -> None:
         query_reranker_model="qwen3-rerank",
         active_memory_llm_provider="local",
         active_memory_llm_stages="compose",
+        features={"query_expansion": False},
         openclaw=OpenClawParityDiagnostics(
             flush_enabled=False,
             recall_tracking_enabled=True,
             artifact_listing_enabled=True,
         ),
-        profiles={},
+        profiles=[],
         compat_matrix={"wake": "ok"},
     )
 
@@ -126,5 +129,6 @@ def test_serialize_status_keeps_debug_fields_when_requested() -> None:
     assert payload["corpus_root"] == "/var/lib/dory"
     assert payload["index_root"] == "/var/lib/dory/.index"
     assert payload["embedding_batch_size"] == 16
+    assert payload["features"] == {"query_expansion": False}
     assert payload["openclaw"]["recall_tracking_enabled"] is True
     assert payload["compat_matrix"] == {"wake": "ok"}

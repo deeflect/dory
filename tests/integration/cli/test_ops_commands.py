@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from dory_cli.main import app
+from dory_core.claim_store import ClaimStore
 from dory_core.llm.dream import DreamLLM
 from dory_core.openclaw_parity import OpenClawParityStore
 from dory_core.types import RecallEventReq
@@ -331,6 +332,71 @@ Sample is the active focus this week.
     assert "wiki/index.md" in payload["written"]
     assert "wiki/hot.md" in payload["written"]
     assert "wiki/log.md" in payload["written"]
+
+
+def test_ops_observations_refresh_rebuilds_observation_store(cli_runner, tmp_path: Path) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    claim_store = ClaimStore(corpus_root / ".dory" / "claim-store.db")
+    claim_store.add_claim(
+        entity_id="project:dory",
+        kind="state",
+        statement="Dory should surface source-backed observations.",
+        evidence_path="projects/dory/state.md",
+    )
+
+    result = cli_runner.invoke(
+        app,
+        [
+            "--corpus-root",
+            str(corpus_root),
+            "--index-root",
+            str(index_root),
+            "ops",
+            "observations-refresh",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["claim_store_found"] is True
+    assert payload["observations_created"] == 1
+    assert (corpus_root / ".dory" / "observation-store.db").exists()
+
+
+def test_ops_memory_activity_reports_memory_review_payload(cli_runner, tmp_path: Path) -> None:
+    corpus_root = tmp_path / "corpus"
+    index_root = tmp_path / ".index"
+    claim_store = ClaimStore(corpus_root / ".dory" / "claim-store.db")
+    claim_store.add_claim(
+        entity_id="project:dory",
+        kind="state",
+        statement="Dory memory activity is visible.",
+        evidence_path="projects/dory/state.md",
+    )
+    proposed = corpus_root / "inbox" / "proposed" / "proposal-1.json"
+    proposed.parent.mkdir(parents=True)
+    proposed.write_text("{}\n", encoding="utf-8")
+
+    result = cli_runner.invoke(
+        app,
+        [
+            "--corpus-root",
+            str(corpus_root),
+            "--index-root",
+            str(index_root),
+            "ops",
+            "memory-activity",
+            "--limit",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["claim_store_found"] is True
+    assert payload["proposals"]["pending"] == 1
+    assert payload["recent_claim_events"][0]["statement"] == "Dory memory activity is visible."
 
 
 def test_ops_eval_once_writes_eval_artifacts(cli_runner, indexed_fixture_env) -> None:

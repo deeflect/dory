@@ -33,7 +33,7 @@ from dory_core.ops import (
     WikiHealthRunner,
     serialize_result,
 )
-from dory_core.ops import run_compiled_wiki_refresh, run_wiki_index_refresh
+from dory_core.ops import run_compiled_wiki_refresh, run_memory_activity, run_observation_refresh, run_wiki_index_refresh
 
 
 def _cli_main_module():
@@ -208,6 +208,21 @@ def register(ops_app: typer.Typer) -> None:
         config = _get_config(ctx)
         written = run_wiki_index_refresh(config.corpus_root)
         typer.echo(json.dumps({"written": written}, indent=2, sort_keys=True))
+
+    @ops_app.command("observations-refresh")
+    def ops_observations_refresh(ctx: typer.Context) -> None:
+        config = _get_config(ctx)
+        payload = run_observation_refresh(config.corpus_root)
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+
+    @ops_app.command("memory-activity")
+    def ops_memory_activity(
+        ctx: typer.Context,
+        limit: int = typer.Option(10, "--limit", min=0, help="Recent claim events to include."),
+    ) -> None:
+        config = _get_config(ctx)
+        payload = run_memory_activity(config.corpus_root, limit=limit)
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
 
     @ops_app.command("eval-once")
     def ops_eval_once(

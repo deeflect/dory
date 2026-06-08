@@ -3,10 +3,15 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from dory_core.claim_store import ClaimStore
 from dory_core.openclaw_parity import OpenClawParityStore
 from dory_core.index.reindex import ReindexResult
 from dory_core.ops import DreamOnceRunner
 from dory_core.ops import OpsWatchRunner
+from dory_core.ops import run_memory_activity
+from dory_core.ops import run_observation_refresh
+from dory_core.observation_retrieval import ObservationRetrieval
+from dory_core.observation_store import ObservationStore
 from dory_core.watch import WatchCoalescer
 from dory_core.types import RecallEventReq
 
@@ -116,3 +121,59 @@ def test_ops_watch_skips_durable_reindex_for_session_only_changes(tmp_path: Path
     assert payload is not None
     assert payload["reindex"]["files_indexed"] == 0
     assert called is False
+
+
+def test_observation_refresh_noops_without_claim_store(tmp_path: Path) -> None:
+    payload = run_observation_refresh(tmp_path)
+
+    assert payload == {
+        "claim_store_found": False,
+        "observations_created": 0,
+        "source_claims": 0,
+        "observation_store": ".dory/observation-store.db",
+    }
+    assert not (tmp_path / ".dory" / "observation-store.db").exists()
+
+
+def test_observation_refresh_rebuilds_from_claim_store(tmp_path: Path) -> None:
+    claim_store = ClaimStore(tmp_path / ".dory" / "claim-store.db")
+    claim_store.add_claim(
+        entity_id="project:dory",
+        kind="state",
+        statement="Dory observations are derived from active claims.",
+        evidence_path="projects/dory/state.md",
+    )
+
+    payload = run_observation_refresh(tmp_path)
+
+    assert payload["claim_store_found"] is True
+    assert payload["observations_created"] == 1
+    retrieval = ObservationRetrieval(ObservationStore(tmp_path / ".dory" / "observation-store.db"))
+    observations = retrieval.find_by_entity("project:dory")
+    assert len(observations) == 1
+    assert observations[0].content == "Dory observations are derived from active claims."
+
+
+def test_memory_activity_reports_claims_observations_and_proposals(tmp_path: Path) -> None:
+    claim_store = ClaimStore(tmp_path / ".dory" / "claim-store.db")
+    claim_store.add_claim(
+        entity_id="project:dory",
+        kind="state",
+        statement="Dory memory activity should be reviewable.",
+        evidence_path="projects/dory/state.md",
+    )
+    run_observation_refresh(tmp_path)
+    proposed = tmp_path / "inbox" / "proposed" / "proposal-1.json"
+    proposed.parent.mkdir(parents=True)
+    proposed.write_text("{}\n", encoding="utf-8")
+
+    payload = run_memory_activity(tmp_path, limit=5)
+
+    assert payload["claim_store_found"] is True
+    assert payload["observation_store_found"] is True
+    assert payload["observations"] == {"active": 1, "stale": 0, "total": 1}
+    assert payload["proposals"] == {"pending": 1, "applied": 0, "rejected": 0}
+    events = payload["recent_claim_events"]
+    assert isinstance(events, list)
+    assert events[0]["entity_id"] == "project:dory"
+    assert events[0]["statement"] == "Dory memory activity should be reviewable."
