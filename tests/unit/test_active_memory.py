@@ -548,6 +548,55 @@ def test_active_memory_health_prompt_filters_non_health_context(tmp_path: Path) 
     assert "Branding context" not in result.block
 
 
+def test_active_memory_health_prompt_ignores_global_helper_context(tmp_path: Path) -> None:
+    (tmp_path / "wiki").mkdir(parents=True)
+    (tmp_path / "wiki" / "hot.md").write_text(
+        "---\n"
+        "title: Hot Cache\n"
+        "---\n\n"
+        "# Recent Context\n\n"
+        "## Active Threads\n"
+        "- logs/sessions/2026-04-16-memory-cleanup-session.md: stale cleanup migration.\n",
+        encoding="utf-8",
+    )
+
+    class HealthSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="knowledge/health/supplement-plan.md",
+                        snippet="Supplement plan detailed schedule is relevant.",
+                        score=0.9,
+                        frontmatter={"sensitivity": "health", "status": "active"},
+                        confidence="high",
+                    )
+                ]
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=HealthSearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="What is my current supplement plan? Avoid stale notes.",
+            agent="hermes",
+            profile="assistant",
+            include_wake=True,
+        )
+    )
+
+    assert result.sources == ["knowledge/health/supplement-plan.md"]
+    assert "Supplement plan detailed schedule is relevant." in result.block
+    assert "memory-cleanup-session" not in result.block
+    assert "stale cleanup migration" not in result.block
+
+
 def test_active_memory_health_prompt_uses_health_query_hints(tmp_path: Path) -> None:
     class QuerySensitiveHealthSearchEngine:
         def __init__(self) -> None:
@@ -1320,6 +1369,72 @@ def test_active_memory_coding_profile_filters_denied_paths_before_top_k_truncati
     assert "Personal note" not in result.block
     assert "Personal writing voice" not in result.block
     assert result.sources == ["projects/dory/state.md"]
+
+
+def test_active_memory_project_writing_filters_unrelated_project_hits(tmp_path: Path) -> None:
+    project_path = tmp_path / "projects" / "personal-branding-master-plan" / "state.md"
+    project_path.parent.mkdir(parents=True)
+    project_path.write_text(
+        "---\n"
+        "title: Personal Branding Master Plan\n"
+        "status: active\n"
+        "source_kind: canonical\n"
+        "---\n\n"
+        "# Personal Branding Master Plan\n\n"
+        "Current truth: write content in an artifact-led personal style.\n",
+        encoding="utf-8",
+    )
+
+    class WritingSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="projects/anchor/state.md",
+                        snippet="Activity tracking project with a product update schema.",
+                        score=0.95,
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="projects/hermes/state.md",
+                        snippet="Hermes operations layer with provider lifecycle details.",
+                        score=0.9,
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="projects/content-command-center/state.md",
+                        snippet="Content workflow context for publishing posts.",
+                        score=0.8,
+                        confidence="high",
+                    ),
+                ]
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=WritingSearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="Help me write a product update in my usual style. Keep it focused on the content task.",
+            agent="hermes",
+            profile="writing",
+            project="personal-branding-master-plan",
+            include_wake=False,
+        )
+    )
+
+    assert "projects/personal-branding-master-plan/state.md" in result.sources
+    assert "projects/content-command-center/state.md" in result.sources
+    assert "projects/anchor/state.md" not in result.sources
+    assert "projects/hermes/state.md" not in result.sources
+    assert "artifact-led personal style" in result.block
+    assert "Activity tracking project" not in result.block
+    assert "Hermes operations layer" not in result.block
 
 
 def test_active_memory_custom_profile_applies_wake_and_retrieval_policy(tmp_path: Path) -> None:

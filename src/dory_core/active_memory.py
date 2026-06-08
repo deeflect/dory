@@ -7,7 +7,12 @@ from time import monotonic
 from typing import Protocol
 
 from dory_core.active_memory_admission import ObservationRetrievalBackend, admit_observations
-from dory_core.active_memory_policy import SourcePolicy, filter_active_memory_results, source_policy_for_request
+from dory_core.active_memory_policy import (
+    SourcePolicy,
+    filter_active_memory_results,
+    source_policy_for_request,
+    topic_tokens,
+)
 from dory_core.active_memory_render import (
     WikiHelperContext,
     build_summary,
@@ -127,6 +132,7 @@ class ActiveMemoryEngine:
                 entity_context=entity_context,
             )
             durable_results = suppress_global_context_for_entity(durable_results, entity_context)
+            durable_results = _suppress_unrelated_project_results(req, source_policy, durable_results, entity_context)
             renderable_durable_results = preferred_active_memory_results(durable_results)
             composition = self._trusted_composition(
                 req,
@@ -342,6 +348,8 @@ class ActiveMemoryEngine:
         source_policy: SourcePolicy,
         entity_context: EntityContext | None,
     ) -> WikiHelperContext:
+        if source_policy.prompt_context == "health":
+            return empty_wiki_helper_context()
         if entity_context is not None:
             return empty_wiki_helper_context()
         helper = (
@@ -620,3 +628,76 @@ def _composition_conflicts_with_evidence(composition: object | None, durable_res
             "no designated task",
         )
     )
+
+
+def _suppress_unrelated_project_results(
+    req: ActiveMemoryReq,
+    source_policy: SourcePolicy,
+    results: list[object],
+    entity_context: EntityContext | None,
+) -> list[object]:
+    if entity_context is None or source_policy.prompt_context != "writing":
+        return results
+    if str(getattr(entity_context, "family", "") or "") != "project":
+        return results
+
+    entity_paths = {
+        path
+        for path in (
+            str(getattr(entity_context, "canonical_path", "") or ""),
+            *(str(path) for path in getattr(entity_context, "source_refs", ()) or ()),
+        )
+        if path
+    }
+    if not entity_paths:
+        return results
+
+    prompt_tokens = _topic_tokens(req.prompt)
+    filtered: list[object] = []
+    for result in results:
+        path = _result_path(result)
+        if path in entity_paths or _is_writing_support_path(path):
+            filtered.append(result)
+            continue
+        if path.startswith("projects/") and _is_related_writing_project(path, result, prompt_tokens):
+            filtered.append(result)
+            continue
+        if not path.startswith("projects/"):
+            filtered.append(result)
+    return filtered
+
+
+def _is_writing_support_path(path: str) -> bool:
+    return path == "core/soul.md" or path.startswith(("knowledge/personal/", "knowledge/writing/"))
+
+
+def _is_related_writing_project(path: str, result: object, prompt_tokens: set[str]) -> bool:
+    if not prompt_tokens:
+        return False
+    path_tokens = _topic_tokens(path.replace("/", " ").replace("-", " "))
+    text_tokens = _topic_tokens(str(getattr(result, "snippet", "") or ""))
+    candidate_tokens = path_tokens | text_tokens
+    if not candidate_tokens & {
+        "article",
+        "brand",
+        "content",
+        "copy",
+        "essay",
+        "marketing",
+        "newsletter",
+        "post",
+        "posts",
+        "social",
+        "style",
+        "voice",
+        "writing",
+    }:
+        return False
+    overlap = prompt_tokens & candidate_tokens
+    if len(overlap) >= 2:
+        return True
+    return "content" in overlap and "content" in path_tokens
+
+
+def _topic_tokens(text: str) -> set[str]:
+    return set(topic_tokens(text))
