@@ -62,24 +62,39 @@ class SourcePolicy:
     retrieval: RetrievalProfileConfig
     include_session_context: bool
 
-    __slots__ = ("profile", "retrieval", "include_session_context")
+    prompt_context: _PromptContext
+
+    __slots__ = ("profile", "retrieval", "include_session_context", "prompt_context")
 
     def __init__(
         self,
         profile: _ActiveMemoryProfile,
         retrieval: RetrievalProfileConfig,
         include_session_context: bool,
+        prompt_context: _PromptContext,
     ) -> None:
         self.profile = profile
         self.retrieval = retrieval
         self.include_session_context = include_session_context
+        self.prompt_context = prompt_context
 
     def allows_result_path(self, path: str, *, corpus: str) -> bool:
         if corpus == "sessions":
             return self.include_session_context
+        if self.prompt_context == "health" and _is_non_health_context_path(path):
+            return False
         return self.retrieval.allows_path(path, corpus=corpus)
 
     def path_weight(self, path: str) -> float:
+        if self.prompt_context == "health":
+            if path.startswith("knowledge/health/"):
+                return 1.5
+            if path == "projects/dee-supplement-plan/state.md":
+                return 1.4
+            if path == "projects/cut-phase/state.md":
+                return 0.8
+            if path.startswith("core/") or path.startswith("people/"):
+                return -2.0
         return self.retrieval.path_weight(path)
 
     def needs_prefilter_expansion(self, *, corpus: str) -> bool:
@@ -108,6 +123,28 @@ def prompt_context(prompt: str) -> str:
         ),
     ):
         return "privacy"
+    if contains_any(
+        lowered,
+        (
+            "supplement",
+            "supplements",
+            "nutrition",
+            "vitamin",
+            "vitamins",
+            "creatine",
+            "protein",
+            "lactoferrin",
+            "carnitine",
+            "magnesium",
+            "zinc",
+            "tongkat",
+            "ashwagandha",
+            "cut phase",
+            "bulking",
+            "health plan",
+        ),
+    ):
+        return "health"
     if contains_any(
         lowered,
         (
@@ -263,11 +300,13 @@ def filter_active_memory_results(
 def source_policy_for_request(req: ActiveMemoryReq, *, profile_registry: ProfileRegistry) -> "SourcePolicy":
     profile = resolve_active_memory_profile(req)
     retrieval = profile_registry.retrieval_profile(profile)
+    context = prompt_context(req.prompt)
     session_included = include_session_context(req.prompt, retrieval.sessions)
     return SourcePolicy(
         profile=profile,
         retrieval=retrieval,
         include_session_context=session_included,
+        prompt_context=context,
     )
 
 
@@ -292,11 +331,24 @@ def _is_private_or_sensitive_source(frontmatter: dict[str, object], *, active_pr
         return True
 
     sensitivity = str(frontmatter.get("sensitivity", "") or "").strip().lower()
-    if sensitivity in {"credentials", "contact", "financial", "legal", "health"}:
+    if sensitivity in {"credentials", "contact", "financial", "legal"}:
+        return True
+    if sensitivity == "health" and active_profile not in {"assistant", "personal"}:
         return True
     if sensitivity == "personal" and active_profile in {"coding", "privacy", "admin"}:
         return True
     return False
+
+
+def _is_non_health_context_path(path: str) -> bool:
+    if path.startswith("knowledge/health/"):
+        return False
+    if path in {
+        "projects/dee-supplement-plan/state.md",
+        "projects/cut-phase/state.md",
+    }:
+        return False
+    return True
 
 
 def topic_tokens(text: str) -> frozenset[str]:

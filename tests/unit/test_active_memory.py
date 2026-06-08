@@ -354,9 +354,9 @@ def test_active_memory_project_context_suppresses_global_active(tmp_path: Path) 
     corpus_root = tmp_path / "corpus"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    (workspace / "pyproject.toml").write_text('[project]\nname = "supplements"\n', encoding="utf-8")
-    (corpus_root / "projects" / "supplements").mkdir(parents=True)
-    (corpus_root / "projects" / "supplements" / "state.md").write_text(
+    (workspace / "pyproject.toml").write_text('[project]\nname = "dee-supplement-plan"\n', encoding="utf-8")
+    (corpus_root / "projects" / "dee-supplement-plan").mkdir(parents=True)
+    (corpus_root / "projects" / "dee-supplement-plan" / "state.md").write_text(
         """---
 title: Supplements
 type: project
@@ -384,7 +384,7 @@ canonical: true
         )
     )
 
-    assert "projects/supplements/state.md" in result.sources
+    assert "projects/dee-supplement-plan/state.md" in result.sources
     assert "core/active.md" not in result.sources
     assert "Supplement plan is the project-local current truth." in result.block
     assert "Sample is the active focus this week." not in result.block
@@ -398,7 +398,7 @@ def test_active_memory_project_context_suppresses_helper_bullets(tmp_path: Path)
             return _make_response(
                 [
                     _make_result(
-                        path="projects/supplements/state.md",
+                        path="projects/dee-supplement-plan/state.md",
                         snippet="Supplement plan is the project-local current truth.",
                         score=0.9,
                         confidence="high",
@@ -415,8 +415,8 @@ def test_active_memory_project_context_suppresses_helper_bullets(tmp_path: Path)
         "- 2026-04-19: X Growth System [projects]\n",
         encoding="utf-8",
     )
-    (corpus_root / "projects" / "supplements").mkdir(parents=True)
-    (corpus_root / "projects" / "supplements" / "state.md").write_text(
+    (corpus_root / "projects" / "dee-supplement-plan").mkdir(parents=True)
+    (corpus_root / "projects" / "dee-supplement-plan" / "state.md").write_text(
         "---\ntitle: Supplements\ntype: project\nstatus: active\ncanonical: true\n---\n\n"
         "## Summary\n- Supplement plan is the project-local current truth.\n",
         encoding="utf-8",
@@ -432,7 +432,7 @@ def test_active_memory_project_context_suppresses_helper_bullets(tmp_path: Path)
             prompt="what is current for the supplement plan?",
             agent="hermes",
             profile="assistant",
-            project="supplements",
+            project="dee-supplement-plan",
             include_wake=False,
         )
     )
@@ -450,7 +450,7 @@ def test_active_memory_assistant_does_not_infer_project_from_cwd(tmp_path: Path)
             return _make_response(
                 [
                     _make_result(
-                        path="projects/supplements/state.md",
+                        path="projects/dee-supplement-plan/state.md",
                         snippet="Supplement plan is the relevant current state.",
                         score=0.9,
                         confidence="high",
@@ -484,9 +484,68 @@ def test_active_memory_assistant_does_not_infer_project_from_cwd(tmp_path: Path)
     )
 
     assert result.entity_context is None
-    assert "projects/supplements/state.md" in result.sources
+    assert "projects/dee-supplement-plan/state.md" in result.sources
     assert "projects/dory/state.md" not in result.sources
     assert "Supplement plan is the relevant current state." in result.block
+
+
+def test_active_memory_health_prompt_filters_non_health_context(tmp_path: Path) -> None:
+    class HealthSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="core/active.md",
+                        snippet="Dory cleanup should not answer supplement questions.",
+                        score=0.99,
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="projects/personal-branding-master-plan/state.md",
+                        snippet="Branding context should not answer supplement questions.",
+                        score=0.95,
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="projects/dee-supplement-plan/state.md",
+                        snippet="Supplement plan project state is relevant.",
+                        score=0.75,
+                        confidence="high",
+                    ),
+                    _make_result(
+                        path="knowledge/health/supplement-plan.md",
+                        snippet="Supplement plan detailed schedule is relevant.",
+                        score=0.7,
+                        frontmatter={"sensitivity": "health", "status": "active"},
+                        confidence="high",
+                    ),
+                ]
+            )
+
+    engine = ActiveMemoryEngine(
+        wake_builder=WakeBuilder(root=tmp_path),
+        search_engine=HealthSearchEngine(),
+        root=tmp_path,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="What is my current supplement plan and what should I do today?",
+            agent="hermes",
+            profile="assistant",
+            include_wake=False,
+        )
+    )
+
+    assert result.sources == [
+        "knowledge/health/supplement-plan.md",
+        "projects/dee-supplement-plan/state.md",
+    ]
+    assert "Supplement plan" in result.block
+    assert "Dory cleanup" not in result.block
+    assert "Branding context" not in result.block
 
 
 def test_active_memory_resolves_cwd_alias_to_canonical_project_context(tmp_path: Path) -> None:

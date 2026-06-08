@@ -15,6 +15,7 @@ def _source_policy(tmp_path: Path, profile: str = "coding") -> SourcePolicy:
         profile=profile,
         retrieval=ProfileRegistry(tmp_path).retrieval_profile(profile),
         include_session_context=False,
+        prompt_context="coding",
     )
 
 
