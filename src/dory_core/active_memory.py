@@ -119,7 +119,7 @@ class ActiveMemoryEngine:
             if req.resolve_entity_context and self.root is not None:
                 entity_context = self._resolve_entity_context(req, source_policy)
             helper = self._helper_context(req, source_policy, entity_context)
-            wake_block, wake_sources = self._wake_context(req, source_policy)
+            wake_block, wake_sources = self._wake_context(req, source_policy, entity_context)
             planning_context = self._planning_context(helper, entity_context)
             plan = self._plan(req, planning_context, deadline=deadline)
             plan = self._augment_plan_for_context(plan, source_policy)
@@ -376,7 +376,12 @@ class ActiveMemoryEngine:
             entity_source_refs=entity_context.source_refs,
         )
 
-    def _wake_context(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> tuple[str, list[str]]:
+    def _wake_context(
+        self,
+        req: ActiveMemoryReq,
+        source_policy: SourcePolicy,
+        entity_context: EntityContext | None,
+    ) -> tuple[str, list[str]]:
         if not req.include_wake:
             return "", []
         if source_policy.prompt_context == "health":
@@ -386,14 +391,23 @@ class ActiveMemoryEngine:
                 budget_tokens=min(req.budget_tokens, 600),
                 agent=req.agent,
                 profile=source_policy.retrieval.wake_profile,
-                project=self._wake_project_handle(req, source_policy),
+                project=self._wake_project_handle(req, source_policy, entity_context),
                 include_recent_sessions=3 if source_policy.include_session_context else 0,
                 include_pinned_decisions=source_policy.retrieval.include_pinned_decisions,
             )
         )
         return wake.block, wake.sources
 
-    def _wake_project_handle(self, req: ActiveMemoryReq, source_policy: SourcePolicy) -> str | None:
+    def _wake_project_handle(
+        self,
+        req: ActiveMemoryReq,
+        source_policy: SourcePolicy,
+        entity_context: EntityContext | None,
+    ) -> str | None:
+        if entity_context is not None and entity_context.family == "project":
+            entity_id = entity_context.entity_id.strip()
+            if entity_id.startswith("project:"):
+                return entity_id.split(":", 1)[1]
         if req.project:
             handle = resolve_project_handle(project=req.project, cwd=req.cwd, root=self.root)
             if handle is not None:

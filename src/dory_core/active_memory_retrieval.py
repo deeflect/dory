@@ -120,8 +120,17 @@ def project_state_result(req: ActiveMemoryReq, *, root: Path | None) -> SearchRe
     context = resolve_project_context(project=req.project, cwd=req.cwd, root=root)
     if context is None:
         return None
-    project_path = context.path
-    rel_path = context.target_path
+    return project_state_result_for_path(context.target_path, root=root)
+
+
+def project_state_result_for_path(rel_path: str, *, root: Path | None) -> SearchResult | None:
+    if root is None:
+        return None
+    if not rel_path.startswith("projects/") or not rel_path.endswith("/state.md"):
+        return None
+    project_path = root / rel_path
+    if not project_path.exists():
+        return None
     try:
         text = project_path.read_text(encoding="utf-8")
     except OSError:
@@ -161,6 +170,9 @@ def with_project_result(
     if entity_context is None:
         return results
     project_result = project_state_result(req, root=root)
+    if project_result is None:
+        canonical_path = str(getattr(entity_context, "canonical_path", "") or "")
+        project_result = project_state_result_for_path(canonical_path, root=root)
     if project_result is None or not source_policy.allows_result_path(
         str(getattr(project_result, "path", "") or ""), corpus="durable"
     ):

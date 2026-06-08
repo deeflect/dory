@@ -775,6 +775,66 @@ workspace_aliases:
     }
 
 
+def test_active_memory_uses_resolved_entity_when_explicit_project_is_local_alias(tmp_path: Path) -> None:
+    class EnvSearchEngine:
+        def search(self, req: SearchReq):  # pragma: no cover - test stub
+            if req.corpus == "sessions":
+                return _make_response([])
+            return _make_response(
+                [
+                    _make_result(
+                        path="core/env.md",
+                        snippet="Global environment should not be project evidence.",
+                        score=0.99,
+                        confidence="high",
+                    )
+                ]
+            )
+
+    corpus_root = tmp_path / "corpus"
+    workspace = tmp_path / "workspace" / "palace"
+    workspace.mkdir(parents=True)
+    (workspace / "pyproject.toml").write_text("[project]\nname = 'dory'\n", encoding="utf-8")
+    (corpus_root / "projects" / "dory").mkdir(parents=True)
+    (corpus_root / "projects" / "dory" / "state.md").write_text(
+        """---
+title: Dory
+type: project
+status: active
+canonical: true
+source_kind: canonical
+---
+
+## Summary
+- Dory project state should be injected for the local palace workspace.
+""",
+        encoding="utf-8",
+    )
+
+    wake_builder = _CountingWakeBuilder()
+    engine = ActiveMemoryEngine(
+        wake_builder=wake_builder,
+        search_engine=EnvSearchEngine(),
+        root=corpus_root,
+    )
+
+    result = engine.build(
+        ActiveMemoryReq(
+            prompt="I'm coding in the Dory public repo.",
+            agent="codex",
+            profile="coding",
+            project="palace",
+            cwd=str(workspace),
+            include_wake=True,
+        )
+    )
+
+    assert wake_builder.requests[0].project == "dory"
+    assert result.sources == ["projects/dory/state.md"]
+    assert "Dory project state should be injected" in result.block
+    assert "Global environment" not in result.block
+
+
 def test_active_memory_adds_resolved_entity_to_planning_context(tmp_path: Path) -> None:
     corpus_root = tmp_path / "corpus"
     workspace = tmp_path / "workspace"
