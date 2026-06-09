@@ -35,6 +35,7 @@ def test_semantic_forget_removes_exact_canonical_bullet_without_retiring_entity(
             subject="dory",
             content=duplicate_note,
             scope="project",
+        project="dory",
             reason="duplicate deployment note",
             allow_canonical=True,
         )
@@ -81,6 +82,7 @@ def test_semantic_write_replay_reuses_existing_evidence_when_canonical_already_c
             subject="dory",
             content=note,
             scope="project",
+        project="dory",
             reason="retry after client timeout",
             allow_canonical=True,
         )
@@ -132,6 +134,7 @@ def test_semantic_write_indexes_evidence_and_rewrites_canonical_once(
             subject="dory",
             content="Dory records deployment state without redundant canonical rewrites.",
             scope="project",
+        project="dory",
             allow_canonical=True,
         )
     )
@@ -154,6 +157,7 @@ def test_semantic_write_replay_reuses_evidence_after_claim_recording_failure(tmp
         subject="dory",
         content="Dory replay should finish after claim recording resumes.",
         scope="project",
+        project="dory",
         allow_canonical=True,
     )
     engine = SemanticWriteEngine(root)
@@ -194,6 +198,7 @@ def test_semantic_write_replay_does_not_duplicate_claim_after_canonical_failure(
         subject="dory",
         content="Dory replay should not duplicate active claims.",
         scope="project",
+        project="dory",
         allow_canonical=True,
     )
     engine = SemanticWriteEngine(root)

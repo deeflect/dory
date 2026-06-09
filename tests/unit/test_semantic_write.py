@@ -108,6 +108,7 @@ def test_semantic_write_refreshes_existing_observation_store(tmp_path: Path) -> 
             subject="Dory",
             content="Dory writes refresh the observation index when it exists.",
             scope="project",
+            project="dory",
             allow_canonical=True,
         )
     )
@@ -127,6 +128,7 @@ def test_semantic_write_plan_preview_helpers_describe_canonical_target(tmp_path:
             subject="Open Privacy Filter",
             content="Open Privacy Filter is active.",
             scope="project",
+            project="open-privacy-filter",
         ),
     )
 
@@ -200,6 +202,7 @@ def test_semantic_write_reuses_existing_evidence_for_idempotent_replay(tmp_path:
         subject="Open Privacy Filter",
         content="Open Privacy Filter is active in characterization tests.",
         scope="project",
+        project="open-privacy-filter",
         allow_canonical=True,
         agent="codex",
         session_id="session-1",
@@ -313,6 +316,7 @@ def test_build_semantic_write_plan_creates_new_project_from_explicit_scope(tmp_p
             subject="Open Privacy Filter",
             content="Open Privacy Filter is active.",
             scope="project",
+            project="open-privacy-filter",
         ),
     )
 
@@ -461,3 +465,39 @@ def test_build_semantic_write_plan_keeps_alias_match_for_non_dream_write(tmp_pat
 
     assert plan.subject_ref == "project:privacy-filter-lab"
     assert plan.target_path == "projects/privacy-filter-lab/state.md"
+
+
+def test_build_semantic_write_plan_demotes_unstated_new_project(tmp_path: Path) -> None:
+    """Subject-only unknown projects must not mint canonical state pages."""
+    plan = build_semantic_write_plan(
+        tmp_path,
+        MemoryWriteReq(
+            action="write",
+            kind="state",
+            subject="atlas companion audio debugging resume point",
+            content="Session checkpoint, not a project.",
+            scope="project",
+        ),
+    )
+
+    assert plan.matched_by == "explicit_scope_new_project"
+    assert plan.match_confidence == "low"
+
+
+def test_semantic_write_quarantines_unstated_new_project(tmp_path: Path) -> None:
+    engine = SemanticWriteEngine(tmp_path, resolver_client=None)
+
+    resp = engine.write(
+        MemoryWriteReq(
+            action="write",
+            kind="state",
+            subject="atlas companion audio debugging resume point",
+            content="Session checkpoint, not a project.",
+            scope="project",
+            allow_canonical=True,
+            soft=True,
+        )
+    )
+
+    assert resp.result == "quarantined"
+    assert not (tmp_path / "projects").exists()

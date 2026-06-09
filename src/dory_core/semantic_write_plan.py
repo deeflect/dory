@@ -171,13 +171,22 @@ def _new_subject_match_from_explicit_scope(req: MemoryWriteReq) -> SubjectMatch 
     if not slug:
         return None
     subject_ref = f"{req.scope}:{slug}"
+    matched_by = "explicit_scope"
+    confidence: Literal["high", "medium", "low"] = "high"
+    if req.scope == "project" and normalize_migration_slug(req.project or "") != slug:
+        # A project page claims the project exists. Session checkpoints and
+        # unresolved names must not mint canonical projects/<slug>/state.md;
+        # low confidence routes them to quarantine/inbox instead. Deliberate
+        # creation states the slug twice: subject + project=<slug>.
+        matched_by = "explicit_scope_new_project"
+        confidence = "low"
     return SubjectMatch(
         subject_ref=subject_ref,
         family=req.scope,
         title=canonical_title_from_subject(subject_ref),
         target_path=canonical_target_for_subject(subject_ref),
-        matched_by="explicit_scope",
-        confidence="high",
+        matched_by=matched_by,
+        confidence=confidence,
     )
 
 
