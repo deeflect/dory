@@ -199,6 +199,9 @@ def test_hermes_provider_supports_hermes_plugin_surface(
         client=client,
         default_agent="hermes",
         search_k=4,
+        # Raw snippet injection is off by default since the active-memory
+        # brief became the injected context; opt in to exercise the path.
+        inject_retrieved_evidence=True,
     )
     provider.initialize(
         "session-123",
@@ -207,9 +210,17 @@ def test_hermes_provider_supports_hermes_plugin_surface(
         agent_context="primary",
         agent_identity="coder",
     )
+    default_provider = provider_cls(
+        base_url=str(client.base_url),
+        token=token,
+        client=client,
+        default_agent="hermes",
+        search_k=4,
+    )
 
     prefetched = provider.prefetch_bundle("who is Casey")
     memory_section = provider.build_memory_section("who is Casey")
+    default_memory_section = default_provider.build_memory_section("who is Casey")
     injected_section = provider.prefetch("who is Casey", session_id="session-123")
     tool_schemas = provider.get_tool_schemas()
     search_tool_result = json.loads(provider.handle_tool_call("dory_search", {"query": "HomeServer"}))
@@ -275,7 +286,10 @@ def test_hermes_provider_supports_hermes_plugin_surface(
     assert "active_memory" in prefetched
     assert "# Dory Memory" in memory_section
     assert "# Dory Memory" in injected_section
+    assert "## Retrieved Evidence" in memory_section
     assert "core/user.md" in memory_section
+    # Default config keeps raw snippets out of automatic context.
+    assert "## Retrieved Evidence" not in default_memory_section
     assert {schema["name"] for schema in tool_schemas} >= {
         "dory_search",
         "dory_get",
