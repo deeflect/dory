@@ -245,10 +245,21 @@ def sync_sessions_before_wake() -> dict[str, Any] | None:
         }
 
     session_env = _session_sync_env()
-    spool_root = session_env.get("DORY_CLIENT_SPOOL_ROOT") or str(DEFAULT_SPOOL_ROOT)
-    checkpoints_path = session_env.get("DORY_CLIENT_CHECKPOINTS_PATH") or str(Path(spool_root) / "checkpoints.json")
+    spool_root = Path(session_env.get("DORY_CLIENT_SPOOL_ROOT") or str(DEFAULT_SPOOL_ROOT))
+    checkpoints_path = session_env.get("DORY_CLIENT_CHECKPOINTS_PATH") or str(spool_root / "checkpoints.json")
     harnesses = session_env.get("DORY_CLIENT_HARNESSES") or DEFAULT_HARNESSES
-    timeout_seconds = float(session_env.get("DORY_CLIENT_SHIPPER_TIMEOUT_SECONDS") or "3")
+    # HTTP timeout for the shipper's own uploads, not the wake-blocking budget.
+    timeout_seconds = float(session_env.get("DORY_CLIENT_SHIPPER_TIMEOUT_SECONDS") or "10")
+    # How long wake blocks on the sync before letting it continue detached.
+    wait_seconds = float(session_env.get("DORY_CLIENT_SYNC_WAIT_SECONDS") or "3")
+
+    running_pid = _detached_sync_pid(spool_root)
+    if running_pid is not None:
+        return {
+            "ok": True,
+            "mode": "background",
+            "note": f"previous session sync still running (pid {running_pid}); captures land by next wake",
+        }
 
     command = [
         sys.executable,
@@ -256,7 +267,7 @@ def sync_sessions_before_wake() -> dict[str, Any] | None:
         "--harnesses",
         harnesses,
         "--spool-root",
-        spool_root,
+        str(spool_root),
         "--checkpoints-path",
         checkpoints_path,
         "--base-url",
@@ -267,30 +278,43 @@ def sync_sessions_before_wake() -> dict[str, Any] | None:
     if DORY_TOKEN:
         command.extend(["--auth-token", DORY_TOKEN])
 
-    try:
-        completed = subprocess.run(
+    spool_root.mkdir(parents=True, exist_ok=True)
+    stdout_path = spool_root / "last-sync-output.json"
+    stderr_path = spool_root / "last-sync-errors.log"
+    with stdout_path.open("w", encoding="utf-8") as stdout_file, stderr_path.open("w", encoding="utf-8") as stderr_file:
+        process = subprocess.Popen(
             command,
             cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout_seconds + 2.0,
+            stdout=stdout_file,
+            stderr=stderr_file,
             env=session_env,
+            start_new_session=True,
         )
+    _sync_pidfile(spool_root).write_text(str(process.pid), encoding="utf-8")
+
+    try:
+        returncode = process.wait(timeout=wait_seconds)
     except subprocess.TimeoutExpired:
+        # Never kill the sync. A slow run is the backlog drain that must
+        # finish (and checkpoint) for every later run to be fast; killing it
+        # is what kept the corpus permanently behind.
         return {
-            "ok": False,
-            "error": "session sync timed out before wake",
+            "ok": True,
+            "mode": "background",
+            "note": "session sync continuing in background; captures land by next wake",
         }
 
-    if completed.returncode != 0:
+    _sync_pidfile(spool_root).unlink(missing_ok=True)
+    stdout_text = stdout_path.read_text(encoding="utf-8")
+    if returncode != 0:
+        error_text = (stderr_path.read_text(encoding="utf-8") or stdout_text).strip()
         return {
             "ok": False,
-            "error": (completed.stderr or completed.stdout).strip()[:500],
+            "error": error_text[:500],
         }
 
     try:
-        payload = json.loads(completed.stdout)
+        payload = json.loads(stdout_text)
     except json.JSONDecodeError:
         return {
             "ok": False,
@@ -302,6 +326,25 @@ def sync_sessions_before_wake() -> dict[str, Any] | None:
             "error": "session sync returned non-object JSON",
         }
     return _compact_session_sync(payload)
+
+
+def _sync_pidfile(spool_root: Path) -> Path:
+    return spool_root / "sync.pid"
+
+
+def _detached_sync_pid(spool_root: Path) -> int | None:
+    """Return the pid of a still-running detached sync, or None."""
+    try:
+        pid = int(_sync_pidfile(spool_root).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except OSError:
+        return None
+    return pid
 
 
 def _session_sync_env() -> dict[str, str]:

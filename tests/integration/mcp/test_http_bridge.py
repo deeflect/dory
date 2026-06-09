@@ -218,6 +218,113 @@ def test_bridge_session_sync_can_be_disabled(monkeypatch) -> None:
     assert bridge.sync_sessions_before_wake() is None
 
 
+def _patch_sync_environment(bridge, monkeypatch, tmp_path: Path) -> Path:
+    spool_root = tmp_path / "spool"
+    monkeypatch.setattr(bridge, "CLIENT_ENV_PATH", tmp_path / "missing-client.env")
+    monkeypatch.setenv("DORY_CLIENT_SPOOL_ROOT", str(spool_root))
+    monkeypatch.delenv("DORY_SYNC_SESSIONS_ON_WAKE", raising=False)
+    return spool_root
+
+
+def test_bridge_slow_session_sync_detaches_instead_of_killing(monkeypatch, tmp_path: Path) -> None:
+    bridge = _load_bridge_module()
+    spool_root = _patch_sync_environment(bridge, monkeypatch, tmp_path)
+    kill_calls: list[str] = []
+
+    class SlowProcess:
+        pid = 4242
+
+        def wait(self, timeout: float | None = None):
+            raise bridge.subprocess.TimeoutExpired(cmd="shipper", timeout=timeout or 0)
+
+        def kill(self):
+            kill_calls.append("kill")
+
+        def terminate(self):
+            kill_calls.append("terminate")
+
+    monkeypatch.setattr(bridge.subprocess, "Popen", lambda *args, **kwargs: SlowProcess())
+
+    result = bridge.sync_sessions_before_wake()
+
+    assert result == {
+        "ok": True,
+        "mode": "background",
+        "note": "session sync continuing in background; captures land by next wake",
+    }
+    assert kill_calls == []
+    assert (spool_root / "sync.pid").read_text(encoding="utf-8") == "4242"
+
+
+def test_bridge_session_sync_is_single_flight(monkeypatch, tmp_path: Path) -> None:
+    bridge = _load_bridge_module()
+    spool_root = _patch_sync_environment(bridge, monkeypatch, tmp_path)
+    spool_root.mkdir(parents=True)
+    # Our own pid is guaranteed alive, standing in for a detached sync.
+    own_pid = bridge.os.getpid()
+    (spool_root / "sync.pid").write_text(str(own_pid), encoding="utf-8")
+
+    def explode(*args, **kwargs):
+        raise AssertionError("must not spawn a second sync while one is running")
+
+    monkeypatch.setattr(bridge.subprocess, "Popen", explode)
+
+    result = bridge.sync_sessions_before_wake()
+
+    assert result is not None
+    assert result["ok"] is True
+    assert result["mode"] == "background"
+    assert str(own_pid) in result["note"]
+
+
+def test_bridge_fast_session_sync_reports_compact_result(monkeypatch, tmp_path: Path) -> None:
+    bridge = _load_bridge_module()
+    spool_root = _patch_sync_environment(bridge, monkeypatch, tmp_path)
+    payload = {
+        "captures": [{"path": "logs/sessions/claude/mac/2026-06-09-s1.md"}],
+        "queued": [],
+        "result": {"sent": ["spool-1.json"], "failed": [], "errors": []},
+    }
+
+    class FastProcess:
+        pid = 4243
+
+        def __init__(self, *args, **kwargs):
+            kwargs["stdout"].write(__import__("json").dumps(payload))
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    monkeypatch.setattr(bridge.subprocess, "Popen", FastProcess)
+
+    result = bridge.sync_sessions_before_wake()
+
+    assert result == {"ok": True, "captures": 1, "queued": 0, "sent": 1, "failed": 0}
+    assert not (spool_root / "sync.pid").exists()
+
+
+def test_bridge_stale_sync_pidfile_does_not_block_new_sync(monkeypatch, tmp_path: Path) -> None:
+    bridge = _load_bridge_module()
+    spool_root = _patch_sync_environment(bridge, monkeypatch, tmp_path)
+    spool_root.mkdir(parents=True)
+    (spool_root / "sync.pid").write_text("999999999", encoding="utf-8")
+
+    class FastProcess:
+        pid = 4244
+
+        def __init__(self, *args, **kwargs):
+            kwargs["stdout"].write('{"captures": [], "queued": [], "result": {"sent": [], "failed": []}}')
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    monkeypatch.setattr(bridge.subprocess, "Popen", FastProcess)
+
+    result = bridge.sync_sessions_before_wake()
+
+    assert result == {"ok": True, "captures": 0, "queued": 0, "sent": 0, "failed": 0}
+
+
 def test_bridge_loads_shell_escaped_client_env(tmp_path: Path, monkeypatch) -> None:
     bridge = _load_bridge_module()
     env_path = tmp_path / "client.env"
