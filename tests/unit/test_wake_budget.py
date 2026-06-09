@@ -941,3 +941,108 @@ def test_wake_builder_coding_profile_loads_coding_playbook(tmp_path: Path) -> No
     assert "core/coding.md" in unresolved.sources
     assert "Use Conventional Commits." in plain.block
     assert plain.sources.index("core/active.md") < plain.sources.index("core/coding.md")
+
+
+def test_wake_builder_flags_stale_core_sections(tmp_path: Path) -> None:
+    """Hot core pages past their freshness SLA get a computed stale marker."""
+    (tmp_path / "core").mkdir(parents=True)
+    old = (date.today() - timedelta(days=60)).isoformat()
+    fresh = (date.today() - timedelta(days=2)).isoformat()
+    (tmp_path / "core" / "active.md").write_text(
+        f"---\ntitle: Active\ntype: core\nstatus: active\nupdated: '{old}'\n---\n\n# Active\n\nOld focus.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "core" / "user.md").write_text(
+        f"---\ntitle: User\ntype: core\nstatus: active\nupdated: '{fresh}'\n---\n\n# User\n\nFresh facts.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="default", budget_tokens=900, include_recent_sessions=0)
+    )
+
+    assert f"> [stale] last updated {old} (60 days ago)" in resp.block
+    assert "Old focus." in resp.block
+    assert "Fresh facts." in resp.block
+    assert resp.block.count("[stale]") == 1
+    # The marker lands right after the stale page's frontmatter, before its body.
+    assert resp.block.index("[stale]") < resp.block.index("Old focus.")
+
+
+def test_wake_builder_flags_stale_project_card_and_state(tmp_path: Path) -> None:
+    """Generated project cards and project state past 30 days are visibly stale."""
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "projects").mkdir(parents=True)
+    (tmp_path / "projects" / "atlas").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    old = (date.today() - timedelta(days=51)).isoformat()
+    (tmp_path / "wiki" / "projects" / "atlas.md").write_text(
+        "---\ntitle: Atlas\ntype: wiki\nstatus: active\ncanonical: true\n"
+        f"temperature: warm\nupdated: {old}\nsource_kind: generated\n---\n\n"
+        "# Atlas\n\n## Summary\nApril-era summary.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "projects" / "atlas" / "state.md").write_text(
+        f"---\ntitle: Atlas state\ntype: project\nstatus: active\nupdated: '{old}'\n---\n\n"
+        "## Current State\nOld project state.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=900, include_recent_sessions=0, project="atlas")
+    )
+
+    assert "April-era summary." in resp.block
+    assert "Old project state." in resp.block
+    assert resp.block.count("[stale]") == 2
+    # Card marker sits under the card title, before its summary.
+    assert resp.block.index("# Atlas") < resp.block.index("[stale]") < resp.block.index("April-era summary.")
+
+
+def test_wake_builder_fresh_project_card_carries_no_stale_marker(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "projects").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    fresh = (date.today() - timedelta(days=3)).isoformat()
+    (tmp_path / "wiki" / "projects" / "atlas.md").write_text(
+        "---\ntitle: Atlas\ntype: wiki\nstatus: active\ncanonical: true\n"
+        f"temperature: warm\nupdated: {fresh}\nsource_kind: generated\n---\n\n"
+        "# Atlas\n\n## Summary\nCurrent summary.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=900, include_recent_sessions=0, project="atlas")
+    )
+
+    assert "Current summary." in resp.block
+    assert "[stale]" not in resp.block
+
+
+def test_wake_builder_admin_profile_surfaces_maintenance_queue(tmp_path: Path) -> None:
+    """Maintenance findings reach the admin wake instead of rotting in inbox files."""
+    (tmp_path / "core").mkdir(parents=True)
+    fresh = (date.today() - timedelta(days=1)).isoformat()
+    old = (date.today() - timedelta(days=40)).isoformat()
+    (tmp_path / "core" / "active.md").write_text(
+        f"---\ntitle: Active\nupdated: '{fresh}'\n---\n\n# Active\n\nCurrent work.\n", encoding="utf-8"
+    )
+    (tmp_path / "core" / "env.md").write_text(
+        f"---\ntitle: Env\nupdated: '{old}'\n---\n\n# Environment\n\nOld topology.\n", encoding="utf-8"
+    )
+    (tmp_path / "inbox" / "proposed").mkdir(parents=True)
+    (tmp_path / "inbox" / "proposed" / "2026-W16.json").write_text("{}", encoding="utf-8")
+
+    admin = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="admin", budget_tokens=900, include_recent_sessions=0)
+    )
+    coding = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=900, include_recent_sessions=0)
+    )
+
+    assert "# Corpus Maintenance" in admin.block
+    assert "core/env.md: hot page untouched for 40d" in admin.block
+    assert "inbox/proposed: 1 untriaged proposal(s)" in admin.block
+    assert "maintenance" in admin.sources
+    # Maintenance is an admin surface; coding wake stays operational.
+    assert "# Corpus Maintenance" not in coding.block

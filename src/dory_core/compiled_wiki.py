@@ -284,6 +284,30 @@ def collect_general_cards(
     return [(rel_path, text) for _updated, _path_key, rel_path, text in sorted(candidates, reverse=True)[:max_cards]]
 
 
+def wake_staleness_note(text: str, *, max_age_days: int, now: date | None = None) -> str | None:
+    """Compute a one-line stale marker from frontmatter dates at read time.
+
+    Stored freshness labels rot silently; wake must derive staleness from the
+    ``updated`` date every time it serves a page. Pages without a parseable
+    ``updated`` don't track freshness (the normalizer stamps it on every real
+    write), so they return ``None`` rather than a false alarm.
+    """
+    try:
+        document = load_markdown_document(text)
+    except ValueError:
+        return None
+    updated = _frontmatter_date(document.frontmatter.get("updated"))
+    if updated is None:
+        return None
+    age_days = ((now or date.today()) - updated).days
+    if age_days <= max_age_days:
+        return None
+    return (
+        f"> [stale] last updated {updated.isoformat()} ({age_days} days ago) — "
+        "verify against newer memory (dory_search) before trusting."
+    )
+
+
 def wake_card_excerpt(text: str) -> str:
     """Compact a compiled card for the wake block.
 

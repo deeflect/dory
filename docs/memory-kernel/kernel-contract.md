@@ -145,6 +145,14 @@ class WakeBuilder:
 - Delegates compiled card collection to `compiled_wiki.collect_project_card`
   and `compiled_wiki.collect_general_cards`; cards are compacted with
   `compiled_wiki.wake_card_excerpt` before assembly.
+- Computes staleness at read time via `compiled_wiki.wake_staleness_note`:
+  core sections untouched past 21 days and project cards/state past 30 days
+  carry an inline `[stale]` marker derived from frontmatter `updated` (stored
+  freshness labels are never trusted).
+- The admin profile appends a synthetic `maintenance` section built by
+  `maintenance.wake_maintenance_summary` (stale core pages, stale active
+  compiled cards, untriaged inbox queues) so maintenance findings reach an
+  agent surface instead of rotting under `inbox/`.
 
 **Internal types:**
 - `HotBlockSection`: `(path: Path, content: str)` — assembled inside `build()`.

@@ -4,9 +4,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dory_core.compiled_wiki import collect_general_cards, collect_project_card, wake_card_excerpt
+from dory_core.compiled_wiki import (
+    collect_general_cards,
+    collect_project_card,
+    wake_card_excerpt,
+    wake_staleness_note,
+)
 from dory_core.frontmatter import load_markdown_document
 from dory_core.hot_context import HotContextPacket, SourceBackedItem
+from dory_core.maintenance import wake_maintenance_summary
 from dory_core.profiles import ProfileRegistry
 from dory_core.project_context import resolve_project_context, resolve_project_handle, resolve_project_path
 from dory_core.token_counting import TokenCounter, build_token_counter
@@ -23,6 +29,11 @@ _CORE_SECTION_PATHS = {
     "writing_voice": Path("knowledge/personal/writing-voice.md"),
 }
 _CORE_SECTION_NAMES = set(_CORE_SECTION_PATHS)
+
+# Hot core pages claim to be current; flag them when they sit untouched past
+# their freshness SLA. Compiled cards and project state get a looser window.
+_CORE_STALE_AFTER_DAYS = 21
+_CARD_STALE_AFTER_DAYS = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +151,8 @@ class WakeBuilder:
     ) -> HotBlockSection | None:
         if name == "privacy_boundaries":
             return self._load_privacy_boundaries_section(agent=agent)
+        if name == "maintenance":
+            return self._load_maintenance_section(profile=profile, agent=agent)
         rel_path = _resolve_wake_section_path(name)
         if rel_path is None:
             return None
@@ -170,10 +183,35 @@ class WakeBuilder:
         if denied_reason is not None:
             warnings.append(f"Wake source skipped {rel_path.as_posix()}: {denied_reason}.")
             return None
+        is_core_section = _section_budget_key(name) in _CORE_SECTION_NAMES
+        if is_core_section or name == "project":
+            max_age = _CORE_STALE_AFTER_DAYS if is_core_section else _CARD_STALE_AFTER_DAYS
+            note = wake_staleness_note(content, max_age_days=max_age)
+            if note is not None:
+                content = _insert_note_after_frontmatter(content, note)
         return HotBlockSection(
             path=rel_path,
             content=self._compact_profile_section(
                 name=name,
+                content=content,
+                profile=profile,
+                agent=agent,
+            ),
+        )
+
+    def _load_maintenance_section(self, *, profile: WakeProfile, agent: str) -> HotBlockSection | None:
+        lines = wake_maintenance_summary(
+            self.root,
+            core_stale_after_days=_CORE_STALE_AFTER_DAYS,
+            card_stale_after_days=_CARD_STALE_AFTER_DAYS,
+        )
+        if not lines:
+            return None
+        content = "# Corpus Maintenance\n\n" + "\n".join(lines)
+        return HotBlockSection(
+            path=Path("maintenance"),
+            content=self._compact_profile_section(
+                name="maintenance",
                 content=content,
                 profile=profile,
                 agent=agent,
@@ -333,7 +371,14 @@ class WakeBuilder:
             project=project,
             retrieval_profile=self.profile_registry.retrieval_profile(profile),
         )
-        return [HotBlockSection(path=rel, content=wake_card_excerpt(content)) for rel, content in raw]
+        sections: list[HotBlockSection] = []
+        for rel, content in raw:
+            excerpt = wake_card_excerpt(content)
+            note = wake_staleness_note(content, max_age_days=_CARD_STALE_AFTER_DAYS)
+            if note is not None:
+                excerpt = _insert_note_after_heading(excerpt, note)
+            sections.append(HotBlockSection(path=rel, content=excerpt))
+        return sections
 
     def _collect_general_cards(self, *, profile: WakeProfile) -> list[HotBlockSection]:
         raw = collect_general_cards(
@@ -524,6 +569,22 @@ def _summarize_session(section: HotBlockSection) -> str:
         body = line
         break
     return f"- {section.path.as_posix()}: {body[:120]}"
+
+
+def _insert_note_after_frontmatter(content: str, note: str) -> str:
+    lines = content.splitlines()
+    if lines and lines[0].strip() == "---":
+        for index in range(1, len(lines)):
+            if lines[index].strip() == "---":
+                return "\n".join([*lines[: index + 1], "", note, *lines[index + 1 :]])
+    return f"{note}\n\n{content}"
+
+
+def _insert_note_after_heading(content: str, note: str) -> str:
+    lines = content.splitlines()
+    if lines and lines[0].startswith("#"):
+        return "\n".join([lines[0], "", note, *lines[1:]])
+    return f"{note}\n\n{content}"
 
 
 def _general_compiled_card_limit(profile: WakeProfile) -> int:

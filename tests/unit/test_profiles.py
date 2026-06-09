@@ -116,7 +116,7 @@ def test_admin_profile_blocks_personal_context(tmp_path) -> None:
     wake = registry.wake_profile("admin")
     retrieval = registry.retrieval_profile("admin")
 
-    assert wake.sections == ("core/active.md", "core/env.md", "core/defaults.md")
+    assert wake.sections == ("core/active.md", "core/env.md", "core/defaults.md", "maintenance")
     assert retrieval.wake_profile == "admin"
     assert "people/**" in retrieval.deny
     assert "knowledge/personal/**" in retrieval.deny

@@ -207,3 +207,54 @@ def test_privacy_metadata_backfiller_uses_existing_health_report(tmp_path) -> No
     result = PrivacyMetadataBackfiller(tmp_path).run(dry_run=True)
 
     assert [change.path for change in result.changed] == ["knowledge/personal/raw-note.md"]
+
+
+def test_wake_maintenance_summary_reports_stale_pages_and_queues(tmp_path) -> None:
+    from datetime import date, timedelta
+
+    from dory_core.maintenance import wake_maintenance_summary
+
+    old = (date.today() - timedelta(days=53)).isoformat()
+    fresh = (date.today() - timedelta(days=2)).isoformat()
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "defaults.md").write_text(
+        f"---\ntitle: Defaults\nupdated: '{old}'\n---\n\nOld defaults.\n", encoding="utf-8"
+    )
+    (tmp_path / "core" / "user.md").write_text(
+        f"---\ntitle: User\nupdated: '{fresh}'\n---\n\nFresh user.\n", encoding="utf-8"
+    )
+    (tmp_path / "wiki" / "projects").mkdir(parents=True)
+    (tmp_path / "wiki" / "projects" / "atlas.md").write_text(
+        f"---\ntitle: Atlas\nstatus: active\ntemperature: warm\nupdated: {old}\n---\n\n# Atlas\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "wiki" / "projects" / "cold.md").write_text(
+        f"---\ntitle: Cold\nstatus: active\ntemperature: cold\nupdated: {old}\n---\n\n# Cold\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "inbox" / "proposed").mkdir(parents=True)
+    (tmp_path / "inbox" / "proposed" / "2026-W16.json").write_text("{}", encoding="utf-8")
+
+    lines = wake_maintenance_summary(tmp_path)
+
+    rendered = "\n".join(lines)
+    assert "core/defaults.md: hot page untouched for 53d" in rendered
+    assert "core/user.md" not in rendered
+    assert "1 active compiled card(s) older than 30d" in rendered
+    assert "wiki/projects/atlas.md" in rendered
+    assert "wiki/projects/cold.md" not in rendered
+    assert "inbox/proposed: 1 untriaged proposal(s)" in rendered
+
+
+def test_wake_maintenance_summary_empty_for_healthy_corpus(tmp_path) -> None:
+    from datetime import date, timedelta
+
+    from dory_core.maintenance import wake_maintenance_summary
+
+    fresh = (date.today() - timedelta(days=1)).isoformat()
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "active.md").write_text(
+        f"---\ntitle: Active\nupdated: '{fresh}'\n---\n\nCurrent.\n", encoding="utf-8"
+    )
+
+    assert wake_maintenance_summary(tmp_path) == []

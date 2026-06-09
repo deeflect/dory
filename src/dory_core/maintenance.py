@@ -16,6 +16,110 @@ _BACKFILL_BODY_LIMIT = 12_000
 
 _IGNORED_WIKI_META_FILES = {"index.md", "hot.md", "log.md"}
 
+_WAKE_MAINTENANCE_QUEUES = (
+    ("inbox/proposed", "untriaged proposal(s)"),
+    ("inbox/maintenance", "unreviewed maintenance report(s)"),
+    ("inbox/semantic", "unreconciled semantic capture(s)"),
+)
+
+
+def wake_maintenance_summary(
+    root: Path,
+    *,
+    now: date | None = None,
+    core_stale_after_days: int = 21,
+    card_stale_after_days: int = 30,
+    max_stale_core_lines: int = 5,
+) -> list[str]:
+    """Lean, read-time maintenance queue for the admin wake.
+
+    Maintenance findings only get acted on when they reach an agent's working
+    surface; reports written under ``inbox/`` rot untriaged. This stays cheap
+    enough to run on every admin wake: frontmatter dates plus directory counts.
+    """
+    resolved_root = Path(root)
+    today = now or date.today()
+    lines: list[str] = []
+
+    stale_core: list[tuple[int, str]] = []
+    core_root = resolved_root / "core"
+    if core_root.exists():
+        for path in sorted(core_root.glob("*.md")):
+            age = _page_age_days(path, today=today)
+            if age is not None and age > core_stale_after_days:
+                stale_core.append((age, path.relative_to(resolved_root).as_posix()))
+    for age, rel_path in sorted(stale_core, reverse=True)[:max_stale_core_lines]:
+        lines.append(f"- {rel_path}: hot page untouched for {age}d — refresh or demote")
+    if len(stale_core) > max_stale_core_lines:
+        lines.append(f"- … and {len(stale_core) - max_stale_core_lines} more stale core page(s)")
+
+    stale_cards: list[tuple[int, str]] = []
+    wiki_root = resolved_root / "wiki"
+    if wiki_root.exists():
+        for subdir in ("projects", "people", "concepts"):
+            dir_path = wiki_root / subdir
+            if not dir_path.exists():
+                continue
+            for path in sorted(dir_path.glob("*.md")):
+                if path.name in _IGNORED_WIKI_META_FILES:
+                    continue
+                frontmatter = _safe_page_frontmatter(path)
+                if frontmatter is None:
+                    continue
+                status = str(frontmatter.get("status", "")).strip().lower()
+                temperature = str(frontmatter.get("temperature", "")).strip().lower()
+                if status != "active" or temperature not in {"hot", "warm"}:
+                    continue
+                age = _frontmatter_age_days(frontmatter, today=today)
+                if age is None or age > card_stale_after_days:
+                    rendered_age = age if age is not None else -1
+                    stale_cards.append((rendered_age, path.relative_to(resolved_root).as_posix()))
+    if stale_cards:
+        worst = ", ".join(rel_path for _age, rel_path in sorted(stale_cards, reverse=True)[:3])
+        lines.append(
+            f"- wiki: {len(stale_cards)} active compiled card(s) older than "
+            f"{card_stale_after_days}d — regenerate or cool (worst: {worst})"
+        )
+
+    for rel_dir, label in _WAKE_MAINTENANCE_QUEUES:
+        queue_dir = resolved_root / rel_dir
+        if not queue_dir.exists():
+            continue
+        count = sum(1 for path in queue_dir.iterdir() if path.is_file() and not path.name.startswith("."))
+        if count:
+            lines.append(f"- {rel_dir}: {count} {label}")
+
+    return lines
+
+
+def _safe_page_frontmatter(path: Path) -> dict[str, object] | None:
+    try:
+        return load_markdown_document(path.read_text(encoding="utf-8")).frontmatter
+    except (OSError, ValueError):
+        return None
+
+
+def _page_age_days(path: Path, *, today: date) -> int | None:
+    frontmatter = _safe_page_frontmatter(path)
+    if frontmatter is None:
+        return None
+    return _frontmatter_age_days(frontmatter, today=today)
+
+
+def _frontmatter_age_days(frontmatter: dict[str, object], *, today: date) -> int | None:
+    updated = frontmatter.get("updated")
+    if isinstance(updated, datetime):
+        return (today - updated.date()).days
+    if isinstance(updated, date):
+        return (today - updated).days
+    raw = str(updated or "").strip()
+    if not raw:
+        return None
+    try:
+        return (today - date.fromisoformat(raw[:10])).days
+    except ValueError:
+        return None
+
 
 _MAINTENANCE_SCHEMA = {
     "type": "object",
