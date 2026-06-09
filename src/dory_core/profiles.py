@@ -17,7 +17,7 @@ _DEFAULT_WAKE_SECTION_ORDERS: dict[str, tuple[str, ...]] = {
     "default": ("core/user.md", "core/soul.md", "core/env.md", "core/active.md", "core/identity.md", "core/defaults.md"),
     "casual": ("core/user.md", "core/soul.md", "core/identity.md", "core/defaults.md", "core/active.md", "core/env.md"),
     "assistant": ("core/user.md", "core/soul.md", "core/active.md", "core/defaults.md"),
-    "coding": ("core/active.md", "core/env.md", "core/defaults.md"),
+    "coding": ("core/active.md", "core/coding.md", "core/env.md", "core/defaults.md"),
     "writing": ("core/soul.md", "knowledge/personal/writing-voice.md", "core/defaults.md", "core/active.md"),
     "privacy": ("privacy_boundaries", "core/defaults.md"),
     "admin": ("core/active.md", "core/env.md", "core/defaults.md"),
@@ -35,6 +35,7 @@ _DEFAULT_WAKE_SECTION_BUDGETS: dict[str, dict[str, int]] = {
     },
     "coding": {
         "active": 480,
+        "coding": 360,
         "env": 340,
         "defaults": 260,
         "project": 360,

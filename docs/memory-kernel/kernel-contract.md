@@ -137,11 +137,14 @@ class WakeBuilder:
     def build(self, req: WakeReq) -> WakeResp
 ```
 
-- Loads compiled wiki cards (L0), profile sections (L1), project state,
-  pinned decisions, and recent session summaries.
+- Loads the compiled project card (L0), raw project state (L1), profile
+  sections (L2), pinned decisions, general compiled cards as trailing budget
+  filler (L3), and recent session summaries.
 - Uses `ProfileRegistry` for section order and budgets.
 - Uses `TokenCounter` for budget fitting.
-- Delegates compiled card collection to `compiled_wiki.collect_compiled_cards`.
+- Delegates compiled card collection to `compiled_wiki.collect_project_card`
+  and `compiled_wiki.collect_general_cards`; cards are compacted with
+  `compiled_wiki.wake_card_excerpt` before assembly.
 
 **Internal types:**
 - `HotBlockSection`: `(path: Path, content: str)` — assembled inside `build()`.

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dory_core.compiled_wiki import collect_compiled_cards
+from dory_core.compiled_wiki import collect_general_cards, collect_project_card, wake_card_excerpt
 from dory_core.frontmatter import load_markdown_document
 from dory_core.hot_context import HotContextPacket, SourceBackedItem
 from dory_core.profiles import ProfileRegistry
@@ -14,6 +14,7 @@ from dory_core.types import WakeProfile, WakeReq, WakeResp
 
 _CORE_SECTION_PATHS = {
     "active": Path("core/active.md"),
+    "coding": Path("core/coding.md"),
     "defaults": Path("core/defaults.md"),
     "env": Path("core/env.md"),
     "identity": Path("core/identity.md"),
@@ -47,20 +48,10 @@ class WakeBuilder:
                 "Project or cwd did not resolve to a known project; coding wake skipped global active context."
             )
 
-        # L0: Compiled wiki cards (project card + general hot cards) — high-priority context
-        compiled_sections = self._collect_compiled_cards(project=project_handle, profile=req.profile)
+        # L0: Compiled project card — highest-priority context
+        sections = self._collect_project_card(project=project_handle, profile=req.profile)
 
-        sections = list(compiled_sections)  # compiled cards first (L0)
-
-        # L1: Profile hot sections
-        profile_sections = self._load_hot_block_sections(profile=req.profile, agent=req.agent, warnings=warnings)
-        if unresolved_coding_project:
-            profile_sections = _without_global_active(profile_sections)
-        elif project_context is not None:
-            profile_sections = _without_global_active(profile_sections)
-        sections.extend(profile_sections)
-
-        # L1: Raw project state after compiled cards
+        # L1: Raw project state right after the compiled project card
         project_section = self._load_project_section(
             project_handle,
             profile=req.profile,
@@ -68,10 +59,21 @@ class WakeBuilder:
             warnings=warnings,
         )
         if project_section is not None:
-            # Insert just after compiled cards, before profile sections
-            sections.insert(len(compiled_sections), project_section)
+            sections.append(project_section)
+
+        # L2: Profile hot sections
+        profile_sections = self._load_hot_block_sections(profile=req.profile, agent=req.agent, warnings=warnings)
+        if unresolved_coding_project:
+            profile_sections = _without_global_active(profile_sections)
+        elif project_context is not None:
+            profile_sections = _without_global_active(profile_sections)
+        sections.extend(profile_sections)
+
         if req.include_pinned_decisions:
             sections.extend(self._load_pinned_decisions())
+
+        # L3: General compiled cards only fill budget left after core context
+        sections.extend(self._collect_general_cards(profile=req.profile))
         recent_sessions = self._load_recent_sessions(req.include_recent_sessions)
         block, sources = self._assemble_block(sections, req.budget_tokens, agent=req.agent)
         if recent_sessions:
@@ -320,24 +322,26 @@ class WakeBuilder:
             return None
         return self._load_file_section(path, name="project", profile=profile, agent=agent, warnings=warnings)
 
-    def _collect_compiled_cards(
+    def _collect_project_card(
         self,
         *,
         project: str | None = None,
         profile: WakeProfile = "default",
     ) -> list[HotBlockSection]:
-        """Collect compiled wiki cards as high-priority L0 context.
-
-        Delegates to ``compiled_wiki.collect_compiled_cards`` and wraps the
-        results into ``HotBlockSection`` objects used by the assemble pipeline.
-        """
-        raw = collect_compiled_cards(
+        raw = collect_project_card(
             self.root,
             project=project,
             retrieval_profile=self.profile_registry.retrieval_profile(profile),
-            max_general_cards=_general_compiled_card_limit(profile),
         )
-        return [HotBlockSection(path=rel, content=content) for rel, content in raw]
+        return [HotBlockSection(path=rel, content=wake_card_excerpt(content)) for rel, content in raw]
+
+    def _collect_general_cards(self, *, profile: WakeProfile) -> list[HotBlockSection]:
+        raw = collect_general_cards(
+            self.root,
+            retrieval_profile=self.profile_registry.retrieval_profile(profile),
+            max_cards=_general_compiled_card_limit(profile),
+        )
+        return [HotBlockSection(path=rel, content=wake_card_excerpt(content)) for rel, content in raw]
 
     def _assemble_block(
         self,
@@ -523,9 +527,11 @@ def _summarize_session(section: HotBlockSection) -> str:
 
 
 def _general_compiled_card_limit(profile: WakeProfile) -> int:
-    if profile == "coding":
+    # Coding/admin wakes stay operational and writing wakes stay voice-driven;
+    # generic person/concept cards belong in search, not their startup block.
+    if profile in {"coding", "writing", "admin"}:
         return 0
-    return 3
+    return 2
 
 
 def _extract_privacy_boundary_lines(content: str) -> list[str]:
@@ -545,6 +551,8 @@ def _extract_privacy_boundary_lines(content: str) -> list[str]:
         if not line:
             continue
         if line.startswith("#"):
+            # Bare "public" is not a boundary marker: it would sweep in whole
+            # positioning/identity sections that merely describe public framing.
             in_boundary_section = any(
                 marker in lowered
                 for marker in (
@@ -552,7 +560,6 @@ def _extract_privacy_boundary_lines(content: str) -> list[str]:
                     "private",
                     "privacy",
                     "sensitive",
-                    "public",
                     "redact",
                     "do not",
                     "don't",
@@ -586,6 +593,8 @@ def _line_mentions_privacy_boundary(lowered_line: str) -> bool:
             "avoid sharing",
             "public-safe",
             "public safe",
+            "out of public",
+            "not public",
         )
     )
 

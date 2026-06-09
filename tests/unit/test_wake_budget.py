@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date, timedelta
 from pathlib import Path
 
 from dory_core.types import WakeReq
@@ -655,14 +656,15 @@ def test_wake_builder_general_compiled_cards_respect_profile(tmp_path: Path) -> 
     (tmp_path / "wiki" / "people").mkdir(parents=True)
     (tmp_path / "wiki" / "concepts").mkdir(parents=True)
     (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
     (tmp_path / "wiki" / "people" / "alice.md").write_text(
         "---\ntitle: Alice\ntype: wiki\nstatus: active\ncanonical: true\n"
-        "temperature: hot\nupdated: 2026-05-01\nsource_kind: generated\n---\n\n# Alice\n\nAlice is a key collaborator.\n",
+        f"temperature: hot\nupdated: {yesterday}\nsource_kind: generated\n---\n\n# Alice\n\nAlice is a key collaborator.\n",
         encoding="utf-8",
     )
     (tmp_path / "wiki" / "concepts" / "dory.md").write_text(
         "---\ntitle: Dory\ntype: wiki\nstatus: active\ncanonical: true\n"
-        "temperature: warm\nupdated: 2026-05-02\nsource_kind: generated\n---\n\n# Dory\n\nDory is the memory system.\n",
+        f"temperature: warm\nupdated: {yesterday}\nsource_kind: generated\n---\n\n# Dory\n\nDory is the memory system.\n",
         encoding="utf-8",
     )
 
@@ -730,7 +732,7 @@ def test_wake_builder_skips_compiled_card_symlink_outside_root(tmp_path: Path) -
     assert "wiki/concepts/outside.md" not in resp.sources
 
 def test_wake_builder_limits_general_compiled_cards(tmp_path: Path) -> None:
-    """Only up to max_general_cards (default 3) general compiled cards are included."""
+    """Only up to the profile's general-card limit (2 for default) is included."""
     (tmp_path / "core").mkdir(parents=True)
     (tmp_path / "wiki" / "people").mkdir(parents=True)
     (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
@@ -746,7 +748,196 @@ def test_wake_builder_limits_general_compiled_cards(tmp_path: Path) -> None:
         WakeReq(agent="codex", profile="default", budget_tokens=2000, include_recent_sessions=0)
     )
 
-    # Should have at most 3 general compiled cards (default max_general_cards)
+    # Should have at most 2 general compiled cards (default profile limit)
     card_sources = [s for s in resp.sources if s.startswith("wiki/people/")]
-    assert len(card_sources) <= 3, f"Expected at most 3 compiled cards, got {len(card_sources)}: {card_sources}"
-    assert resp.block.count("info.") <= 3
+    assert len(card_sources) <= 2, f"Expected at most 2 compiled cards, got {len(card_sources)}: {card_sources}"
+    assert resp.block.count("info.") <= 2
+
+
+def test_wake_builder_general_cards_follow_profile_sections(tmp_path: Path) -> None:
+    """General compiled cards are budget filler after core sections, never before."""
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "core" / "user.md").write_text("# User\n\nDemo User profile facts.\n", encoding="utf-8")
+    (tmp_path / "core" / "soul.md").write_text("# Soul\n\nVoice contract content.\n", encoding="utf-8")
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    (tmp_path / "wiki" / "concepts" / "zzz-topic.md").write_text(
+        "---\ntitle: Zzz Topic\ntype: wiki\nstatus: active\ncanonical: true\n"
+        f"temperature: warm\nupdated: {yesterday}\nsource_kind: generated\n---\n\n# Zzz Topic\n\nFresh concept card body.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="default", budget_tokens=800, include_recent_sessions=0)
+    )
+
+    assert "Demo User profile facts." in resp.block
+    assert "Fresh concept card body." in resp.block
+    assert resp.block.index("Demo User profile facts.") < resp.block.index("Fresh concept card body.")
+    assert resp.sources.index("core/user.md") < resp.sources.index("wiki/concepts/zzz-topic.md")
+
+
+def test_wake_builder_general_cards_dropped_when_budget_spent_on_core(tmp_path: Path) -> None:
+    class CardHeavyTokenCounter:
+        def count(self, text: str, *, agent: str = "default") -> int:
+            del agent
+            if "Fresh concept card body." in text:
+                return 500
+            return 5
+
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "core" / "user.md").write_text("# User\n\nDemo User profile facts.\n", encoding="utf-8")
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    (tmp_path / "wiki" / "concepts" / "topic.md").write_text(
+        "---\ntitle: Topic\ntype: wiki\nstatus: active\ncanonical: true\n"
+        f"temperature: warm\nupdated: {yesterday}\nsource_kind: generated\n---\n\n# Topic\n\nFresh concept card body.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path, token_counter=CardHeavyTokenCounter()).build(
+        WakeReq(agent="codex", profile="default", budget_tokens=120, include_recent_sessions=0)
+    )
+
+    assert "Demo User profile facts." in resp.block
+    assert "Fresh concept card body." not in resp.block
+    assert "wiki/concepts/topic.md" not in resp.sources
+
+
+def test_wake_builder_skips_stale_warm_general_cards(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    stale_day = (date.today() - timedelta(days=60)).isoformat()
+    (tmp_path / "wiki" / "concepts" / "old-warm.md").write_text(
+        "---\ntitle: Old Warm\ntype: wiki\nstatus: active\ncanonical: true\n"
+        f"temperature: warm\nupdated: {stale_day}\nsource_kind: generated\n---\n\n# Old Warm\n\nStale warm capture.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "wiki" / "concepts" / "old-hot.md").write_text(
+        "---\ntitle: Old Hot\ntype: wiki\nstatus: active\ncanonical: true\n"
+        f"temperature: hot\nupdated: {stale_day}\nsource_kind: generated\n---\n\n# Old Hot\n\nHot card stays eligible.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "wiki" / "concepts" / "undated-warm.md").write_text(
+        "---\ntitle: Undated Warm\ntype: wiki\nstatus: active\ncanonical: true\n"
+        "temperature: warm\nsource_kind: generated\n---\n\n# Undated Warm\n\nUndated warm capture.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="default", budget_tokens=800, include_recent_sessions=0)
+    )
+
+    assert "Stale warm capture." not in resp.block
+    assert "Undated warm capture." not in resp.block
+    assert "Hot card stays eligible." in resp.block
+    assert "wiki/concepts/old-warm.md" not in resp.sources
+    assert "wiki/concepts/undated-warm.md" not in resp.sources
+    assert "wiki/concepts/old-hot.md" in resp.sources
+
+
+def test_wake_builder_writing_and_admin_profiles_skip_general_cards(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "core" / "soul.md").write_text("# Soul\n\nVoice contract content.\n", encoding="utf-8")
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    (tmp_path / "wiki" / "concepts" / "topic.md").write_text(
+        "---\ntitle: Topic\ntype: wiki\nstatus: active\ncanonical: true\n"
+        f"temperature: hot\nupdated: {yesterday}\nsource_kind: generated\n---\n\n# Topic\n\nFresh concept card body.\n",
+        encoding="utf-8",
+    )
+
+    for profile in ("writing", "admin"):
+        resp = WakeBuilder(tmp_path).build(
+            WakeReq(agent="codex", profile=profile, budget_tokens=800, include_recent_sessions=0)
+        )
+        assert "Fresh concept card body." not in resp.block, profile
+        assert "wiki/concepts/topic.md" not in resp.sources, profile
+
+
+def test_wake_builder_compiled_cards_are_excerpted(tmp_path: Path) -> None:
+    """Wake cards drop frontmatter and Evidence/Timeline bookkeeping noise."""
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "wiki" / "concepts").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    (tmp_path / "wiki" / "concepts" / "topic.md").write_text(
+        "---\ntitle: Topic\ntype: wiki\nstatus: active\ncanonical: true\n"
+        f"temperature: warm\nupdated: {yesterday}\nsource_kind: generated\n---\n\n"
+        "# Topic\n\n"
+        "## Summary\nTopic summary line.\n\n"
+        "## Key claims\n- Topic claim. [confirmed, high, fresh]\n\n"
+        "## Evidence\n- concepts/topic.md (1:1) [durable] Compiled from canonical source\n\n"
+        "## Timeline\n- 2026-04-19T00:00:00+00:00: Topic claim.\n\n"
+        "## Contradictions\n- None\n\n"
+        "## Open questions\n- Real open question.\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="default", budget_tokens=800, include_recent_sessions=0)
+    )
+
+    assert "Topic summary line." in resp.block
+    assert "Topic claim. [confirmed, high, fresh]" in resp.block
+    assert "## Evidence" not in resp.block
+    assert "## Timeline" not in resp.block
+    assert "## Contradictions" not in resp.block
+    assert "Real open question." in resp.block
+    assert "source_kind: generated" not in resp.block
+
+
+def test_wake_builder_privacy_profile_ignores_public_positioning_sections(tmp_path: Path) -> None:
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "user.md").write_text(
+        "# User\n\n## Privacy Boundaries\n- Sensitive category alpha is private.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "core" / "identity.md").write_text(
+        "# Positioning — public identity\n\n"
+        "> Describes the public positioning across channels.\n\n"
+        "## Public framing rules\n"
+        "- Lead with substance, not credentials\n"
+        "- Let the work do the talking\n"
+        "- Keep crypto specifics out of public surfaces unless context calls for them\n",
+        encoding="utf-8",
+    )
+
+    resp = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="privacy", budget_tokens=400, include_recent_sessions=0)
+    )
+
+    assert "Sensitive category alpha is private." in resp.block
+    # Positioning copy is identity framing, not a privacy boundary.
+    assert "Lead with substance, not credentials" not in resp.block
+    assert "Let the work do the talking" not in resp.block
+    assert "Describes the public positioning" not in resp.block
+    # Genuine keep-out-of-public rules still surface.
+    assert "Keep crypto specifics out of public surfaces" in resp.block
+
+
+def test_wake_builder_coding_profile_loads_coding_playbook(tmp_path: Path) -> None:
+    """Coding wakes include core/coding.md operating norms, even without a resolved project."""
+    (tmp_path / "core").mkdir(parents=True)
+    (tmp_path / "core" / "active.md").write_text("# Active\n\nCurrent work.\n", encoding="utf-8")
+    (tmp_path / "core" / "coding.md").write_text(
+        "# Coding\n\nUse Conventional Commits. Create repos on forgejo first.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "core" / "env.md").write_text("# Environment\n\nDaemon on the home server.\n", encoding="utf-8")
+
+    unresolved = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=800, include_recent_sessions=0, cwd="/tmp/unknown-repo")
+    )
+    plain = WakeBuilder(tmp_path).build(
+        WakeReq(agent="codex", profile="coding", budget_tokens=800, include_recent_sessions=0)
+    )
+
+    # Unresolved project: active is skipped but the coding playbook still loads.
+    assert "Use Conventional Commits." in unresolved.block
+    assert "Current work." not in unresolved.block
+    assert "core/coding.md" in unresolved.sources
+    assert "Use Conventional Commits." in plain.block
+    assert plain.sources.index("core/active.md") < plain.sources.index("core/coding.md")

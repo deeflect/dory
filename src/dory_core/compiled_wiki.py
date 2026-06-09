@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+import re
+from datetime import date, datetime
 from pathlib import Path
 
 from dory_core.claim_store import ClaimEvent, ClaimRecord
@@ -213,40 +214,56 @@ def _render_event_evidence(
     return tuple(lines)
 
 
-def collect_compiled_cards(
+_WARM_CARD_MAX_AGE_DAYS = 30
+_WAKE_CARD_DROPPED_SECTIONS = frozenset({"evidence", "timeline"})
+_WAKE_CARD_OPTIONAL_SECTIONS = frozenset({"contradictions", "open questions"})
+
+
+def collect_project_card(
     root: Path,
     *,
-    project: str | None = None,
+    project: str | None,
     retrieval_profile: RetrievalProfileConfig | None = None,
-    max_general_cards: int = 3,
 ) -> list[tuple[Path, str]]:
-    """Collect allowed compiled wiki cards under ``wiki/projects/``, ``wiki/people/``, and ``wiki/concepts/``.
-
-    Returns ``(relative_path, content)`` tuples. The project-specific card (if one
-    exists at ``wiki/projects/<project>.md`` and the retrieval profile allows it)
-    appears first, followed by general cards that are ``status: active``,
-    ``canonical: true``, and have a ``temperature`` of ``hot`` or ``warm``.
-
-    Preserves old behaviour when no wiki directory or no matching cards exist
-    (returns an empty list).
-    """
+    """Collect the compiled project card at ``wiki/projects/<project>.md`` when allowed."""
+    if not project:
+        return []
     resolved_root = root.resolve()
     wiki_root = (resolved_root / "wiki").resolve()
-    cards: list[tuple[Path, str]] = []
     if not wiki_root.exists():
-        return cards
+        return []
+    loaded = _load_compiled_card(wiki_root / "projects" / f"{project}.md", root=resolved_root, base=wiki_root)
+    if loaded is None:
+        return []
+    rel_path, text, _doc = loaded
+    if not _profile_allows_compiled_path(rel_path, retrieval_profile):
+        return []
+    return [(rel_path, text)]
 
-    # 1. Project-specific compiled card — wiki/projects/<slug>.md
-    if project:
-        project_card = wiki_root / "projects" / f"{project}.md"
-        project_loaded = _load_compiled_card(project_card, root=resolved_root, base=wiki_root)
-        if project_loaded is not None:
-            rel_path, text, _doc = project_loaded
-            if _profile_allows_compiled_path(rel_path, retrieval_profile):
-                cards.append((rel_path, text))
 
-    # 2. General hot cards from people and concepts. Sorted by newest updated
-    # frontmatter first, then path, so the cap is stable but not purely alphabetical.
+def collect_general_cards(
+    root: Path,
+    *,
+    retrieval_profile: RetrievalProfileConfig | None = None,
+    max_cards: int = 3,
+    now: date | None = None,
+) -> list[tuple[Path, str]]:
+    """Collect fresh compiled cards under ``wiki/people/`` and ``wiki/concepts/``.
+
+    Cards must be ``status: active`` and ``canonical: true``. ``temperature: hot``
+    cards always qualify; ``warm`` cards must carry an ``updated`` date within the
+    last ``_WARM_CARD_MAX_AGE_DAYS`` days so one-off captures age out of wake
+    instead of staying eligible forever. Sorted by newest ``updated`` first, then
+    path, so the cap is stable but not purely alphabetical.
+    """
+    if max_cards <= 0:
+        return []
+    resolved_root = root.resolve()
+    wiki_root = (resolved_root / "wiki").resolve()
+    if not wiki_root.exists():
+        return []
+    today = now or date.today()
+
     candidates: list[tuple[str, str, Path, str]] = []
     for subdir in ("people", "concepts"):
         dir_path = wiki_root / subdir
@@ -259,15 +276,55 @@ def collect_compiled_cards(
             rel_path, text, doc = loaded
             if not _profile_allows_compiled_path(rel_path, retrieval_profile):
                 continue
-            if not _is_hot_compiled_card(doc):
+            if not _is_wake_fresh_compiled_card(doc, today=today):
                 continue
             updated = str(doc.frontmatter.get("updated", "")).strip()
             candidates.append((updated, rel_path.as_posix(), rel_path, text))
 
-    for _updated, _path_key, rel_path, text in sorted(candidates, reverse=True)[:max_general_cards]:
-        cards.append((rel_path, text))
+    return [(rel_path, text) for _updated, _path_key, rel_path, text in sorted(candidates, reverse=True)[:max_cards]]
 
-    return cards
+
+def wake_card_excerpt(text: str) -> str:
+    """Compact a compiled card for the wake block.
+
+    Drops frontmatter and the Evidence/Timeline bookkeeping sections, and keeps
+    Contradictions/Open questions only when they hold real entries.
+    """
+    try:
+        document = load_markdown_document(text)
+    except ValueError:
+        return text
+    title = str(document.frontmatter.get("title", "")).strip()
+    kept: list[str] = []
+    section: str | None = None
+    section_lines: list[str] = []
+
+    def flush() -> None:
+        if section is None:
+            kept.extend(section_lines)
+            return
+        if section in _WAKE_CARD_DROPPED_SECTIONS:
+            return
+        body_lines = [line.strip() for line in section_lines[1:] if line.strip()]
+        if section in _WAKE_CARD_OPTIONAL_SECTIONS and all(line in {"- None", "None"} for line in body_lines):
+            return
+        kept.extend(section_lines)
+
+    for line in document.body.strip().splitlines():
+        if line.startswith("## "):
+            flush()
+            section = line[3:].strip().casefold()
+            section_lines = [line]
+        elif section is None:
+            kept.append(line)
+        else:
+            section_lines.append(line)
+    flush()
+
+    excerpt = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+    if title and not excerpt.startswith("#"):
+        excerpt = f"# {title}\n\n{excerpt}".strip()
+    return excerpt or text
 
 
 def _load_compiled_card(path: Path, *, root: Path, base: Path) -> tuple[Path, str, MarkdownDocument] | None:
@@ -298,6 +355,32 @@ def _is_hot_compiled_card(document: MarkdownDocument) -> bool:
     canonical = frontmatter.get("canonical", False)
     temperature = str(frontmatter.get("temperature", "")).strip().lower()
     return status == "active" and canonical is True and temperature in {"hot", "warm"}
+
+
+def _is_wake_fresh_compiled_card(document: MarkdownDocument, *, today: date) -> bool:
+    if not _is_hot_compiled_card(document):
+        return False
+    temperature = str(document.frontmatter.get("temperature", "")).strip().lower()
+    if temperature == "hot":
+        return True
+    updated = _frontmatter_date(document.frontmatter.get("updated"))
+    if updated is None:
+        return False
+    return (today - updated).days <= _WARM_CARD_MAX_AGE_DAYS
+
+
+def _frontmatter_date(value: object) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
 
 
 def _profile_allows_compiled_path(path: Path, retrieval_profile: RetrievalProfileConfig | None) -> bool:
